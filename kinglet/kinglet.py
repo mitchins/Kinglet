@@ -9,7 +9,7 @@ from typing import Dict, List, Callable, Any, Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 from abc import ABC, abstractmethod
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 __author__ = "Mitchell Currie"
 
 def generate_request_id() -> str:
