@@ -1,0 +1,11 @@
+[project]
+name = "kinglet-worker"
+version = "0.1.0"
+description = "Kinglet on Cloudflare Workers"
+requires-python = ">=3.12"
+dependencies = [
+    "kinglet @ file:///Users/mitchellcurrie/Projects/libreplay.me/Kinglet"
+]
+
+[dependency-groups]
+dev = ["workers-py"]

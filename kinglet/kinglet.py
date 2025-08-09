@@ -12,6 +12,187 @@ from abc import ABC, abstractmethod
 __version__ = "0.1.0"
 __author__ = "Mitchell Currie"
 
+def generate_request_id() -> str:
+    """Generate a unique request ID for tracing"""
+    import secrets
+    return secrets.token_hex(8)
+
+class HTTPError(Exception):
+    """HTTP error with status code and message"""
+    def __init__(self, status_code: int, message: str, detail: str = None):
+        self.status_code = status_code
+        self.message = message
+        self.detail = detail
+        super().__init__(message)
+
+# Testing support
+class KingletTestClient:
+    """Simple sync wrapper for testing Kinglet apps without HTTP/Wrangler overhead"""
+    
+    def __init__(self, app, base_url="http://testserver", env=None):
+        self.app = app
+        self.base_url = base_url.rstrip('/')
+        self.env = env or {}
+        
+        # Enable test mode on the app if it's a Kinglet instance
+        if hasattr(app, 'test_mode'):
+            app.test_mode = True
+    
+    def request(self, method: str, path: str, json=None, data=None, headers=None, **kwargs):
+        """Make a test request and return (status, headers, body)"""
+        import asyncio
+        return asyncio.run(self._async_request(method, path, json, data, headers, **kwargs))
+    
+    async def _async_request(self, method: str, path: str, json=None, data=None, headers=None, **kwargs):
+        """Internal async request handler"""
+        # Build full URL
+        url = f"{self.base_url}{path}"
+        
+        # Prepare headers
+        test_headers = {"content-type": "application/json"} if json else {}
+        if headers:
+            test_headers.update({k.lower(): v for k, v in headers.items()})
+        
+        # Prepare body
+        body_content = ""
+        if json is not None:
+            import json as json_lib
+            body_content = json_lib.dumps(json)
+            test_headers["content-type"] = "application/json"
+        elif data is not None:
+            body_content = str(data)
+        
+        # Create mock request object matching Workers format
+        mock_request = MockRequest(method, url, test_headers, body_content)
+        
+        # Create mock env with test defaults
+        mock_env = MockEnv(self.env)
+        
+        try:
+            # Call the app
+            response = await self.app(mock_request, mock_env)
+            
+            # Handle Kinglet Response objects
+            if hasattr(response, 'status') and hasattr(response, 'content'):
+                status = response.status
+                headers = response.headers
+                content = response.content
+                
+                # Serialize content for test consumption
+                if isinstance(content, (dict, list)):
+                    import json
+                    body = json.dumps(content)
+                else:
+                    body = str(content) if content is not None else ""
+                    
+                return status, headers, body
+            
+            # Handle raw response objects (dict, string, etc.)
+            elif isinstance(response, dict):
+                import json
+                return 200, {}, json.dumps(response)
+            elif isinstance(response, str):
+                return 200, {}, response
+            else:
+                return 200, {}, str(response)
+            
+        except Exception as e:
+            # Return error response format
+            import json
+            error_body = json.dumps({"error": str(e)})
+            return 500, {}, error_body
+
+
+class MockRequest:
+    """Mock request object for testing that matches Workers request interface"""
+    
+    def __init__(self, method: str, url: str, headers: dict, body: str = ""):
+        self.method = method
+        self.url = url
+        self.headers = MockHeaders(headers)
+        self._body = body
+    
+    async def text(self):
+        return self._body
+    
+    async def json(self):
+        if self._body:
+            import json
+            return json.loads(self._body)
+        return None
+
+
+class MockHeaders:
+    """Mock headers object that matches Workers headers interface"""
+    
+    def __init__(self, headers_dict):
+        self._headers = {k.lower(): v for k, v in (headers_dict or {}).items()}
+    
+    def get(self, key, default=None):
+        return self._headers.get(key.lower(), default)
+    
+    def items(self):
+        return self._headers.items()
+    
+    def __iter__(self):
+        return iter(self._headers.items())
+
+
+class MockEnv:
+    """Mock environment object for testing"""
+    
+    def __init__(self, env_dict):
+        # Set defaults for common Cloudflare bindings
+        self.DB = env_dict.get('DB', MockDatabase())
+        self.ENVIRONMENT = env_dict.get('ENVIRONMENT', 'test')
+        self.JWT_SECRET = env_dict.get('JWT_SECRET', 'test-secret')
+        
+        # Add any additional env vars
+        for key, value in env_dict.items():
+            if not hasattr(self, key):
+                setattr(self, key, value)
+
+
+class MockDatabase:
+    """Mock D1 database for testing"""
+    
+    def prepare(self, query):
+        return MockQuery(query)
+    
+    async def exec(self, query):
+        return {"success": True, "meta": {"changes": 1}}
+
+
+class MockQuery:
+    """Mock D1 prepared statement"""
+    
+    def __init__(self, query):
+        self.query = query
+        self._bindings = []
+    
+    def bind(self, *args):
+        self._bindings.extend(args)
+        return self
+    
+    async def first(self):
+        return MockResult({"id": 1, "test": "data"})
+    
+    async def all(self):
+        return {"results": [{"id": 1, "test": "data"}], "success": True}
+    
+    async def run(self):
+        return {"success": True, "meta": {"changes": 1}}
+
+
+class MockResult:
+    """Mock D1 query result"""
+    
+    def __init__(self, data):
+        self._data = data
+    
+    def to_py(self):
+        return self._data
+
 
 class Request:
     """Wrapper around Workers request with convenient methods"""
@@ -19,6 +200,9 @@ class Request:
     def __init__(self, raw_request, env):
         self.raw_request = raw_request
         self.env = env
+        
+        # Generate unique request ID for tracing
+        self.request_id = generate_request_id()
         
         # Parse URL components
         self.url = str(raw_request.url)
@@ -60,13 +244,86 @@ class Request:
         values = self._query_params.get(key, [])
         return values[0] if values else default
     
+    def query_int(self, key: str, default: int = None) -> Optional[int]:
+        """Get query parameter as integer (returns 400 error on invalid)"""
+        value = self.query(key)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            raise HTTPError(400, f"Query parameter '{key}' must be an integer")
+    
+    def query_bool(self, key: str, default: bool = False) -> bool:
+        """Get query parameter as boolean"""
+        value = self.query(key, "").lower()
+        if value in ("true", "1", "yes", "on"):
+            return True
+        elif value in ("false", "0", "no", "off", ""):
+            return default if value == "" else False
+        else:
+            return default
+    
+    def query_all(self, key: str) -> List[str]:
+        """Get all values for a query parameter"""
+        return self._query_params.get(key, [])
+    
     def path_param(self, key: str, default: Any = None) -> Any:
         """Get path parameter value"""
         return self.path_params.get(key, default)
     
+    def path_param_int(self, key: str, default: int = None) -> Optional[int]:
+        """Get path parameter as integer (returns 400 error on invalid)"""
+        value = self.path_param(key)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            raise HTTPError(400, f"Path parameter '{key}' must be an integer")
+    
+    def path_param_uuid(self, key: str, default: str = None) -> Optional[str]:
+        """Get path parameter as UUID (validates format)"""
+        import re
+        value = self.path_param(key)
+        if value is None:
+            return default
+        
+        # UUID4 regex pattern
+        uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        if not re.match(uuid_pattern, value.lower()):
+            raise HTTPError(400, f"Path parameter '{key}' must be a valid UUID")
+        return value
+    
     def header(self, key: str, default: Any = None) -> Optional[str]:
         """Get header value (case-insensitive)"""
         return self._headers.get(key.lower(), default)
+    
+    def bearer_token(self) -> Optional[str]:
+        """Extract Bearer token from Authorization header"""
+        auth_header = self.header("authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:]  # Remove "Bearer " prefix
+        return None
+    
+    def basic_auth(self) -> Optional[tuple]:
+        """Extract username/password from Basic auth header"""
+        auth_header = self.header("authorization", "")
+        if auth_header.startswith("Basic "):
+            try:
+                import base64
+                encoded = auth_header[6:]  # Remove "Basic " prefix
+                decoded = base64.b64decode(encoded).decode("utf-8")
+                if ":" in decoded:
+                    username, password = decoded.split(":", 1)
+                    return (username, password)
+            except Exception:
+                pass
+        return None
+    
+    def is_authenticated(self) -> bool:
+        """Check if request has any form of authentication"""
+        return self.bearer_token() is not None or self.basic_auth() is not None
     
     async def body(self) -> str:
         """Get request body as string"""
@@ -113,6 +370,10 @@ class Response:
                 self.headers['Content-Type'] = 'application/json'
             elif isinstance(content, str):
                 self.headers['Content-Type'] = 'text/plain; charset=utf-8'
+        
+        # Add default CORS headers for API endpoints
+        if 'Access-Control-Allow-Origin' not in self.headers:
+            self.headers['Access-Control-Allow-Origin'] = '*'
     
     def header(self, key: str, value: str) -> 'Response':
         """Set a header (chainable)"""
@@ -130,6 +391,26 @@ class Response:
         self.headers['Access-Control-Allow-Methods'] = methods
         self.headers['Access-Control-Allow-Headers'] = headers
         return self
+    
+    @staticmethod
+    def json(data: Any, status: int = 200, request_id: str = None) -> 'Response':
+        """Create a JSON response with request ID"""
+        if isinstance(data, dict) and request_id:
+            data = {**data, 'request_id': request_id}
+        return Response(data, status)
+    
+    @staticmethod
+    def error(message: str, status: int = 400, detail: str = None, request_id: str = None) -> 'Response':
+        """Create a standardized error response"""
+        error_data = {
+            'error': message,
+            'status_code': status
+        }
+        if detail:
+            error_data['detail'] = detail
+        if request_id:
+            error_data['request_id'] = request_id
+        return Response(error_data, status)
     
     def to_workers_response(self):
         """Convert to Workers Response object"""
@@ -357,16 +638,21 @@ class TimingMiddleware(Middleware):
 class Kinglet:
     """Lightweight ASGI-style application for Python Workers"""
     
-    def __init__(self):
+    def __init__(self, test_mode=False, root_path="", debug=False):
         self.router = Router()
         self.middleware_stack: List[Middleware] = []
         self.error_handlers: Dict[int, Callable] = {}
+        self.test_mode = test_mode
+        self.root_path = root_path.rstrip('/')  # Remove trailing slash
+        self.debug = debug
         
     def route(self, path: str, methods: List[str] = None):
         """Decorator for adding routes"""
         if methods is None:
             methods = ["GET"]
-        return self.router.route(path, methods)
+        # Apply root_path to the route
+        full_path = self.root_path + path
+        return self.router.route(full_path, methods)
     
     def get(self, path: str):
         """Decorator for GET routes"""
@@ -386,6 +672,12 @@ class Kinglet:
             self.error_handlers[status_code] = handler
             return handler
         return decorator
+    
+    def middleware(self, middleware_class):
+        """Decorator for adding middleware classes"""
+        middleware_instance = middleware_class()
+        self.middleware_stack.append(middleware_instance)
+        return middleware_class
     
     async def __call__(self, request, env):
         """ASGI-compatible entry point for Workers"""
@@ -413,10 +705,14 @@ class Kinglet:
                 response = await handler(kinglet_request)
                 
                 # Check if handler returned a workers.Response directly
-                from workers import Response as WorkersResponse
-                if isinstance(response, WorkersResponse):
-                    # Skip middleware processing for direct Workers responses
-                    return response
+                if not self.test_mode:
+                    try:
+                        from workers import Response as WorkersResponse
+                        if isinstance(response, WorkersResponse):
+                            # Skip middleware processing for direct Workers responses
+                            return response
+                    except ImportError:
+                        pass  # Continue with normal processing
                 
                 # Ensure response is a Kinglet Response object
                 if not isinstance(response, Response):
@@ -428,16 +724,36 @@ class Kinglet:
                         response = Response(response)
             
             # Apply middleware (post-processing) - only for Kinglet Response objects
-            from workers import Response as WorkersResponse
-            if not isinstance(response, WorkersResponse):
+            if self.test_mode:
+                # In test mode, skip Workers conversion and return Kinglet Response
                 for middleware in reversed(self.middleware_stack):
                     response = await middleware.process_response(kinglet_request, response)
-                
-                # Convert Kinglet Response to Workers Response
-                return response.to_workers_response()
-            else:
-                # Already a Workers Response, return as-is
+                # Add request ID header
+                if hasattr(response, 'headers'):
+                    response.headers['X-Request-ID'] = kinglet_request.request_id
                 return response
+            else:
+                # Production mode - convert to Workers Response
+                try:
+                    from workers import Response as WorkersResponse
+                    if not isinstance(response, WorkersResponse):
+                        for middleware in reversed(self.middleware_stack):
+                            response = await middleware.process_response(kinglet_request, response)
+                        
+                        # Add request ID header
+                        if hasattr(response, 'headers'):
+                            response.headers['X-Request-ID'] = kinglet_request.request_id
+                        
+                        # Convert Kinglet Response to Workers Response
+                        return response.to_workers_response()
+                    else:
+                        # Already a Workers Response, return as-is
+                        return response
+                except ImportError:
+                    # If workers module not available, return Kinglet response
+                    for middleware in reversed(self.middleware_stack):
+                        response = await middleware.process_response(kinglet_request, response)
+                    return response
             
         except Exception as e:
             # Handle exceptions
@@ -448,18 +764,42 @@ class Kinglet:
                     response = await self.error_handlers[status_code](kinglet_request, e)
                     if not isinstance(response, Response):
                         response = Response(response)
-                    return response.to_workers_response()
+                    
+                    # Return based on mode
+                    if self.test_mode:
+                        return response
+                    else:
+                        try:
+                            return response.to_workers_response()
+                        except ImportError:
+                            return response
                 except:
                     pass  # Fall through to default error handler
             
-            # Default error response
-            error_resp = Response({
-                "error": str(e),
-                "status_code": status_code
-            }, status=status_code)
+            # Default error response with request ID and debug info
+            error_message = str(e) if self.debug else "Internal Server Error" 
+            error_resp = Response.error(
+                message=error_message,
+                status=status_code,
+                request_id=kinglet_request.request_id
+            )
             
-            return error_resp.to_workers_response()
+            # Return based on mode
+            if self.test_mode:
+                return error_resp
+            else:
+                try:
+                    return error_resp.to_workers_response()
+                except ImportError:
+                    return error_resp
 
 
 # Export main classes for convenience
-__all__ = ["Kinglet", "Router", "Route", "Response", "Request", "Middleware", "CorsMiddleware", "TimingMiddleware", "error_response"]
+__all__ = [
+    "Kinglet", "Router", "Route", "Response", "Request", "Middleware", 
+    "CorsMiddleware", "TimingMiddleware", "TestClient", "HTTPError",
+    "generate_request_id"
+]
+
+# Alias for backward compatibility and easier import
+TestClient = KingletTestClient

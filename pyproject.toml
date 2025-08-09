@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=70", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -53,9 +53,6 @@ test = [
 [tool.setuptools.packages.find]
 include = ["kinglet*"]
 exclude = ["tests*"]
-
-[tool.setuptools.py-modules]
-kinglet = "kinglet"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
