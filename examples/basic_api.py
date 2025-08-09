@@ -3,6 +3,11 @@
 Basic Kinglet API Example
 Shows core features: routing, typed parameters, authentication, testing
 """
+import sys
+import os
+
+# Add parent directory to path so we can import kinglet
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from kinglet import Kinglet, Response, TestClient
 

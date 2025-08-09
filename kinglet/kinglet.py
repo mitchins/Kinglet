@@ -25,9 +25,10 @@ class HTTPError(Exception):
         self.detail = detail
         super().__init__(message)
 
-# Testing support
-class KingletTestClient:
+# Testing support  
+class _KingletTestClient:
     """Simple sync wrapper for testing Kinglet apps without HTTP/Wrangler overhead"""
+    __test__ = False  # Tell pytest this is not a test class
     
     def __init__(self, app, base_url="http://testserver", env=None):
         self.app = app
@@ -798,8 +799,9 @@ class Kinglet:
 __all__ = [
     "Kinglet", "Router", "Route", "Response", "Request", "Middleware", 
     "CorsMiddleware", "TimingMiddleware", "TestClient", "HTTPError",
-    "generate_request_id"
+    "generate_request_id", "error_response"
 ]
 
 # Alias for backward compatibility and easier import
-TestClient = KingletTestClient
+TestClient = _KingletTestClient
+KingletTestClient = _KingletTestClient
