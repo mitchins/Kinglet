@@ -5,11 +5,12 @@ Single-file version for easy deployment and distribution
 import json
 import re
 import time
+import functools
 from typing import Dict, List, Callable, Any, Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 from abc import ABC, abstractmethod
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Mitchell Currie"
 
 def generate_request_id() -> str:
@@ -24,6 +25,21 @@ class HTTPError(Exception):
         self.message = message
         self.detail = detail
         super().__init__(message)
+
+
+class GeoRestrictedError(HTTPError):
+    """Geographic restriction error"""
+    def __init__(self, country_code: str, allowed_countries: List[str]):
+        message = f"Access denied from {country_code}. Allowed: {', '.join(allowed_countries)}"
+        super().__init__(451, message)  # HTTP 451 Unavailable For Legal Reasons
+        self.country_code = country_code
+        self.allowed_countries = allowed_countries
+
+
+class DevOnlyError(HTTPError):
+    """Development-only endpoint error"""
+    def __init__(self):
+        super().__init__(403, "This endpoint is only available in development mode")
 
 # Testing support  
 class _KingletTestClient:
@@ -440,6 +456,112 @@ def error_response(message: str, status: int = 400) -> Response:
     return Response({'error': message, 'status_code': status}, status=status)
 
 
+def wrap_exceptions(step: str = None, expose_details: bool = None):
+    """
+    Decorator to automatically wrap exceptions in standardized error responses.
+    
+    Args:
+        step: Optional step identifier for debugging (e.g., "homepage", "database_query")
+        expose_details: Whether to expose exception details. None = auto-detect from debug mode
+    
+    Usage:
+        @app.get("/api/data")
+        @wrap_exceptions(step="get_data", expose_details=True)
+        async def get_data(request):
+            # Any exception here will be caught and wrapped
+            dal = DataLayer(request.env.DB)
+            return await dal.get_data()
+    """
+    def decorator(handler):
+        @functools.wraps(handler)
+        async def wrapper(request):
+            try:
+                return await handler(request)
+            except HTTPError:
+                # Re-raise HTTP errors as-is (already properly formatted)
+                raise
+            except Exception as e:
+                # Determine if we should expose details
+                should_expose = expose_details
+                if should_expose is None:
+                    # Auto-detect based on environment or debug flag
+                    env_name = getattr(request.env, 'ENVIRONMENT', 'production').lower()
+                    should_expose = env_name in ('development', 'dev', 'test')
+                
+                # Build error response
+                error_data = {
+                    'error': 'Internal server error',
+                    'status_code': 500,
+                    'request_id': getattr(request, 'request_id', None)
+                }
+                
+                if should_expose:
+                    error_data['detail'] = str(e)
+                    if step:
+                        error_data['step'] = step
+                
+                return Response(error_data, status=500)
+        return wrapper
+    return decorator
+
+
+def require_dev():
+    """
+    Decorator to restrict endpoint to development environments only.
+    
+    Usage:
+        @app.get("/admin/debug")
+        @require_dev()
+        async def debug_endpoint(request):
+            return {"debug_info": "sensitive data"}
+    """
+    def decorator(handler):
+        @functools.wraps(handler)
+        async def wrapper(request):
+            # Check environment
+            env_name = getattr(request.env, 'ENVIRONMENT', 'production').lower()
+            if env_name not in ('development', 'dev', 'test'):
+                raise DevOnlyError()
+            
+            return await handler(request)
+        return wrapper
+    return decorator
+
+
+def geo_restrict(allowed: List[str] = None, blocked: List[str] = None):
+    """
+    Decorator to restrict endpoint access by country.
+    Uses Cloudflare's CF-IPCountry header.
+    
+    Args:
+        allowed: List of allowed country codes (e.g., ["US", "CA", "EU"])
+        blocked: List of blocked country codes (takes precedence over allowed)
+    
+    Usage:
+        @app.get("/api/games")
+        @geo_restrict(allowed=["US", "CA", "EU"])
+        async def games(request):
+            return await get_games()
+    """
+    def decorator(handler):
+        @functools.wraps(handler)
+        async def wrapper(request):
+            # Get country from Cloudflare header
+            country = request.header('cf-ipcountry', 'XX').upper()
+            
+            # Check blocked countries first
+            if blocked and country in blocked:
+                raise GeoRestrictedError(country, allowed or [])
+            
+            # Check allowed countries
+            if allowed and country not in allowed:
+                raise GeoRestrictedError(country, allowed)
+            
+            return await handler(request)
+        return wrapper
+    return decorator
+
+
 class Route:
     """Represents a single route"""
     
@@ -639,13 +761,14 @@ class TimingMiddleware(Middleware):
 class Kinglet:
     """Lightweight ASGI-style application for Python Workers"""
     
-    def __init__(self, test_mode=False, root_path="", debug=False):
+    def __init__(self, test_mode=False, root_path="", debug=False, auto_wrap_exceptions=True):
         self.router = Router()
         self.middleware_stack: List[Middleware] = []
         self.error_handlers: Dict[int, Callable] = {}
         self.test_mode = test_mode
         self.root_path = root_path.rstrip('/')  # Remove trailing slash
         self.debug = debug
+        self.auto_wrap_exceptions = auto_wrap_exceptions
         
     def route(self, path: str, methods: List[str] = None):
         """Decorator for adding routes"""
@@ -653,7 +776,15 @@ class Kinglet:
             methods = ["GET"]
         # Apply root_path to the route
         full_path = self.root_path + path
-        return self.router.route(full_path, methods)
+        
+        def decorator(handler):
+            # Auto-wrap with exception handling if enabled
+            if self.auto_wrap_exceptions:
+                handler = wrap_exceptions(expose_details=self.debug)(handler)
+            
+            return self.router.route(full_path, methods)(handler)
+        
+        return decorator
     
     def get(self, path: str):
         """Decorator for GET routes"""
@@ -778,7 +909,11 @@ class Kinglet:
                     pass  # Fall through to default error handler
             
             # Default error response with request ID and debug info
-            error_message = str(e) if self.debug else "Internal Server Error" 
+            if isinstance(e, HTTPError):
+                error_message = e.message
+            else:
+                error_message = str(e) if self.debug else "Internal Server Error"
+            
             error_resp = Response.error(
                 message=error_message,
                 status=status_code,
@@ -798,8 +933,8 @@ class Kinglet:
 # Export main classes for convenience
 __all__ = [
     "Kinglet", "Router", "Route", "Response", "Request", "Middleware", 
-    "CorsMiddleware", "TimingMiddleware", "TestClient", "HTTPError",
-    "generate_request_id", "error_response"
+    "CorsMiddleware", "TimingMiddleware", "TestClient", "HTTPError", "GeoRestrictedError", "DevOnlyError",
+    "generate_request_id", "error_response", "wrap_exceptions", "require_dev", "geo_restrict"
 ]
 
 # Alias for backward compatibility and easier import

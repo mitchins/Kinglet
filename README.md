@@ -76,6 +76,19 @@ async def protected_route(request):
     return {"user": "authenticated"}
 ```
 
+### **Exception Wrapping & Access Control**
+Automatic error handling and endpoint restrictions:
+
+```python
+app = Kinglet(debug=True)  # Auto-wraps exceptions with request IDs
+
+@app.get("/admin/debug")
+@require_dev()  # 403 in production
+@geo_restrict(allowed=["US", "CA"]) 
+async def debug_endpoint(request):
+    raise ValueError("Auto-wrapped with context")
+```
+
 ### **Zero-Dependency Testing**
 Test without HTTP servers - runs in <1ms:
 
@@ -94,7 +107,7 @@ def test_my_api():
 
 ## Learn More
 
-- **[Quick Examples](docs/EXAMPLES.md)** - Common patterns
+- **[Quick Examples](examples/)** - Basic API and decorators examples
 - **[Testing Guide](docs/TESTING.md)** - Unit & integration testing  
 - **[Cloudflare Setup](docs/CLOUDFLARE.md)** - Workers deployment
 - **[API Reference](docs/API.md)** - Complete method docs
@@ -104,6 +117,8 @@ def test_my_api():
 - **Request ID tracing** for debugging
 - **Typed parameter validation** (int, bool, UUID)
 - **Built-in authentication helpers** (Bearer, Basic auth)
+- **Automatic exception wrapping** with environment-aware details
+- **Access control decorators** (dev-only, geo-restrictions)
 - **Configurable CORS** for security
 - **Error boundaries** with proper status codes
 - **Debug mode** for development
@@ -186,6 +201,7 @@ async def search_users(request):
         "filters": {"active": active_only, "tags": tags},
         "pagination": {"page": page, "limit": limit}
     }
+
 
 # Production: Cloudflare Workers entry point
 async def on_fetch(request, env):
