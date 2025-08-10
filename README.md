@@ -76,6 +76,16 @@ async def protected_route(request):
     return {"user": "authenticated"}
 ```
 
+### **Experience APIs & Caching**
+R2-backed cache-aside pattern with dynamic path support:
+
+```python
+@app.get("/games/{slug}")
+@cache_aside(cache_type="game_detail", ttl=3600)
+async def game_detail(request):
+    return {"game": await get_game(request.path_param("slug"))}
+```
+
 ### **Exception Wrapping & Access Control**
 Automatic error handling and endpoint restrictions:
 
@@ -119,6 +129,9 @@ def test_my_api():
 - **Built-in authentication helpers** (Bearer, Basic auth)
 - **Automatic exception wrapping** with environment-aware details
 - **Access control decorators** (dev-only, geo-restrictions)
+- **R2 cache-aside pattern** for Experience APIs
+- **Environment-aware media URLs** (dev vs production)
+- **Request validation decorators** (JSON body, required fields)
 - **Configurable CORS** for security
 - **Error boundaries** with proper status codes
 - **Debug mode** for development

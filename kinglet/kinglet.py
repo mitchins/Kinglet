@@ -794,6 +794,14 @@ class Kinglet:
         """Decorator for POST routes"""
         return self.route(path, ["POST"])
     
+    def put(self, path: str):
+        """Decorator for PUT routes"""
+        return self.route(path, ["PUT"])
+    
+    def delete(self, path: str):
+        """Decorator for DELETE routes"""
+        return self.route(path, ["DELETE"])
+    
     def include_router(self, prefix: str, router: Router):
         """Include a sub-router with path prefix"""
         self.router.include_router(prefix, router)
@@ -930,11 +938,149 @@ class Kinglet:
                     return error_resp
 
 
+# === NEW FEATURES ===
+
+# 1 & 3: Cache-Aside Decorator with CacheService
+class CacheService:
+    """R2-backed cache service for Experience APIs"""
+    
+    def __init__(self, storage, ttl: int = 3600):
+        self.storage = storage
+        self.ttl = ttl
+    
+    async def get_or_generate(self, cache_key: str, generator_func: Callable, **kwargs):
+        """Get from cache or generate fresh data"""
+        try:
+            # Try cache first
+            obj = await self.storage.get(f"cache/{cache_key}")
+            if obj:
+                try:
+                    if hasattr(obj, 'text'):
+                        cached_data = json.loads((await obj.text()))
+                    else:
+                        # Mock storage returns string directly
+                        cached_data = json.loads(obj)
+                    # Check if still valid
+                    if time.time() - cached_data.get('_cached_at', 0) < self.ttl:
+                        cached_data['_cache_hit'] = True
+                        return cached_data
+                except (json.JSONDecodeError, AttributeError):
+                    pass  # Invalid cache, generate fresh
+            
+            # Generate fresh data
+            fresh_data = await generator_func(**kwargs)
+            fresh_data['_cached_at'] = time.time()
+            fresh_data['_cache_hit'] = False
+            
+            # Store in cache
+            await self.storage.put(
+                f"cache/{cache_key}",
+                json.dumps(fresh_data),
+                {"httpMetadata": {"contentType": "application/json"}}
+            )
+            
+            return fresh_data
+            
+        except Exception:
+            # If cache fails, just return fresh data
+            return await generator_func(**kwargs)
+
+def cache_aside(storage_binding: str = "STORAGE", cache_type: str = "default", ttl: int = 3600):
+    """Decorator for cache-aside pattern with R2"""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(request, *args, **kwargs):
+            # Get storage from request environment
+            storage = getattr(request.env, storage_binding, None)
+            if not storage:
+                # No storage available, call function directly
+                return await func(request, *args, **kwargs)
+            
+            # Create cache service
+            cache = CacheService(storage, ttl)
+            
+            # Generate cache key from function name, path params, and query string
+            import hashlib
+            cache_key_parts = [cache_type, func.__name__]
+            
+            # Include path parameters in cache key (e.g., /game/{slug} -> /game/wild-west)
+            if hasattr(request, 'path_params') and request.path_params:
+                path_param_str = "_".join(f"{k}={v}" for k, v in request.path_params.items())
+                cache_key_parts.append(path_param_str)
+            
+            # Include query string if present
+            if hasattr(request, 'query_string') and request.query_string:
+                cache_key_parts.append(request.query_string)
+                
+            cache_key = hashlib.sha256("_".join(cache_key_parts).encode()).hexdigest()[:16]
+            
+            # Use cache service
+            async def generator():
+                return await func(request, *args, **kwargs)
+            
+            return await cache.get_or_generate(cache_key, generator)
+        
+        return wrapper
+    return decorator
+
+# 2: Environment-Aware URL Generation
+def media_url(request, uid: str) -> str:
+    """Generate environment-aware media URL"""
+    cdn_base = getattr(request.env, 'CDN_BASE_URL', None)
+    
+    if cdn_base:
+        return f"{cdn_base.rstrip('/')}/api/media/{uid}"
+    else:
+        try:
+            host = request.header('host', 'localhost:8787')
+            forwarded_proto = request.header('x-forwarded-proto', 'http')
+            protocol = 'https' if forwarded_proto == 'https' or host.startswith('https') else 'http'
+            return f"{protocol}://{host}/api/media/{uid}"
+        except Exception:
+            return f"/api/media/{uid}"
+
+# 4: Request Validation Decorators  
+def validate_json_body(func):
+    """Decorator to validate JSON body exists and is valid"""
+    @functools.wraps(func)
+    async def wrapper(request, *args, **kwargs):
+        try:
+            body = await request.json()
+            if not body:
+                return Response.error("Request body cannot be empty", 400, request.request_id)
+        except Exception as e:
+            return Response.error(f"Invalid JSON: {str(e)}", 400, request.request_id)
+        
+        return await func(request, *args, **kwargs)
+    return wrapper
+
+def require_field(field_name: str, field_type=str):
+    """Decorator to require specific field in JSON body"""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(request, *args, **kwargs):
+            try:
+                body = await request.json()
+                if field_name not in body:
+                    return Response.error(f"Field '{field_name}' is required", 400, request.request_id)
+                
+                # Type validation
+                if not isinstance(body[field_name], field_type):
+                    return Response.error(f"Field '{field_name}' must be {field_type.__name__}", 400, request.request_id)
+                
+            except Exception as e:
+                return Response.error(f"Invalid request: {str(e)}", 400, request.request_id)
+            
+            return await func(request, *args, **kwargs)
+        return wrapper
+    return decorator
+
 # Export main classes for convenience
 __all__ = [
     "Kinglet", "Router", "Route", "Response", "Request", "Middleware", 
     "CorsMiddleware", "TimingMiddleware", "TestClient", "HTTPError", "GeoRestrictedError", "DevOnlyError",
-    "generate_request_id", "error_response", "wrap_exceptions", "require_dev", "geo_restrict"
+    "generate_request_id", "error_response", "wrap_exceptions", "require_dev", "geo_restrict",
+    "CacheService", "cache_aside", "media_url", "validate_json_body", "require_field"
 ]
 
 # Alias for backward compatibility and easier import

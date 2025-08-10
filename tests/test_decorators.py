@@ -82,7 +82,7 @@ class TestExceptionWrapping:
     
     def test_global_exception_wrapping_can_be_disabled(self):
         """Test that global exception wrapping can be disabled"""
-        app = Kinglet(auto_wrap_exceptions=False)
+        app = Kinglet(auto_wrap_exceptions=False, debug=True)  # Enable debug to see raw errors
         
         @app.get("/error")
         async def error_endpoint(request):
@@ -90,7 +90,7 @@ class TestExceptionWrapping:
         
         client = TestClient(app)
         
-        # Should get raw exception since wrapping is disabled
+        # Should get raw exception since wrapping is disabled but debug shows details
         status, headers, body = client.request("GET", "/error")
         
         assert status == 500
