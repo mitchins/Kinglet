@@ -26,6 +26,24 @@ Shows:
 - **Decorator combinations**: Chain multiple restrictions together
 - **Global vs manual wrapping**: Configure exception handling app-wide or per-endpoint
 
+## R2 Media Example
+
+```bash
+# See r2_media_example.py
+```
+
+Shows how to serve binary files from Cloudflare R2 storage with the critical technique:
+
+```python
+# ✅ Correct: Return R2 stream to WorkersResponse  
+return WorkersResponse(obj.body, status=200, headers=headers)
+
+# ❌ Wrong: Converting to bytes causes TypeError
+return WorkersResponse(bytes_data, status=200, headers=headers)  # FAILS
+```
+
+**Key insight**: `obj.body` is a ReadableStream that Workers can pipe directly to clients. Kinglet detects `WorkersResponse` and bypasses all processing, enabling efficient binary streaming.
+
 ## Cloudflare Workers Demo
 
 See [CloudFlare-Demo/](../CloudFlare-Demo/) for a complete Cloudflare Workers deployment example with:
