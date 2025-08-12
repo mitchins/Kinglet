@@ -8,6 +8,8 @@
 
 Available on PyPi either: run `pip install kinglet` or add to pyproject.toml `dependencies = ["kinglet"]`
 
+**New in 1.3.0:** D1/R2 helpers eliminate boilerplate - `d1_unwrap()`, `r2_put()`, `r2_get_content_info()` handle Cloudflare proxy objects safely.
+
 If you can't install packages: embed `kinglet/kinglet.py` into your worker/src or project
 
 ```python

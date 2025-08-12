@@ -10,7 +10,7 @@ from typing import Dict, List, Callable, Any, Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 from abc import ABC, abstractmethod
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 __author__ = "Mitchell Currie"
 
 def generate_request_id() -> str:
@@ -940,6 +940,214 @@ class Kinglet:
 
 # === NEW FEATURES ===
 
+# === D1 DATABASE HELPERS ===
+
+def d1_unwrap(obj):
+    """
+    Unwrap Cloudflare D1 JavaScript proxy objects to Python dictionaries.
+    
+    D1 query results are JavaScript proxy objects that need conversion to 
+    Python dicts for safe access. This handles the standard D1 patterns.
+    
+    Args:
+        obj: D1 result object (typically has .to_py() method)
+        
+    Returns:
+        dict: Python dictionary with the data
+        
+    Raises:
+        ValueError: If the object type cannot be unwrapped
+        
+    Usage:
+        result = await db.prepare("SELECT * FROM games").first()
+        game_data = d1_unwrap(result)  # Safe Python dict
+    """
+    if obj is None:
+        return {}
+    
+    # Already a Python dict - return as-is
+    if isinstance(obj, dict):
+        return obj
+    
+    # Standard D1 proxy object with .to_py() method
+    if hasattr(obj, "to_py"):
+        try:
+            return obj.to_py()
+        except Exception as e:
+            raise ValueError(f"Failed to unwrap D1 object via .to_py(): {e}")
+    
+    # Object with dict-like interface
+    if hasattr(obj, 'keys') and hasattr(obj, '__getitem__'):
+        try:
+            return {key: obj[key] for key in obj.keys()}
+        except Exception as e:
+            raise ValueError(f"Failed to unwrap dict-like object: {e}")
+    
+    # Unknown object type - raise instead of guessing
+    raise ValueError(f"Cannot unwrap D1 object of type {type(obj).__name__}. Expected dict or object with .to_py() method.")
+
+def d1_unwrap_results(results):
+    """
+    Lazily unwrap D1 query results.
+    
+    Returns:
+        generator: Unwrapped dictionaries
+    """
+    if not results:
+        return
+    
+    if hasattr(results, 'results') and results.results:
+        for row in results.results:
+            yield d1_unwrap(row)
+    elif isinstance(results, list):
+        for row in results:
+            yield d1_unwrap(row)
+    else:
+        yield d1_unwrap(results)
+
+
+# === R2 STORAGE HELPERS ===
+
+def r2_get_metadata(obj, path, default=None):
+    """
+    Extract metadata from R2 objects using dot notation.
+    
+    Returns:
+        Value at path or default
+    """
+    if obj is None:
+        return default
+    
+    current = obj
+    for part in path.split('.'):
+        if current is None:
+            return default
+        
+        # Try attribute access first (most common)
+        if hasattr(current, part):
+            current = getattr(current, part)
+            # Check for JavaScript undefined immediately after getattr
+            try:
+                import js
+                if current is js.undefined:
+                    return default
+            except:
+                if str(current) == "undefined":
+                    return default
+        # Then dict access
+        elif isinstance(current, dict):
+            current = current.get(part)
+        # Then JS object bracket access
+        else:
+            try:
+                current = current[part]
+            except (KeyError, TypeError, AttributeError):
+                return default
+    
+    result = current if current is not None else default
+    
+    # Check for JavaScript undefined before stringifying
+    try:
+        import js
+        if result is js.undefined:
+            return default
+    except:
+        # Fallback: check string representation
+        if str(result) == "undefined":
+            return default
+        
+    return result
+
+def r2_get_content_info(obj):
+    """Extract common R2 object metadata."""
+    result = {
+        'content_type': r2_get_metadata(obj, "httpMetadata.contentType", "application/octet-stream"),
+        'size': r2_get_metadata(obj, "size", None),
+        'etag': r2_get_metadata(obj, "httpEtag", None), 
+        'last_modified': r2_get_metadata(obj, "uploaded", None),
+        'custom_metadata': r2_get_metadata(obj, "customMetadata", {})
+    }
+    
+    # Ensure no undefined values leak through
+    for key, value in result.items():
+        if str(value) == "undefined":
+            if key == 'content_type':
+                result[key] = "application/octet-stream"
+            elif key == 'custom_metadata':
+                result[key] = {}
+            else:
+                result[key] = None
+                
+    return result
+
+def r2_put(bucket, key: str, data: bytes, content_type: str = "application/octet-stream", metadata: dict = None):
+    """Upload data to R2 with JS interop handling."""
+    import js
+    
+    size = len(data)
+    ab = js.ArrayBuffer.new(size)
+    u8 = js.Uint8Array.new(ab)
+    u8.set(bytearray(data))
+    
+    options = {"httpMetadata": {"contentType": content_type}}
+    if metadata:
+        options["customMetadata"] = metadata
+    
+    return bucket.put(key, ab, options)
+
+def r2_delete(bucket, key: str):
+    """Delete object from R2."""
+    return bucket.delete(key)
+
+def r2_list(bucket, prefix: str = "", limit: int = 1000):
+    """List R2 objects with optional prefix filter."""
+    options = {"limit": limit}
+    if prefix:
+        options["prefix"] = prefix
+    return bucket.list(options)
+
+# === ENHANCED ASSET URL GENERATION ===
+
+def asset_url(request, identifier: str, asset_type: str = "media") -> str:
+    """
+    Generate environment-aware URLs for different asset types.
+    
+    Args:
+        request: Request object
+        identifier: Asset identifier (UID, filename, etc.)
+        asset_type: Type of asset ("media", "static", "assets")
+        
+    Returns:
+        str: Full URL to the asset
+        
+    Usage:
+        media_url = asset_url(request, uid, "media")      # /api/media/{uid}
+        static_url = asset_url(request, "style.css", "static")  # /assets/{file}
+        asset_url = asset_url(request, "logo.png", "assets")    # /assets/{file}
+    """
+    cdn_base = getattr(request.env, 'CDN_BASE_URL', None)
+    
+    if asset_type == "media":
+        path = f"/api/media/{identifier}"
+    elif asset_type in ("static", "assets"):
+        path = f"/assets/{identifier}"
+    else:
+        # Custom asset type
+        path = f"/{asset_type}/{identifier}"
+    
+    if cdn_base:
+        # Production: Use CDN domain
+        return f"{cdn_base.rstrip('/')}{path}"
+    else:
+        # Development: Auto-detect host from request
+        try:
+            host = request.header('host', 'localhost:8787')
+            forwarded_proto = request.header('x-forwarded-proto', 'http')
+            protocol = 'https' if forwarded_proto == 'https' or host.startswith('https') else 'http'
+            return f"{protocol}://{host}{path}"
+        except Exception:
+            return path
+
 # 1 & 3: Cache-Aside Decorator with CacheService
 class CacheService:
     """R2-backed cache service for Experience APIs"""
@@ -1080,7 +1288,10 @@ __all__ = [
     "Kinglet", "Router", "Route", "Response", "Request", "Middleware", 
     "CorsMiddleware", "TimingMiddleware", "TestClient", "HTTPError", "GeoRestrictedError", "DevOnlyError",
     "generate_request_id", "error_response", "wrap_exceptions", "require_dev", "geo_restrict",
-    "CacheService", "cache_aside", "media_url", "validate_json_body", "require_field"
+    "CacheService", "cache_aside", "media_url", "validate_json_body", "require_field",
+    "d1_unwrap", "d1_unwrap_results",
+    "r2_get_metadata", "r2_get_content_info", "r2_put", "r2_delete", "r2_list",
+    "asset_url"
 ]
 
 # Alias for backward compatibility and easier import
