@@ -10,23 +10,6 @@ Available on PyPi either: run `pip install kinglet` or add to pyproject.toml `de
 
 **Manual Installation:** Copy the entire `kinglet/` folder (modular structure) to your worker project. No longer a single file - the framework is now modularized for better maintainability.
 
-## What's New
-
-### Version 1.4.0
-1. **Fine-Grained Authorization (FGA)** - Decorator-based auth with JWT validation
-2. **TOTP/2FA Support** - Session elevation with RFC 6238 TOTP
-3. **OTP Provider Pattern** - Pluggable OTP providers for prod/dev environments
-4. **Claim-based Access Control** - Business-level claims (publisher, host, etc.)
-5. **Admin Override Capabilities** - Environment-based admin escape hatches
-6. **Modular Architecture** - Clean separation of concerns across focused modules
-
-### Version 1.3.0 
-1. **D1 Database Helpers** - `d1_unwrap()`, `d1_unwrap_results()` 
-2. **R2 Storage Helpers** - `r2_put()`, `r2_get_content_info()`
-3. **Auto Exception Wrapping** - Automatic error handling
-4. **Request Validation** - `@validate_json_body`, `@require_field`
-5. **Media URL Generation** - CDN-aware URL helpers
-
 ```python
 # Deploy to your ASGI environment
 from kinglet import Kinglet
