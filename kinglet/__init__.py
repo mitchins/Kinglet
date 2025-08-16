@@ -33,7 +33,7 @@ from .utils import CacheService, cache_aside, asset_url, media_url
 from . import authz
 from . import totp
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 __author__ = "Mitchell Currie"
 
 # Export commonly used items

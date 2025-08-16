@@ -148,26 +148,68 @@ class Request:
                 self._text_cache = ""
         return self._text_cache
     
-    async def json(self) -> Optional[Dict]:
-        """Get request body as parsed JSON"""
-        if self._json_cache is None:
+    async def json(self, convert=True) -> Optional[Dict]:
+        """Get request body as parsed JSON
+        
+        Args:
+            convert: If True (default), convert JsProxy objects to Python dict.
+                     If False, return raw JsProxy object from Workers runtime.
+        
+        Returns:
+            Parsed JSON as Python dict (default) or raw JsProxy object
+        """
+        cache_key = f"_json_cache_{convert}"
+        cached_value = getattr(self, cache_key, None)
+        
+        if cached_value is None:
             # Check if raw request has json() method (like in Workers)
             if hasattr(self._raw, 'json'):
                 try:
-                    self._json_cache = await self._raw.json()
+                    raw_json = await self._raw.json()
+                    
+                    if convert and raw_json is not None:
+                        # Convert JsProxy to Python dict if needed
+                        if hasattr(raw_json, 'to_py'):
+                            # JsProxy object with to_py() method
+                            cached_value = raw_json.to_py()
+                        elif hasattr(raw_json, '__iter__') and not isinstance(raw_json, (str, bytes)):
+                            # Try to convert object-like JsProxy manually
+                            try:
+                                # For object-like JsProxy, try to extract as dict
+                                if hasattr(raw_json, 'Object') and hasattr(raw_json.Object, 'keys'):
+                                    # Extract keys and values from JsProxy object
+                                    result = {}
+                                    keys = list(raw_json.Object.keys(raw_json))
+                                    for key in keys:
+                                        result[key] = raw_json[key]
+                                    cached_value = result
+                                else:
+                                    cached_value = raw_json
+                            except Exception:
+                                cached_value = raw_json
+                        else:
+                            # Already a Python object
+                            cached_value = raw_json
+                    else:
+                        # No conversion requested or raw_json is None
+                        cached_value = raw_json
+                        
                 except Exception:
-                    self._json_cache = None
+                    cached_value = None
             else:
                 # Fallback to parsing text
                 body = await self.text()
                 if body:
                     try:
-                        self._json_cache = json.loads(body)
+                        cached_value = json.loads(body)
                     except json.JSONDecodeError:
-                        self._json_cache = None
+                        cached_value = None
                 else:
-                    self._json_cache = None
-        return self._json_cache
+                    cached_value = None
+            
+            setattr(self, cache_key, cached_value)
+        
+        return cached_value
 
 
 class Response:

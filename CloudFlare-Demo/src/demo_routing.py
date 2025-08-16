@@ -8,7 +8,7 @@ app = Kinglet()
 # Basic routes
 @app.get("/")
 async def home(request):
-    return {"message": "Kinglet Routing Demo", "version": "1.4.0"}
+    return {"message": "Kinglet Routing Demo", "version": "1.4.1"}
 
 @app.get("/hello/{name}")
 async def hello(request):

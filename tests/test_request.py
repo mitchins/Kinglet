@@ -171,7 +171,179 @@ class TestRequest:
         assert request.path_param("slug") == "test-slug"
         assert request.path_param("nonexistent") is None
         assert request.path_param("nonexistent", "default") == "default"
+
+
+class TestJsProxyConversion:
+    """Test JsProxy to Python dict conversion in request.json()"""
     
+    @pytest.fixture
+    def mock_env(self):
+        return Mock()
     
+    class MockJsProxy:
+        """Mock JsProxy object for testing"""
+        
+        def __init__(self, data):
+            self._data = data
+        
+        def to_py(self):
+            """Mock to_py() method that converts to Python dict"""
+            return self._data
+        
+        def __getitem__(self, key):
+            return self._data[key]
+        
+        def __iter__(self):
+            return iter(self._data)
     
+    class MockJsProxyWithoutToPy:
+        """Mock JsProxy object without to_py() method"""
+        
+        def __init__(self, data):
+            self._data = data
+            # Mock Object.keys functionality
+            self.Object = type('Object', (), {
+                'keys': lambda obj: list(data.keys())
+            })()
+        
+        def __getitem__(self, key):
+            return self._data[key]
+        
+        def __iter__(self):
+            return iter(self._data)
     
+    class MockWorkerRequestWithJsProxy:
+        """Mock Workers request with JsProxy response"""
+        
+        def __init__(self, method="POST", url="http://localhost/", headers=None, js_proxy=None):
+            self.method = method
+            self.url = url
+            self.headers = MockHeaders(headers or {})
+            self._js_proxy = js_proxy
+        
+        async def json(self):
+            """Return the mock JsProxy object"""
+            return self._js_proxy
+        
+        async def text(self):
+            return ""
+    
+    @pytest.mark.asyncio
+    async def test_jsproxy_conversion_with_to_py(self, mock_env):
+        """Test JsProxy conversion using to_py() method"""
+        test_data = {"name": "test", "value": 123, "nested": {"key": "value"}}
+        js_proxy = self.MockJsProxy(test_data)
+        
+        raw_request = self.MockWorkerRequestWithJsProxy(js_proxy=js_proxy)
+        request = Request(raw_request, mock_env)
+        
+        # Test default behavior (convert=True)
+        result = await request.json()
+        assert result == test_data
+        assert isinstance(result, dict)
+        
+        # Test that we can access dict methods
+        assert result.get("name") == "test"
+        assert result["value"] == 123
+    
+    @pytest.mark.asyncio
+    async def test_jsproxy_conversion_disabled(self, mock_env):
+        """Test JsProxy conversion can be disabled"""
+        test_data = {"name": "test", "value": 123}
+        js_proxy = self.MockJsProxy(test_data)
+        
+        raw_request = self.MockWorkerRequestWithJsProxy(js_proxy=js_proxy)
+        request = Request(raw_request, mock_env)
+        
+        # Test with convert=False
+        result = await request.json(convert=False)
+        assert result is js_proxy  # Should return the original JsProxy
+        assert not isinstance(result, dict)
+    
+    @pytest.mark.asyncio
+    async def test_jsproxy_without_to_py_fallback(self, mock_env):
+        """Test fallback for JsProxy objects without to_py() method"""
+        test_data = {"name": "test", "value": 123}
+        js_proxy = self.MockJsProxyWithoutToPy(test_data)
+        
+        raw_request = self.MockWorkerRequestWithJsProxy(js_proxy=js_proxy)
+        request = Request(raw_request, mock_env)
+        
+        # Should handle JsProxy without to_py() method
+        result = await request.json()
+        # This should extract the data manually or return the original object
+        assert result is not None
+    
+    @pytest.mark.asyncio
+    async def test_regular_dict_passthrough(self, mock_env):
+        """Test that regular Python dicts pass through unchanged"""
+        test_data = {"name": "test", "value": 123}
+        
+        # Mock request that returns a regular dict (not JsProxy)
+        class MockRegularRequest:
+            def __init__(self):
+                self.method = "POST"
+                self.url = "http://localhost/"
+                self.headers = MockHeaders({})
+            
+            async def json(self):
+                return test_data
+            
+            async def text(self):
+                return ""
+        
+        raw_request = MockRegularRequest()
+        request = Request(raw_request, mock_env)
+        
+        result = await request.json()
+        assert result == test_data
+        assert isinstance(result, dict)
+        assert result.get("name") == "test"
+    
+    @pytest.mark.asyncio
+    async def test_json_caching_with_convert_parameter(self, mock_env):
+        """Test that caching works correctly with convert parameter"""
+        test_data = {"name": "test", "cached": True}
+        js_proxy = self.MockJsProxy(test_data)
+        
+        raw_request = self.MockWorkerRequestWithJsProxy(js_proxy=js_proxy)
+        request = Request(raw_request, mock_env)
+        
+        # First call with convert=True
+        result1 = await request.json(convert=True)
+        result2 = await request.json(convert=True)
+        assert result1 is result2  # Should return cached value
+        
+        # Call with convert=False should return different cached value
+        result3 = await request.json(convert=False)
+        assert result3 is not result1  # Different cache
+        assert result3 is js_proxy  # Should be the original JsProxy
+    
+    @pytest.mark.asyncio
+    async def test_none_json_handling(self, mock_env):
+        """Test handling of None/empty JSON responses"""
+        class MockNoneRequest:
+            def __init__(self):
+                self.method = "POST"
+                self.url = "http://localhost/"
+                self.headers = MockHeaders({})
+            
+            async def json(self):
+                return None
+            
+            async def text(self):
+                return ""
+        
+        raw_request = MockNoneRequest()
+        request = Request(raw_request, mock_env)
+        
+        result = await request.json()
+        assert result is None
+        
+        # Test with convert=False
+        result2 = await request.json(convert=False)
+        assert result2 is None
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
