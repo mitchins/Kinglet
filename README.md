@@ -12,7 +12,7 @@ Available on PyPi either: run `pip install kinglet` or add to pyproject.toml `de
 
 ## What's New
 
-### Version 1.4.0 (Alpha)
+### Version 1.4.0
 1. **Fine-Grained Authorization (FGA)** - Decorator-based auth with JWT validation
 2. **TOTP/2FA Support** - Session elevation with RFC 6238 TOTP
 3. **OTP Provider Pattern** - Pluggable OTP providers for prod/dev environments
