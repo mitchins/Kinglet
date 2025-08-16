@@ -31,7 +31,7 @@ class TestDecoratorOrdering:
         router = Router()
         
         # Mock admin check
-        async def require_admin_check(handler):
+        def require_admin_check(handler):
             async def wrapped(request):
                 user = await get_user(request)
                 if not user or not user.get('is_admin'):
