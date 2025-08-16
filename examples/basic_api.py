@@ -19,6 +19,8 @@ async def health_check(request):
     """Health check endpoint"""
     return {
         "status": "healthy",
+        "project": "Kinglet-BasicAPI-Example",
+        "description": "Basic Kinglet API demonstration",
         "request_id": request.request_id
     }
 

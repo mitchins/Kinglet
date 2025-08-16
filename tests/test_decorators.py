@@ -142,8 +142,9 @@ class TestDevOnlyDecorator:
         client = TestClient(app, env={'ENVIRONMENT': 'production'})
         status, headers, body = client.request("GET", "/admin/debug")
         
-        assert status == 403
-        assert "development mode" in body
+        # Security: In production, dev endpoints should be a blackhole (404 Not Found)
+        assert status == 404
+        assert "Not Found" in body
     
     def test_require_dev_blocks_unknown_environment(self):
         """Test that require_dev blocks unknown environments"""
@@ -157,7 +158,9 @@ class TestDevOnlyDecorator:
         client = TestClient(app, env={'ENVIRONMENT': 'staging'})
         status, headers, body = client.request("GET", "/admin/debug")
         
-        assert status == 403
+        # Security: Unknown environments should also get blackhole treatment (404 Not Found)
+        assert status == 404
+        assert "Not Found" in body
 
 
 class TestGeoRestriction:
@@ -297,4 +300,4 @@ class TestDecoratorCombinations:
         client = TestClient(app, env={'ENVIRONMENT': 'production'})
         status, headers, body = client.request("GET", "/restricted-error")
         
-        assert status == 403  # Dev restriction, not the ValueError
+        assert status == 404  # Dev restriction blackhole, not the ValueError

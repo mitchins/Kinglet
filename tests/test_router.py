@@ -135,13 +135,18 @@ class TestRouter:
         def delete_handler():
             pass
         
-        assert len(router.routes) == 4
+        @router.head("/head-test")
+        def head_handler():
+            pass
+        
+        assert len(router.routes) == 5
         
         # Check methods
         assert router.routes[0].methods == ["GET"]
         assert router.routes[1].methods == ["POST"]
         assert router.routes[2].methods == ["PUT"]
         assert router.routes[3].methods == ["DELETE"]
+        assert router.routes[4].methods == ["HEAD"]
     
     def test_route_resolution(self):
         """Test route resolution"""

@@ -1,5 +1,32 @@
 # Kinglet Examples
 
+## Fine-Grained Authorization (v1.4.0)
+
+```bash
+python examples/authz_example.py
+```
+
+Shows:
+- **JWT authentication**: HS256 token validation with Cloudflare Access fallback
+- **Public/private resources**: `@allow_public_or_owner` for visibility control
+- **Owner-only operations**: `@require_owner` with admin override
+- **Participant access**: `@require_participant` for multi-user resources
+- **Admin override**: Emergency access via `ADMIN_IDS` environment variable
+- **R2 media ownership**: Store owner metadata for access control
+
+**Admin Override Pattern:**
+```python
+@require_owner(load_resource, allow_admin_env="ADMIN_IDS")
+async def delete_post(req, obj):
+    # Owner OR admin can delete
+```
+
+Set admins in `wrangler.toml`:
+```toml
+[vars]
+ADMIN_IDS = "admin-1,admin-2,support-3"  # Comma-separated user IDs
+```
+
 ## Basic API Example
 
 ```bash

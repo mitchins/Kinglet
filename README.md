@@ -8,9 +8,24 @@
 
 Available on PyPi either: run `pip install kinglet` or add to pyproject.toml `dependencies = ["kinglet"]`
 
-**New in 1.3.0:** D1/R2 helpers eliminate boilerplate - `d1_unwrap()`, `r2_put()`, `r2_get_content_info()` handle Cloudflare proxy objects safely.
+**Manual Installation:** Copy the entire `kinglet/` folder (modular structure) to your worker project. No longer a single file - the framework is now modularized for better maintainability.
 
-If you can't install packages: embed `kinglet/kinglet.py` into your worker/src or project
+## What's New
+
+### Version 1.4.0 (Alpha)
+1. **Fine-Grained Authorization (FGA)** - Decorator-based auth with JWT validation
+2. **TOTP/2FA Support** - Session elevation with RFC 6238 TOTP
+3. **OTP Provider Pattern** - Pluggable OTP providers for prod/dev environments
+4. **Claim-based Access Control** - Business-level claims (publisher, host, etc.)
+5. **Admin Override Capabilities** - Environment-based admin escape hatches
+6. **Modular Architecture** - Clean separation of concerns across focused modules
+
+### Version 1.3.0 
+1. **D1 Database Helpers** - `d1_unwrap()`, `d1_unwrap_results()` 
+2. **R2 Storage Helpers** - `r2_put()`, `r2_get_content_info()`
+3. **Auto Exception Wrapping** - Automatic error handling
+4. **Request Validation** - `@validate_json_body`, `@require_field`
+5. **Media URL Generation** - CDN-aware URL helpers
 
 ```python
 # Deploy to your ASGI environment
@@ -28,11 +43,41 @@ async def login(request):
 
 | Feature | Kinglet | FastAPI | Flask |
 |---------|---------|---------|-------|
-| **Bundle Size** | 29KB | 7.8MB | 1.9MB |
+| **Bundle Size** | 226KB (modular) | 7.8MB | 1.9MB |
 | **Testing** | No server needed | Requires TestServer | Requires test client |
 | **Workers Ready** | ✅ Built-in | ❌ Complex setup | ❌ Not compatible |
 
 *In practical terms FastAPI's load time (especially on cold start) may exceed the worker allownace of cloudflare. Additionally Flask, Bottle and co have different expectations for the tuple that ASGI passes in.*
+
+## Feature Overview
+
+### Core Framework
+1. **Routing** - Decorator-based routing with path/query parameters
+2. **Request/Response** - Type-safe parameter extraction and response helpers
+3. **Middleware** - Request lifecycle hooks and global middleware
+4. **Error Handling** - Auto exception wrapping with request IDs
+5. **Testing** - Direct testability without server spin-up
+
+### Cloudflare Integration  
+6. **D1 Database** - Helper functions for D1 proxy objects
+7. **R2 Storage** - Simplified R2 operations with metadata
+8. **KV Namespaces** - Type-safe KV operations
+9. **Durable Objects** - DO communication helpers
+10. **Cache API** - Cache-aside pattern with R2 backing
+
+### Security & Auth
+11. **JWT Validation** - HS256 JWT verification 
+12. **TOTP/2FA** - RFC 6238 TOTP implementation
+13. **Session Elevation** - Step-up authentication for sensitive ops
+14. **Fine-Grained Auth** - Decorator-based authorization
+15. **Geo Restrictions** - Country-based access control
+
+### Developer Experience
+16. **Type Safety** - Full type hints and validation
+17. **Debug Mode** - Enhanced error messages in development
+18. **Request Validation** - JSON body and field validators
+19. **Media URLs** - CDN-aware URL generation
+20. **OTP Providers** - Pluggable auth providers for dev/prod
 
 ## Core Features
 
@@ -101,6 +146,58 @@ async def debug_endpoint(request):
     raise ValueError("Auto-wrapped with context")
 ```
 
+### **Fine-Grained Authorization (v1.4.0)**
+Decorator-based auth with JWT validation and admin override:
+
+```python
+from kinglet.authz import require_auth, require_owner, allow_public_or_owner
+
+@app.get("/profile")
+@require_auth  # User must be logged in
+async def profile(req):
+    return {"user": req.state.user["id"]}
+
+@app.delete("/posts/{id}")
+@require_owner(
+    lambda req, id: d1_load_owner_public(req.env.DB, "posts", id),
+    allow_admin_env="ADMIN_IDS"  # Admins can bypass ownership
+)
+async def delete_post(req, obj):
+    # Only owner or admin can delete
+    return {"deleted": True}
+
+@app.get("/listings/{id}")
+@allow_public_or_owner(load_listing, forbidden_as_404=True)
+async def get_listing(req, obj):
+    # Public listings visible to all, private only to owner
+    return {"listing": obj}
+```
+
+Admin override via environment variable:
+```toml
+# wrangler.toml
+[vars]
+ADMIN_IDS = "admin-uuid-1,admin-uuid-2,support-uuid-3"
+```
+
+⚠️ **Critical Security Note**: Decorator order matters! Router decorators MUST come before security decorators:
+
+```python
+# ✅ CORRECT - Secure
+@app.get("/admin/data")    # Router decorator FIRST  
+@require_admin             # Auth decorator SECOND
+async def admin_data(req): 
+    return {"secret": "data"}
+
+# ❌ WRONG - Security bypassed!
+@require_admin             # Auth decorator first (bypassed!)
+@app.get("/admin/data")    # Router decorator second
+async def vulnerable(req):
+    return {"exposed": "data"}
+```
+
+See [authz_example.py](examples/authz_example.py) for complete patterns and [Security Best Practices](docs/SECURITY_BEST_PRACTICES.md) for critical security guidance.
+
 ### **Zero-Dependency Testing**
 Test without HTTP servers - runs in <1ms:
 
@@ -120,6 +217,7 @@ def test_my_api():
 ## Learn More
 
 - **[Quick Examples](examples/)** - Basic API and decorators examples
+- **[Security Best Practices](docs/SECURITY_BEST_PRACTICES.md)** - Critical security patterns and pitfalls
 - **[Testing Guide](docs/TESTING.md)** - Unit & integration testing  
 - **[Cloudflare Setup](docs/CLOUDFLARE.md)** - Workers deployment
 - **[API Reference](docs/API.md)** - Complete method docs

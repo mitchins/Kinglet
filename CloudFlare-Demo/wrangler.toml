@@ -1,7 +1,7 @@
 name = "kinglet-demo"
-main = "src/worker.py"
+main = "src/response_test.py"
 compatibility_flags = ["python_workers"]
 compatibility_date = "2023-12-18"
 
 [vars]
-MESSAGE = "Hello from Cloudflare Workers!"
+MESSAGE = "Hello from Kinglet 1.4.0!"
