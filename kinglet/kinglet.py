@@ -15,7 +15,7 @@ from .testing import TestClient
 from .middleware import Middleware, CorsMiddleware, TimingMiddleware
 from .decorators import wrap_exceptions, require_dev, geo_restrict, validate_json_body, require_field
 
-__version__ = "1.4.1"
+__version__ = "1.4.2"
 __author__ = "Mitchell Currie"
 
 # For backward compatibility - export everything that was in the original kinglet.py

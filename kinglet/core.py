@@ -209,6 +209,11 @@ class Kinglet:
         self.middleware_stack.append(middleware_instance)
         return middleware_class
     
+    def add_middleware(self, middleware_instance):
+        """Add an already instantiated middleware instance"""
+        self.middleware_stack.append(middleware_instance)
+        return middleware_instance
+    
     async def __call__(self, request, env):
         """ASGI-compatible entry point for Workers"""
         try:
@@ -235,6 +240,14 @@ class Kinglet:
                     
                     # Call handler
                     response = await handler(kinglet_request)
+                    
+                    # Check if already a Workers Response - pass through directly
+                    try:
+                        from workers import Response as WorkersResponse
+                        if isinstance(response, WorkersResponse):
+                            return response  # Pass through without any processing
+                    except ImportError:
+                        pass  # workers not available, continue normal processing
                     
                     # Convert dict/string responses to Response objects
                     if not isinstance(response, Response):
@@ -263,6 +276,11 @@ class Kinglet:
                     response = await self.error_handlers[status_code](kinglet_request, e)
                     if not isinstance(response, Response):
                         response = Response(response)
+                    
+                    # Process middleware (response phase) for error responses too
+                    for middleware in reversed(self.middleware_stack):
+                        response = await middleware.process_response(kinglet_request, response)
+                    
                     try:
                         return response.to_workers_response()
                     except ImportError:
@@ -284,6 +302,10 @@ class Kinglet:
                 "status_code": status_code,
                 "request_id": getattr(kinglet_request, 'request_id', 'unknown')
             }, status=status_code)
+            
+            # Process middleware (response phase) for default error responses too
+            for middleware in reversed(self.middleware_stack):
+                error_resp = await middleware.process_response(kinglet_request, error_resp)
             
             try:
                 return error_resp.to_workers_response()
