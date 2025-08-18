@@ -4,7 +4,7 @@
   <p><strong>Lightning-fast Python web framework for Cloudflare Workers</strong></p>
   
   [![CI](https://github.com/mitchins/Kinglet/actions/workflows/ci.yml/badge.svg)](https://github.com/mitchins/Kinglet/actions/workflows/ci.yml)
-  [![codecov](https://codecov.io/gh/mitchins/Kinglet/branch/main/graph/badge.svg)](https://codecov.io/gh/mitchins/Kinglet)
+  [![codecov](https://codecov.io/github/mitchins/kinglet/graph/badge.svg?token=VSA89V2XBH)](https://codecov.io/github/mitchins/kinglet)
   [![PyPI version](https://badge.fury.io/py/kinglet.svg)](https://badge.fury.io/py/kinglet)
   [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
