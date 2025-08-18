@@ -2,6 +2,12 @@
   <img src="logo.png" alt="Kinglet Logo" width="200" height="200">
   <h1>Kinglet</h1>
   <p><strong>Lightning-fast Python web framework for Cloudflare Workers</strong></p>
+  
+  [![CI](https://github.com/mitchins/Kinglet/actions/workflows/ci.yml/badge.svg)](https://github.com/mitchins/Kinglet/actions/workflows/ci.yml)
+  [![codecov](https://codecov.io/gh/mitchins/Kinglet/branch/main/graph/badge.svg)](https://codecov.io/gh/mitchins/Kinglet)
+  [![PyPI version](https://badge.fury.io/py/kinglet.svg)](https://badge.fury.io/py/kinglet)
+  [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 </div>
 
 ## Quick Start
@@ -9,14 +15,22 @@
 Install: `pip install kinglet` or add `dependencies = ["kinglet"]` to pyproject.toml
 
 ```python
-from kinglet import Kinglet
+from kinglet import Kinglet, CorsMiddleware, cache_aside
 
 app = Kinglet(root_path="/api")
+
+# Flexible middleware (v1.4.2+)
+app.add_middleware(CorsMiddleware(allow_origin="*"))
 
 @app.post("/auth/login")
 async def login(request):
     data = await request.json()
     return {"token": "jwt-token", "user": data["email"]}
+
+@app.get("/api/data")
+@cache_aside(cache_type="api_data", ttl=1800)  # Environment-aware (v1.4.3+)
+async def get_data(request):
+    return {"data": "cached_in_prod_fresh_in_dev"}
 ```
 
 ## Why Kinglet?
@@ -29,8 +43,8 @@ async def login(request):
 
 ## Key Features
 
-**Core:** Decorator routing, typed parameters, middleware, auto error handling, serverless testing
-**Cloudflare:** D1/R2/KV helpers, cache-aside pattern, CDN-aware URLs  
+**Core:** Decorator routing, typed parameters, flexible middleware, auto error handling, serverless testing
+**Cloudflare:** D1/R2/KV helpers, environment-aware caching, CDN-aware URLs  
 **Security:** JWT validation, TOTP/2FA, geo-restrictions, fine-grained auth decorators
 **Developer:** Full type hints, debug mode, request validation, zero-dependency testing
 
@@ -44,6 +58,18 @@ async def get_user(request):
     token = request.bearer_token()               # Extract JWT
     limit = request.query_int("limit", 10)       # Query params with defaults
     return {"user": user_id, "token": token}
+```
+
+**Flexible Middleware & Caching:**
+```python
+# Configure middleware with parameters
+cors = CorsMiddleware(allow_origin="*", allow_methods="GET,POST")
+app.add_middleware(cors)
+
+@app.get("/api/data")
+@cache_aside(cache_type="api_data", ttl=1800)  # Environment-aware
+async def get_data(request):
+    return {"data": "expensive_query_result"}
 ```
 
 **Security & Access Control:**
@@ -66,7 +92,10 @@ def test_api():
 ## Documentation
 
 - **[Examples](examples/)** - Quick start examples  
+- **[Middleware Guide](docs/MIDDLEWARE.md)** - Flexible middleware system (v1.4.2+)
+- **[Caching Guide](docs/CACHING.md)** - Environment-aware caching (v1.4.3+)
 - **[Security Guide](docs/SECURITY_BEST_PRACTICES.md)** - Critical security patterns
+- **[TOTP/2FA Guide](docs/TOTP.md)** - Two-factor authentication
 - **[API Reference](docs/)** - Complete documentation
 
 ---

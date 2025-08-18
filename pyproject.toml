@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kinglet"
-version = "1.4.2"
+version = "1.4.3"
 description = "A lightweight routing framework for Python Workers"
 readme = "README.md"
 authors = [
@@ -29,7 +29,9 @@ classifiers = [
 ]
 keywords = ["cloudflare", "workers", "python", "routing", "web", "framework", "asgi", "lightweight"]
 requires-python = ">=3.8"
-dependencies = []
+dependencies = [
+    "pytest-asyncio>=0.24.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/mitchins/Kinglet"
@@ -40,13 +42,17 @@ Repository = "https://github.com/mitchins/Kinglet"
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
     "black>=22.0",
-    "flake8>=4.0",
     "mypy>=1.0",
+    "bandit>=1.7.0",
+    "safety>=2.0.0",
 ]
 test = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
     "coverage>=6.0",
 ]
 
@@ -83,6 +89,32 @@ extend-exclude = '''
   | dist
 )/
 '''
+
+[tool.ruff]
+target-version = "py38"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.8"

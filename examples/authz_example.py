@@ -4,14 +4,14 @@ Kinglet 1.4.0 Fine-Grained Authorization (FGA) Example
 Complete example showing all authorization patterns including admin override.
 """
 
-from kinglet import Router, Response
+from kinglet import Response, Router
 from kinglet.authz import (
-    require_auth,
     allow_public_or_owner,
+    d1_load_owner_public,
+    r2_media_owner,
+    require_auth,
     require_owner,
     require_participant,
-    d1_load_owner_public,
-    r2_media_owner
 )
 
 router = Router()
@@ -45,15 +45,15 @@ async def get_post(req, obj):
     obj = {"owner_id": "user-123", "public": True/False}
     """
     post_id = req.path_param("post_id")
-    
+
     # Load post data
     post = await req.env.DB.prepare("SELECT * FROM posts WHERE id=?").bind(post_id).first()
-    
+
     # Add owner-only fields if viewer is owner
     if hasattr(req, 'state') and req.state.user and obj["owner_id"] == req.state.user["id"]:
         post["draft_notes"] = "Owner can see draft notes"
         post["analytics"] = {"views": 1234, "likes": 56}
-    
+
     return {"post": post}
 
 
@@ -77,13 +77,13 @@ async def delete_post(req, obj):
     ADMIN_IDS = "admin-user-1,admin-user-2,support-user-3"
     """
     post_id = req.path_param("post_id")
-    
+
     # Log who is deleting (owner or admin)
     user_id = req.state.user["id"]
     is_admin = user_id != obj["owner_id"]  # Different from owner = must be admin
-    
+
     await req.env.DB.prepare("DELETE FROM posts WHERE id=?").bind(post_id).run()
-    
+
     return {
         "deleted": True,
         "post_id": post_id,
@@ -116,11 +116,11 @@ async def get_chat_messages(req):
     Admins can also access for moderation purposes
     """
     chat_id = req.path_param("chat_id")
-    
+
     messages = await req.env.DB.prepare(
         "SELECT * FROM messages WHERE chat_id=? ORDER BY created_at"
     ).bind(chat_id).all()
-    
+
     return {"messages": messages}
 
 
@@ -135,7 +135,7 @@ async def upload_media(req):
     body = await req.body()
     media_id = __import__('uuid').uuid4().hex
     user_id = req.state.user["id"]
-    
+
     # Store in R2 with owner metadata
     await req.env.STORAGE.put(media_id, body, {
         "httpMetadata": {"contentType": req.header("content-type", "application/octet-stream")},
@@ -144,7 +144,7 @@ async def upload_media(req):
             "uploaded_at": str(__import__('time').time())
         }
     })
-    
+
     return {"media_id": media_id, "owner": user_id}
 
 
@@ -160,18 +160,18 @@ async def get_media(req, obj):
     """
     media_id = req.path_param("media_id")
     media = await req.env.STORAGE.get(media_id)
-    
+
     if not media:
         return Response({"error": "not found"}, status=404)
-    
+
     # Set cache headers based on ownership
     headers = {"Content-Type": media.httpMetadata.get("contentType", "application/octet-stream")}
-    
+
     if obj.get("public"):
         headers["Cache-Control"] = "public, max-age=86400"
     else:
         headers["Cache-Control"] = "private, no-cache"
-    
+
     return Response(media.body, status=200, headers=headers)
 
 
@@ -187,10 +187,10 @@ async def load_booking_participants(req, booking_id):
         JOIN listings l ON b.listing_id = l.id
         WHERE b.id = ?
     """).bind(booking_id).first()
-    
+
     if not result:
         return set()
-    
+
     return {str(result["renter_id"]), str(result["owner_id"])}
 
 
@@ -208,7 +208,7 @@ async def get_booking(req):
     - Admin/Support (for disputes)
     """
     booking_id = req.path_param("booking_id")
-    
+
     booking = await req.env.DB.prepare("""
         SELECT b.*, l.title as listing_title, 
                u1.name as renter_name, u2.name as owner_name
@@ -218,7 +218,7 @@ async def get_booking(req):
         JOIN users u2 ON l.owner_id = u2.id
         WHERE b.id = ?
     """).bind(booking_id).first()
-    
+
     return {"booking": booking}
 
 

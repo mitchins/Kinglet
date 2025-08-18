@@ -2,11 +2,12 @@
 Kinglet HTTP Primitives - Request, Response, and utility functions
 """
 import json
-import time
 import secrets
-from typing import Dict, List, Any, Optional
-from urllib.parse import urlparse, parse_qs
+from typing import Any, Dict, Optional
+from urllib.parse import parse_qs, urlparse
+
 from .exceptions import HTTPError
+
 
 def generate_request_id() -> str:
     """Generate a unique request ID for tracing"""
@@ -16,13 +17,13 @@ class Request:
     """
     Kinglet Request object that wraps Workers request with convenience methods
     """
-    
+
     def __init__(self, raw_request, env=None, path_params=None):
         self._raw = raw_request
         self.env = env or type('Env', (), {})()
         self.path_params = path_params or {}
         self.request_id = generate_request_id()
-        
+
         # Parse URL and method
         if hasattr(raw_request, 'url'):
             url_string = raw_request.url
@@ -35,25 +36,25 @@ class Request:
             self.url = url_string
             self._parsed_url = urlparse(url_string)
             self.method = getattr(raw_request, 'method', 'GET').upper()
-        
+
         # Initialize headers
         self._headers = {}
         self._init_headers(raw_request)
-        
+
         # Cache for parsed content
         self._json_cache = None
         self._text_cache = None
-    
+
     @property
     def path(self) -> str:
         """Get the path portion of the URL"""
         return self._parsed_url.path
-    
-    @property 
+
+    @property
     def query_string(self) -> str:
         """Get the query string portion of the URL"""
         return self._parsed_url.query
-    
+
     def _init_headers(self, raw_request):
         """Initialize headers from raw request"""
         try:
@@ -76,26 +77,26 @@ class Request:
                     try:
                         for header in headers_obj:
                             self._headers[header[0].lower()] = header[1]
-                    except:
+                    except (TypeError, AttributeError, IndexError):
                         # If all else fails, just continue without headers
                         pass
         except AttributeError:
             # Headers might be in a different format in Workers
             pass
-    
+
     def header(self, name: str, default: str = None) -> str:
         """Get header value (case-insensitive)"""
         return self._headers.get(name.lower(), default)
-    
+
     @property
     def query_params(self) -> Dict[str, str]:
         """Get query parameters as dict"""
         return {k: v[0] if v else '' for k, v in parse_qs(self._parsed_url.query).items()}
-    
+
     def query(self, key: str, default: str = None) -> str:
         """Get query parameter value"""
         return self.query_params.get(key, default)
-    
+
     def query_int(self, key: str, default: int = None) -> int:
         """Get query parameter as integer"""
         value = self.query(key)
@@ -105,11 +106,11 @@ class Request:
             return int(value)
         except ValueError:
             raise HTTPError(400, f"Query parameter '{key}' must be an integer")
-    
+
     def path_param(self, key: str, default: str = None) -> str:
         """Get path parameter value"""
         return self.path_params.get(key, default)
-    
+
     def path_param_int(self, key: str, default: int = None) -> int:
         """Get path parameter as integer"""
         value = self.path_param(key)
@@ -119,7 +120,7 @@ class Request:
             return int(value)
         except ValueError:
             raise HTTPError(400, f"Path parameter '{key}' must be an integer")
-    
+
     def basic_auth(self) -> tuple:
         """Extract basic auth credentials"""
         auth_header = self.header('authorization', '')
@@ -134,11 +135,11 @@ class Request:
             except Exception:
                 pass
         return None
-    
+
     async def body(self) -> str:
         """Get raw request body"""
         return await self.text()
-    
+
     async def text(self) -> str:
         """Get request body as text"""
         if self._text_cache is None:
@@ -147,7 +148,7 @@ class Request:
             else:
                 self._text_cache = ""
         return self._text_cache
-    
+
     async def json(self, convert=True) -> Optional[Dict]:
         """Get request body as parsed JSON
         
@@ -160,13 +161,13 @@ class Request:
         """
         cache_key = f"_json_cache_{convert}"
         cached_value = getattr(self, cache_key, None)
-        
+
         if cached_value is None:
             # Check if raw request has json() method (like in Workers)
             if hasattr(self._raw, 'json'):
                 try:
                     raw_json = await self._raw.json()
-                    
+
                     if convert and raw_json is not None:
                         # Convert JsProxy to Python dict if needed
                         if hasattr(raw_json, 'to_py'):
@@ -193,7 +194,7 @@ class Request:
                     else:
                         # No conversion requested or raw_json is None
                         cached_value = raw_json
-                        
+
                 except Exception:
                     cached_value = None
             else:
@@ -206,9 +207,9 @@ class Request:
                         cached_value = None
                 else:
                     cached_value = None
-            
+
             setattr(self, cache_key, cached_value)
-        
+
         return cached_value
 
 
@@ -216,12 +217,12 @@ class Response:
     """
     Kinglet Response object with automatic content type detection
     """
-    
+
     def __init__(self, content: Any = None, status: int = 200, headers: Dict[str, str] = None, content_type: str = None):
         self.content = content
         self.status = status
         self.headers = headers or {}
-        
+
         # Handle explicit content_type parameter
         if content_type:
             self.headers['Content-Type'] = content_type
@@ -231,13 +232,13 @@ class Response:
                 self.headers['Content-Type'] = 'application/json'
             elif isinstance(content, str):
                 self.headers['Content-Type'] = 'text/plain; charset=utf-8'
-    
+
     def header(self, name: str, value: str):
         """Add header (chainable)"""
         self.headers[name] = value
         return self
-    
-    def cors(self, origin: str = "*", methods: str = "GET,POST,PUT,DELETE", 
+
+    def cors(self, origin: str = "*", methods: str = "GET,POST,PUT,DELETE",
              headers: str = "Content-Type,Authorization"):
         """Add CORS headers (chainable)"""
         self.headers.update({
@@ -246,11 +247,11 @@ class Response:
             'Access-Control-Allow-Headers': headers
         })
         return self
-    
+
     def to_workers_response(self):
         """Convert to Workers Response object"""
         from workers import Response as WorkersResponse
-        
+
         # Handle different content types
         if isinstance(self.content, (dict, list)):
             # Use Response.json for JSON content
@@ -258,7 +259,7 @@ class Response:
         else:
             # Use regular Response for text/binary content
             return WorkersResponse(self.content, status=self.status, headers=self.headers)
-    
+
     @staticmethod
     def error(message: str, status: int = 500, request_id: str = None):
         """Create error response"""

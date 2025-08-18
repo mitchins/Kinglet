@@ -1,12 +1,14 @@
 """
 Kinglet 1.4.0 Demo - Testing all new features
 """
-from kinglet import Kinglet, Router, Response
+from kinglet import Kinglet, Response, Router
 from kinglet.authz import (
-    get_user, require_auth, allow_public_or_owner,
-    require_owner, require_participant
+    allow_public_or_owner,
+    get_user,
+    require_auth,
+    require_owner,
 )
-from kinglet.totp import verify_totp_code, generate_totp_secret
+from kinglet.totp import generate_totp_secret, verify_totp_code
 
 app = Kinglet()
 
@@ -53,14 +55,14 @@ async def resource_endpoint(request):
     """Resource that's public or owner-only"""
     resource_id = request.path_params.get('resource_id')
     user = await get_user(request)
-    
+
     # Mock resource lookup
     resource = {
         "id": resource_id,
         "public": resource_id.startswith("public-"),
         "owner_id": "user-123" if not resource_id.startswith("public-") else None
     }
-    
+
     return {
         "resource": resource,
         "accessed_by": user.get('sub') if user else "anonymous"
@@ -90,7 +92,7 @@ async def setup_totp(request):
     user = await get_user(request)
     if not user:
         return Response({"error": "Authentication required"}, status=401)
-    
+
     secret = generate_totp_secret()
     # In production, save this secret to database
     return {
@@ -100,21 +102,21 @@ async def setup_totp(request):
 
 @totp_router.post("/verify")
 @require_auth
-async def verify_totp_code(request):
+async def verify_totp_endpoint(request):
     """Verify TOTP code"""
     user = await get_user(request)
     if not user:
         return Response({"error": "Authentication required"}, status=401)
-    
+
     body = await request.json() or {}
     code = body.get('code')
     secret = body.get('secret')  # In production, fetch from database
-    
+
     if not code or not secret:
         return Response({"error": "Code and secret required"}, status=400)
-    
+
     is_valid = verify_totp_code(secret, code)
-    
+
     return {
         "valid": is_valid,
         "message": "TOTP verified successfully" if is_valid else "Invalid code"
@@ -135,13 +137,13 @@ async def list_users(request):
             results = await request.env.DB.prepare(
                 "SELECT * FROM users LIMIT 10"
             ).all()
-            
+
             from kinglet import d1_unwrap_results
             users = d1_unwrap_results(results)
             return {"users": users}
     except:
         pass
-    
+
     # Mock data for demo
     return {
         "users": [
@@ -155,17 +157,17 @@ async def list_users(request):
 async def create_user(request):
     """Create user in D1 database"""
     body = await request.json() or {}
-    
+
     if not body.get('name') or not body.get('email'):
         return Response({"error": "Name and email required"}, status=400)
-    
+
     try:
         if hasattr(request.env, 'DB'):
             # In real environment, this would insert into D1
             result = await request.env.DB.prepare(
                 "INSERT INTO users (name, email) VALUES (?, ?)"
             ).bind(body['name'], body['email']).run()
-            
+
             from kinglet import d1_unwrap
             meta = d1_unwrap(result.meta)
             return {
@@ -174,7 +176,7 @@ async def create_user(request):
             }
     except:
         pass
-    
+
     # Mock response for demo
     return {
         "created": True,
@@ -199,7 +201,7 @@ async def list_files(request):
             return {"files": files}
     except:
         pass
-    
+
     # Mock data for demo
     return {
         "files": [
@@ -213,14 +215,14 @@ async def list_files(request):
 async def get_file(request):
     """Get file from R2"""
     key = request.path_params.get('key')
-    
+
     try:
         if hasattr(request.env, 'BUCKET'):
             obj = await request.env.BUCKET.get(key)
             if obj:
                 from kinglet import r2_get_content_info
                 info = r2_get_content_info(obj)
-                
+
                 # For binary files, return stream directly
                 if info['type'] and 'image' in info['type']:
                     from workers import Response as WorkersResponse
@@ -228,13 +230,13 @@ async def get_file(request):
                         'Content-Type': info['type'],
                         'Content-Length': str(info['size'])
                     })
-                
+
                 # For text files, return content
                 content = await obj.text()
                 return Response(content, headers={'Content-Type': info['type']})
     except:
         pass
-    
+
     return Response({"error": f"File '{key}' not found"}, status=404)
 
 app.include_router("/r2", r2_router)
@@ -274,7 +276,7 @@ async def dangerous_action(request):
             "error": "Confirmation required",
             "hint": "Add header: X-Confirm-Action: true"
         }, status=400)
-    
+
     return {
         "success": True,
         "message": "Dangerous action completed"

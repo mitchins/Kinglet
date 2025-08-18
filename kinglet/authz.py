@@ -1,8 +1,14 @@
 # kinglet/authz.py
-import time, json, hmac, hashlib, base64
-from typing import Callable, Awaitable, Optional, Any
+import base64
+import hashlib
+import hmac
+import json
+import time
+from typing import Any, Awaitable, Callable, Optional
+
 from .http import Response  # Import directly from http module
-from .totp import verify_code, create_elevated_jwt, set_otp_provider, DummyOTPProvider  # TOTP support
+from .totp import DummyOTPProvider, set_otp_provider  # TOTP support
+
 
 # ---------- JWT (HS256) minimal ----------
 def _b64url_decode(s: str) -> bytes:
@@ -173,7 +179,7 @@ def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
         user = await get_user(req)
         if not user:
             return Response({"error": "authentication required"}, status=401)
-        
+
         # Check if TOTP is enabled in this environment
         totp_enabled = getattr(req.env, 'TOTP_ENABLED', 'true').lower() == 'true'
         if not totp_enabled:
@@ -181,9 +187,9 @@ def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
             req.state = getattr(req, "state", type("S", (), {})())
             req.state.user = user
             return await handler(req)
-        
+
         claims = user.get('claims', {})
-        
+
         # Check if session is elevated
         if not claims.get('elevated', False):
             return Response({
@@ -191,7 +197,7 @@ def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
                 "code": "ELEVATION_REQUIRED",
                 "step_up_url": "/auth/totp/step-up"
             }, status=403)
-        
+
         # Check elevation hasn't expired (double-check beyond JWT exp)
         elevation_time = claims.get('elevation_time', 0)
         current_time = time.time()
@@ -201,11 +207,11 @@ def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
                 "code": "ELEVATION_EXPIRED",
                 "step_up_url": "/auth/totp/step-up"
             }, status=403)
-        
+
         req.state = getattr(req, "state", type("S", (), {})())
         req.state.user = user
         return await handler(req)
-    
+
     return wrapped
 
 def require_claim(claim_name: str, claim_value: Any = True):
@@ -215,18 +221,18 @@ def require_claim(claim_name: str, claim_value: Any = True):
             user = await get_user(req)
             if not user:
                 return Response({"error": "authentication required"}, status=401)
-            
+
             claims = user.get('claims', {})
             actual_value = claims.get(claim_name)
-            
+
             if actual_value != claim_value:
                 return Response({
-                    "error": f"insufficient privileges",
+                    "error": "insufficient privileges",
                     "code": "MISSING_CLAIM",
                     "required_claim": claim_name,
                     "required_value": claim_value
                 }, status=403)
-            
+
             req.state = getattr(req, "state", type("S", (), {})())
             req.state.user = user
             return await handler(req)
@@ -240,12 +246,12 @@ def require_elevated_claim(claim_name: str, claim_value: Any = True):
             user = await get_user(req)
             if not user:
                 return Response({"error": "authentication required"}, status=401)
-            
+
             claims = user.get('claims', {})
-            
+
             # Check if TOTP is enabled in this environment
             totp_enabled = getattr(req.env, 'TOTP_ENABLED', 'true').lower() == 'true'
-            
+
             # Check elevation first (only if TOTP enabled)
             if totp_enabled and not claims.get('elevated', False):
                 return Response({
@@ -253,17 +259,17 @@ def require_elevated_claim(claim_name: str, claim_value: Any = True):
                     "code": "ELEVATION_REQUIRED",
                     "step_up_url": "/auth/totp/step-up"
                 }, status=403)
-            
+
             # Check specific claim
             actual_value = claims.get(claim_name)
             if actual_value != claim_value:
                 return Response({
-                    "error": f"insufficient privileges",
+                    "error": "insufficient privileges",
                     "code": "MISSING_CLAIM",
                     "required_claim": claim_name,
                     "required_value": claim_value
                 }, status=403)
-            
+
             req.state = getattr(req, "state", type("S", (), {})())
             req.state.user = user
             return await handler(req)

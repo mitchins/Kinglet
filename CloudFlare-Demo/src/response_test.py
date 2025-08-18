@@ -13,7 +13,7 @@ async def home(request):
             "/text - Plain text response",
             "/dict - Dict response (auto JSON)",
             "/response-obj - Explicit Response object",
-            "/custom-headers - Response with custom headers", 
+            "/custom-headers - Response with custom headers",
             "/error-static - Static error method",
             "/content-type - Content-type handling"
         ]
@@ -24,7 +24,7 @@ async def handle_text_response(request):
     """Test plain text response - what content-type does it get?"""
     return "This is plain text"
 
-@app.get("/dict") 
+@app.get("/dict")
 async def handle_dict_response(request):
     """Test dict response - should auto-convert to JSON"""
     return {"type": "dict", "auto_json": True}

@@ -3,11 +3,12 @@
 Kinglet Decorators Example
 Demonstrates exception wrapping, dev-only endpoints, and geo-restrictions
 """
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from kinglet import Kinglet, TestClient, wrap_exceptions, require_dev, geo_restrict
+from kinglet import Kinglet, TestClient, geo_restrict, require_dev, wrap_exceptions
 
 # Create app with global exception wrapping enabled (default)
 app = Kinglet(debug=True, auto_wrap_exceptions=True)
@@ -21,7 +22,7 @@ async def get_games(request):
     # Simulate database access that might fail
     if request.query("simulate_error") == "true":
         raise ConnectionError("Database connection failed")
-    
+
     return {
         "games": [
             {"id": 1, "title": "Epic Adventure", "price": 9.99},
@@ -41,7 +42,7 @@ async def manual_wrapped(request):
     """Manually wrapped endpoint with specific step identifier"""
     if request.query("break") == "true":
         raise ValueError("Something broke in the manual endpoint")
-    
+
     return {"message": "Manual wrapping works", "step": "manual_endpoint"}
 
 # === DEV-ONLY ENDPOINTS ===
@@ -105,11 +106,11 @@ async def super_restricted_debug(request):
     - Has custom exception wrapping with step identifier
     """
     country = request.header("cf-ipcountry", "XX")
-    
+
     # Simulate potential error
     if request.query("error") == "true":
         raise RuntimeError("Simulated error in restricted endpoint")
-    
+
     return {
         "message": "Super restricted debug endpoint",
         "environment": request.env.ENVIRONMENT,
@@ -123,51 +124,51 @@ async def super_restricted_debug(request):
 def demo():
     """Demonstrate the decorator features"""
     print("🎭 Kinglet Decorators Demo\n")
-    
+
     # Test client for development environment
     dev_client = TestClient(app, env={'ENVIRONMENT': 'development'})
-    
-    # Test client for production environment  
+
+    # Test client for production environment
     prod_client = TestClient(app, env={'ENVIRONMENT': 'production'})
-    
+
     print("1. Global Exception Wrapping:")
     status, headers, body = dev_client.request("GET", "/api/games?simulate_error=true")
     print(f"   Error response: {status} - {body[:100]}...")
-    
+
     print("\n2. Dev-Only Endpoints:")
     status, headers, body = dev_client.request("GET", "/admin/debug")
     print(f"   Dev environment: {status} - Access granted")
-    
+
     status, headers, body = prod_client.request("GET", "/admin/debug")
     print(f"   Prod environment: {status} - Access denied")
-    
+
     print("\n3. Geo-Restricted Endpoints:")
-    status, headers, body = dev_client.request("GET", "/api/games-us", 
+    status, headers, body = dev_client.request("GET", "/api/games-us",
                                               headers={"cf-ipcountry": "US"})
     print(f"   US request: {status} - Access granted")
-    
+
     status, headers, body = dev_client.request("GET", "/api/games-us",
-                                              headers={"cf-ipcountry": "DE"})  
+                                              headers={"cf-ipcountry": "DE"})
     print(f"   DE request: {status} - Access denied")
-    
+
     print("\n4. Combined Restrictions:")
     status, headers, body = dev_client.request("GET", "/admin/restricted-debug",
                                               headers={"cf-ipcountry": "US"})
     print(f"   Dev + US: {status} - Access granted")
-    
+
     status, headers, body = prod_client.request("GET", "/admin/restricted-debug",
                                                headers={"cf-ipcountry": "US"})
     print(f"   Prod + US: {status} - Blocked by dev restriction")
-    
+
     status, headers, body = dev_client.request("GET", "/admin/restricted-debug",
                                               headers={"cf-ipcountry": "CN"})
     print(f"   Dev + CN: {status} - Blocked by geo restriction")
-    
+
     print("\n5. Manual Exception Wrapping:")
     manual_client = TestClient(app_manual)
     status, headers, body = manual_client.request("GET", "/api/manual?break=true")
     print(f"   Manual wrap: {status} - {body[:80]}...")
-    
+
     print("\n✅ Demo complete! All decorator features working.")
 
 if __name__ == "__main__":

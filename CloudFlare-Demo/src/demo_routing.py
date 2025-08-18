@@ -1,7 +1,7 @@
 """
 Kinglet Routing Demo - Basic routing features
 """
-from kinglet import Kinglet, Router, Response
+from kinglet import Kinglet, Response, Router
 
 app = Kinglet()
 

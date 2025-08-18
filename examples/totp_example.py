@@ -5,18 +5,18 @@ Demonstrates session elevation with TOTP in Kinglet 1.4.0
 
 from kinglet import Kinglet, Response
 from kinglet.authz import (
-    require_auth, 
-    require_elevated_session,
+    configure_otp_provider,
+    require_auth,
     require_elevated_claim,
-    configure_otp_provider
+    require_elevated_session,
 )
 from kinglet.totp import (
+    create_elevated_jwt,
+    decrypt_totp_secret,
+    encrypt_totp_secret,
+    generate_totp_qr_url,
     generate_totp_secret,
     verify_code,
-    generate_totp_qr_url,
-    create_elevated_jwt,
-    encrypt_totp_secret,
-    decrypt_totp_secret
 )
 
 app = Kinglet(debug=True)
@@ -47,24 +47,24 @@ async def setup_totp(request):
     """
     user = request.state.user
     user_id = user["id"]
-    
+
     # Generate new TOTP secret
     secret = generate_totp_secret()
-    
+
     # Encrypt secret for storage
     encrypted_secret = encrypt_totp_secret(secret, request.env)
-    
+
     # Store in database
     await request.env.DB.prepare("""
         UPDATE users 
         SET totp_secret = ?, totp_enabled = true, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     """).bind(encrypted_secret, user_id).run()
-    
+
     # Generate QR code URL for scanning
     email = user["claims"].get("email", f"user_{user_id}")
     qr_url = generate_totp_qr_url(secret, email, "MyApp")
-    
+
     return {
         "success": True,
         "secret": secret,  # User should save this securely
@@ -86,33 +86,33 @@ async def verify_totp_setup(request):
     """
     body = await request.json()
     code = body.get("code", "").strip()
-    
+
     if not code:
         return Response({"error": "Code required"}, status=400)
-    
+
     user_id = request.state.user["id"]
-    
+
     # Get user's encrypted TOTP secret
     result = await request.env.DB.prepare(
         "SELECT totp_secret FROM users WHERE id = ?"
     ).bind(user_id).first()
-    
+
     if not result or not result["totp_secret"]:
         return Response({"error": "TOTP not configured"}, status=400)
-    
+
     # Decrypt and verify
     secret = decrypt_totp_secret(result["totp_secret"], request.env)
-    
+
     if not verify_code(secret, code):
         return Response({"error": "Invalid code"}, status=401)
-    
+
     # Mark TOTP as verified
     await request.env.DB.prepare("""
         UPDATE users 
         SET totp_verified = true, totp_verified_at = CURRENT_TIMESTAMP
         WHERE id = ?
     """).bind(user_id).run()
-    
+
     return {
         "success": True,
         "message": "TOTP successfully configured and verified"
@@ -132,36 +132,36 @@ async def step_up_authentication(request):
     """
     body = await request.json()
     code = body.get("code", "").strip()
-    
+
     if not code:
         return Response({"error": "Code required"}, status=400)
-    
+
     user = request.state.user
     user_id = user["id"]
-    
+
     # Get user's TOTP configuration
     result = await request.env.DB.prepare(
         "SELECT totp_secret, totp_enabled FROM users WHERE id = ?"
     ).bind(user_id).first()
-    
+
     if not result or not result["totp_enabled"]:
         return Response({
             "error": "TOTP not enabled",
             "setup_url": "/auth/totp/setup"
         }, status=400)
-    
+
     # Verify TOTP code
     secret = decrypt_totp_secret(result["totp_secret"], request.env)
-    
+
     if not verify_code(secret, code):
         # Log failed attempt for security monitoring
         await request.env.DB.prepare("""
             INSERT INTO auth_logs (user_id, action, success, ip_address)
             VALUES (?, 'totp_verify', false, ?)
         """).bind(user_id, request.cf.ip).run()
-        
+
         return Response({"error": "Invalid code"}, status=401)
-    
+
     # Create elevated JWT with additional claims
     elevated_token = create_elevated_jwt(
         user_id=user_id,
@@ -173,13 +173,13 @@ async def step_up_authentication(request):
         secret=request.env.JWT_SECRET,
         expires_in=900  # 15 minutes
     )
-    
+
     # Log successful elevation
     await request.env.DB.prepare("""
         INSERT INTO auth_logs (user_id, action, success, ip_address)
         VALUES (?, 'totp_verify', true, ?)
     """).bind(user_id, request.cf.ip).run()
-    
+
     return {
         "success": True,
         "token": elevated_token,
@@ -201,12 +201,12 @@ async def delete_account(request):
     Requires elevated session (TOTP verification)
     """
     user_id = request.state.user["id"]
-    
+
     # Perform account deletion
     await request.env.DB.prepare(
         "UPDATE users SET deleted = true, deleted_at = CURRENT_TIMESTAMP WHERE id = ?"
     ).bind(user_id).run()
-    
+
     return {
         "success": True,
         "message": "Account scheduled for deletion"
@@ -223,18 +223,18 @@ async def withdraw_funds(request):
     body = await request.json()
     amount = body.get("amount", 0)
     destination = body.get("destination", "")
-    
+
     if amount <= 0:
         return Response({"error": "Invalid amount"}, status=400)
-    
+
     user_id = request.state.user["id"]
-    
+
     # Process withdrawal (simplified)
     await request.env.DB.prepare("""
         INSERT INTO withdrawals (user_id, amount, destination, status)
         VALUES (?, ?, ?, 'pending')
     """).bind(user_id, amount, destination).run()
-    
+
     return {
         "success": True,
         "withdrawal_id": generate_id(),
@@ -253,7 +253,7 @@ async def update_payout_settings(request):
     """
     body = await request.json()
     user_id = request.state.user["id"]
-    
+
     # Update payout settings
     await request.env.DB.prepare("""
         UPDATE publisher_settings 
@@ -264,7 +264,7 @@ async def update_payout_settings(request):
         body.get("details"),
         user_id
     ).run()
-    
+
     return {
         "success": True,
         "message": "Payout settings updated"
@@ -284,20 +284,20 @@ async def admin_disable_totp(request):
     """
     target_user_id = request.path_param("user_id")
     admin_id = request.state.user["id"]
-    
+
     # Disable TOTP for target user
     await request.env.DB.prepare("""
         UPDATE users 
         SET totp_secret = NULL, totp_enabled = false, totp_verified = false
         WHERE id = ?
     """).bind(target_user_id).run()
-    
+
     # Log admin action
     await request.env.DB.prepare("""
         INSERT INTO admin_logs (admin_id, action, target_user_id, details)
         VALUES (?, 'disable_totp', ?, 'Support request')
     """).bind(admin_id, target_user_id).run()
-    
+
     return {
         "success": True,
         "message": f"TOTP disabled for user {target_user_id}"
@@ -315,10 +315,10 @@ async def get_test_info(request):
     Only available when TOTP_ENABLED=false
     """
     totp_enabled = getattr(request.env, 'TOTP_ENABLED', 'true').lower() == 'true'
-    
+
     if totp_enabled:
         return Response({"error": "Not available in production"}, status=403)
-    
+
     return {
         "environment": getattr(request.env, 'ENVIRONMENT', 'unknown'),
         "totp_enabled": totp_enabled,
@@ -340,8 +340,9 @@ async def get_test_info(request):
 # UTILITIES
 # ============================================
 
-import time
 import secrets
+import time
+
 
 def generate_id():
     """Generate unique ID"""

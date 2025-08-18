@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+    
+    - name: Set up Python 3.12 (matches CloudFlare Workers Pyodide)
+      run: uv python install 3.12
+    
+    - name: Install dependencies
+      run: |
+        uv sync --all-extras --dev
+    
+    - name: Lint with ruff (strict on production code)
+      run: |
+        uv run ruff check kinglet/ --select=E9,F63,F7,F82,F811,F821,E722
+        uv run ruff check . --select=E9,F63,F7,F82,F811,F821 || true
+        uv run ruff format --check . || true
+    
+    - name: Type check with mypy
+      run: |
+        uv run mypy kinglet/ || true  # Allow mypy failures for now
+    
+    - name: Run tests
+      run: |
+        uv run pytest --cov=kinglet --cov-report=xml --cov-report=term-missing
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+    
+    - name: Set up Python
+      run: uv python install 3.12
+    
+    - name: Install dependencies
+      run: uv sync
+    
+    - name: Build package
+      run: |
+        uv build
+    
+    - name: Verify build artifacts
+      run: |
+        ls -la dist/
+        uv run python -c "import kinglet; print(f'Kinglet version: {kinglet.__version__}')"
+
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+    
+    - name: Set up Python
+      run: uv python install 3.12
+    
+    - name: Install dependencies
+      run: uv sync --dev
+    
+    - name: Run security checks with bandit
+      run: |
+        uv run bandit -r kinglet/ || true  # Allow bandit failures for now
+    
+    - name: Check for known vulnerabilities in dependencies
+      run: |
+        uv run safety check || true  # Allow safety failures for now
