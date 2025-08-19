@@ -15,7 +15,7 @@
 Install: `pip install kinglet` or add `dependencies = ["kinglet"]` to pyproject.toml
 
 ```python
-from kinglet import Kinglet, CorsMiddleware, cache_aside
+from kinglet import Kinglet, CorsMiddleware, cache_aside_d1
 
 app = Kinglet(root_path="/api")
 
@@ -28,7 +28,7 @@ async def login(request):
     return {"token": "jwt-token", "user": data["email"]}
 
 @app.get("/api/data")
-@cache_aside(cache_type="api_data", ttl=1800)  # Environment-aware (v1.4.3+)
+@cache_aside_d1(cache_type="api_data", ttl=1800)  # D1 caching (v1.5.0+)
 async def get_data(request):
     return {"data": "cached_in_prod_fresh_in_dev"}
 ```
@@ -44,7 +44,7 @@ async def get_data(request):
 ## Key Features
 
 **Core:** Decorator routing, typed parameters, flexible middleware, auto error handling, serverless testing
-**Cloudflare:** D1/R2/KV helpers, environment-aware caching, CDN-aware URLs  
+**Cloudflare:** D1/R2/KV helpers, D1-backed caching, environment-aware policies, CDN-aware URLs  
 **Security:** JWT validation, TOTP/2FA, geo-restrictions, fine-grained auth decorators
 **Developer:** Full type hints, debug mode, request validation, zero-dependency testing
 
@@ -66,10 +66,17 @@ async def get_user(request):
 cors = CorsMiddleware(allow_origin="*", allow_methods="GET,POST")
 app.add_middleware(cors)
 
+# D1-backed caching (v1.5.0+) - faster and cheaper for <1MB responses
 @app.get("/api/data")
-@cache_aside(cache_type="api_data", ttl=1800)  # Environment-aware
+@cache_aside_d1(cache_type="api_data", ttl=1800)  # D1 primary, R2 fallback
 async def get_data(request):
     return {"data": "expensive_query_result"}
+
+# R2-backed caching for larger responses
+@app.get("/api/large")
+@cache_aside(cache_type="large_data", ttl=3600)  # Environment-aware
+async def get_large_data(request):
+    return {"data": "large_expensive_query_result"}
 ```
 
 **Security & Access Control:**

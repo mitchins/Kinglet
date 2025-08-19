@@ -27,6 +27,8 @@ from .middleware import CorsMiddleware, Middleware, TimingMiddleware
 
 # Storage helpers
 from .storage import (
+    arraybuffer_to_bytes,
+    bytes_to_arraybuffer,
     d1_unwrap,
     d1_unwrap_results,
     r2_delete,
@@ -47,12 +49,20 @@ from .utils import (
     NeverCachePolicy,
     asset_url,
     cache_aside,
+    cache_aside_d1,
     get_default_cache_policy,
     media_url,
     set_default_cache_policy,
 )
 
-__version__ = "1.4.3"
+# D1 Cache (optional import)
+try:
+    from .cache_d1 import D1CacheService, generate_cache_key, ensure_cache_table
+    _d1_available = True
+except ImportError:
+    _d1_available = False
+
+__version__ = "1.5.0"
 __author__ = "Mitchell Currie"
 
 # Export commonly used items
@@ -66,6 +76,7 @@ __all__ = [
     # Storage
     "d1_unwrap", "d1_unwrap_results",
     "r2_get_metadata", "r2_get_content_info", "r2_put", "r2_delete", "r2_list",
+    "bytes_to_arraybuffer", "arraybuffer_to_bytes",
     # Testing
     "TestClient",
     # Middleware
@@ -73,7 +84,7 @@ __all__ = [
     # Decorators
     "wrap_exceptions", "require_dev", "geo_restrict", "validate_json_body", "require_field",
     # Utilities
-    "CacheService", "cache_aside", "asset_url", "media_url",
+    "CacheService", "cache_aside", "cache_aside_d1", "asset_url", "media_url",
     "EnvironmentCachePolicy", "AlwaysCachePolicy", "NeverCachePolicy",
     "set_default_cache_policy", "get_default_cache_policy",
     # Modules

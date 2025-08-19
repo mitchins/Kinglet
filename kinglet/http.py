@@ -149,6 +149,31 @@ class Request:
                 self._text_cache = ""
         return self._text_cache
 
+    async def bytes(self) -> bytes:
+        """Get request body as bytes for binary data"""
+        # Check if raw request has arrayBuffer() method (Workers runtime)
+        if hasattr(self._raw, 'arrayBuffer'):
+            array_buffer = await self._raw.arrayBuffer()
+            # Convert ArrayBuffer to Python bytes
+            try:
+                from js import Uint8Array
+                uint8_array = Uint8Array.new(array_buffer)
+                return bytes([uint8_array[i] for i in range(uint8_array.length)])
+            except ImportError:
+                # Not in Workers environment - fallback behavior
+                if hasattr(array_buffer, '__iter__'):
+                    return bytes(array_buffer)
+                else:
+                    # Return empty bytes if conversion fails
+                    return b""
+        
+        # Fallback: try to get text and encode to bytes
+        try:
+            text_data = await self.text()
+            return text_data.encode('utf-8')
+        except Exception:
+            return b""
+
     async def json(self, convert=True) -> Optional[Dict]:
         """Get request body as parsed JSON
         

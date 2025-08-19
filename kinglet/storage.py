@@ -142,24 +142,123 @@ def r2_get_content_info(obj):
 
     return result
 
+def bytes_to_arraybuffer(data):
+    """
+    Convert Python bytes to JavaScript ArrayBuffer for R2/Worker API compatibility
+    
+    This utility handles the conversion from Python bytes (common in file uploads,
+    image processing, etc.) to JavaScript ArrayBuffer format required by
+    Cloudflare Workers R2 API.
+    
+    Args:
+        data: Python bytes, bytearray, or already-converted ArrayBuffer
+        
+    Returns:
+        JavaScript ArrayBuffer suitable for R2 uploads
+        
+    Example:
+        # Direct usage:
+        upload_data = bytes_to_arraybuffer(file_bytes)
+        await bucket.put("path/file.jpg", upload_data)
+        
+        # Or use enhanced r2_put which calls this automatically:
+        await r2_put(bucket, "path/file.jpg", file_bytes)
+    """
+    # Return early if already an ArrayBuffer or similar JS object
+    if not isinstance(data, (bytes, bytearray)):
+        return data
+    
+    try:
+        # Import JavaScript types
+        from js import Uint8Array, ArrayBuffer
+        
+        # Create ArrayBuffer of correct size
+        array_buffer = ArrayBuffer.new(len(data))
+        
+        # Create Uint8Array view of the ArrayBuffer
+        uint8_array = Uint8Array.new(array_buffer)
+        
+        # Copy bytes efficiently
+        for i, byte in enumerate(data):
+            uint8_array[i] = byte
+            
+        return array_buffer
+        
+    except ImportError:
+        # Not in a Workers environment - return data as-is for local development
+        return data
+    except Exception as e:
+        raise ValueError(f"Failed to convert bytes to ArrayBuffer: {e}")
+
+def arraybuffer_to_bytes(array_buffer):
+    """
+    Convert JavaScript ArrayBuffer back to Python bytes
+    
+    This utility handles the reverse conversion from JavaScript ArrayBuffer
+    (received from R2 get operations) back to Python bytes for processing.
+    
+    Args:
+        array_buffer: JavaScript ArrayBuffer from R2 or other JS API
+        
+    Returns:
+        Python bytes object
+        
+    Example:
+        r2_object = await bucket.get("path/file.jpg")
+        file_bytes = arraybuffer_to_bytes(r2_object.arrayBuffer())
+    """
+    # Return early if already bytes
+    if isinstance(array_buffer, (bytes, bytearray)):
+        return bytes(array_buffer)
+    
+    try:
+        # Import JavaScript types  
+        from js import Uint8Array
+        
+        # Create Uint8Array view
+        uint8_array = Uint8Array.new(array_buffer)
+        
+        # Convert to Python bytes
+        return bytes([uint8_array[i] for i in range(uint8_array.length)])
+        
+    except ImportError:
+        # Not in Workers environment - assume it's already bytes
+        return array_buffer if isinstance(array_buffer, bytes) else bytes(array_buffer)
+    except Exception as e:
+        raise ValueError(f"Failed to convert ArrayBuffer to bytes: {e}")
+
 async def r2_put(bucket, key: str, content, metadata: dict = None):
     """
-    Put object into R2 bucket with metadata
+    Put object into R2 bucket with metadata and automatic binary conversion
+    
+    This enhanced r2_put automatically converts Python bytes to JavaScript ArrayBuffer
+    for seamless R2 uploads. No more manual conversion needed!
     
     Args:
         bucket: R2 bucket binding
         key: Object key/path
-        content: Content to store
+        content: Content to store (bytes automatically converted to ArrayBuffer)
         metadata: Optional custom metadata dict
         
     Returns:
         Result object with etag, etc.
+        
+    Example:
+        # Before (manual conversion required):
+        array_buffer = bytes_to_arraybuffer(file_bytes)
+        await bucket.put("file.jpg", array_buffer)
+        
+        # After (automatic conversion):
+        await r2_put(bucket, "file.jpg", file_bytes)  # Just works!
     """
     put_options = {}
     if metadata:
         put_options['customMetadata'] = metadata
 
-    return await bucket.put(key, content, **put_options)
+    # Automatically convert Python bytes to ArrayBuffer for R2 compatibility
+    upload_content = bytes_to_arraybuffer(content)
+    
+    return await bucket.put(key, upload_content, **put_options)
 
 async def r2_delete(bucket, key: str):
     """Delete object from R2 bucket"""

@@ -322,3 +322,100 @@ def _generate_cache_key(func_name: str, cache_type: str, args: tuple, kwargs: di
     # Generate hash for consistent key length
     key_string = "|".join(key_parts)
     return f"cache:{hashlib.sha256(key_string.encode()).hexdigest()[:16]}"
+
+
+def cache_aside_d1(
+    db_binding: str = "DB",
+    cache_type: str = "default", 
+    ttl: int = 3600,
+    policy: Optional[CachePolicy] = None,
+    track_hits: bool = False
+):
+    """
+    D1 database caching decorator
+    
+    Args:
+        db_binding: Name of D1 database binding in env (default: "DB")
+        cache_type: Type of cache for monitoring
+        ttl: Time to live in seconds
+        policy: Cache policy (default: EnvironmentCachePolicy)
+        track_hits: Whether to track hit counts (default: False, reduces write operations)
+    """
+    cache_policy = policy or _default_cache_policy
+    
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        async def wrapped(*args, **kwargs):
+            # Get request object
+            request = None
+            for arg in args:
+                if hasattr(arg, 'env'):
+                    request = arg
+                    break
+            
+            if not request:
+                return await func(*args, **kwargs)
+            
+            # Check cache policy
+            if not cache_policy.should_cache(request):
+                return await func(*args, **kwargs)
+            
+            # Generate cache key from URL path and query params
+            cache_key = _generate_d1_cache_key(request, cache_type)
+            
+            # Try D1 cache first
+            db = getattr(request.env, db_binding, None)
+            if db:
+                try:
+                    from .cache_d1 import D1CacheService
+                    cache_service = D1CacheService(db, ttl, track_hits=track_hits)
+                    
+                    # Get or generate with D1 cache
+                    async def generator():
+                        return await func(*args, **kwargs)
+                    
+                    return await cache_service.get_or_generate(cache_key, generator)
+                    
+                except ImportError:
+                    print("D1 cache service not available")
+                except Exception as e:
+                    print(f"D1 cache error: {e}")
+            
+            # No D1 cache available, execute directly
+            return await func(*args, **kwargs)
+        
+        return wrapped
+    return decorator
+
+
+def _generate_d1_cache_key(request: Request, cache_type: str = "default") -> str:
+    """Generate cache key optimized for D1 from request"""
+    # Use path as primary key component
+    path = getattr(request, 'path', '')
+    
+    # Include query parameters for cache differentiation
+    query_params = {}
+    if hasattr(request, 'query_string') and request.query_string:
+        # Parse common query params that affect cache
+        for param in ['sort', 'limit', 'offset', 'page', 'filter', 'search']:
+            value = getattr(request, 'query', lambda x, d=None: d)(param)
+            if value is not None:
+                query_params[param] = value
+    
+    # Include path parameters
+    path_params = getattr(request, 'path_params', {})
+    
+    # Build cache key
+    key_parts = [cache_type, path.rstrip('/')]
+    
+    # Add path parameters (most specific)
+    for k, v in sorted(path_params.items()):
+        key_parts.append(f"path_{k}={v}")
+    
+    # Add query parameters
+    for k, v in sorted(query_params.items()):
+        key_parts.append(f"query_{k}={v}")
+    
+    # Generate shorter hash for D1 efficiency
+    key_string = "|".join(key_parts)
+    return f"d1:{hashlib.sha256(key_string.encode()).hexdigest()[:24]}"
