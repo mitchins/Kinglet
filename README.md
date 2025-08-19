@@ -45,6 +45,7 @@ async def get_data(request):
 
 **Core:** Decorator routing, typed parameters, flexible middleware, auto error handling, serverless testing
 **Cloudflare:** D1/R2/KV helpers, D1-backed caching, environment-aware policies, CDN-aware URLs  
+**Database:** Micro-ORM for D1 with migrations, field validation, bulk operations (v1.6.0+)
 **Security:** JWT validation, TOTP/2FA, geo-restrictions, fine-grained auth decorators
 **Developer:** Full type hints, debug mode, request validation, zero-dependency testing
 
@@ -79,6 +80,19 @@ async def get_large_data(request):
     return {"data": "large_expensive_query_result"}
 ```
 
+**D1 Micro-ORM (v1.6.0+):**
+```python
+from kinglet import Model, StringField, IntegerField
+
+class Game(Model):
+    title = StringField(max_length=200)
+    score = IntegerField(default=0)
+
+# Simple CRUD with field validation
+game = await Game.objects.create(db, title="Pac-Man", score=100)
+top_games = await Game.objects.filter(db, score__gte=90).order_by("-score").all()
+```
+
 **Security & Access Control:**
 ```python
 @app.get("/admin/debug")
@@ -99,11 +113,11 @@ def test_api():
 ## Documentation
 
 - **[Examples](examples/)** - Quick start examples  
+- **[ORM Guide](docs/ORM.md)** - D1 micro-ORM with migrations (v1.6.0+)
 - **[Middleware Guide](docs/MIDDLEWARE.md)** - Flexible middleware system (v1.4.2+)
 - **[Caching Guide](docs/CACHING.md)** - Environment-aware caching (v1.4.3+)
 - **[Security Guide](docs/SECURITY_BEST_PRACTICES.md)** - Critical security patterns
 - **[TOTP/2FA Guide](docs/TOTP.md)** - Two-factor authentication
-- **[API Reference](docs/)** - Complete documentation
 
 ---
 

@@ -398,7 +398,7 @@ def _generate_d1_cache_key(request: Request, cache_type: str = "default") -> str
     if hasattr(request, 'query_string') and request.query_string:
         # Parse common query params that affect cache
         for param in ['sort', 'limit', 'offset', 'page', 'filter', 'search']:
-            value = getattr(request, 'query', lambda x, d=None: d)(param)
+            value = getattr(request, 'query', lambda _x, d=None: d)(param)
             if value is not None:
                 query_params[param] = value
     

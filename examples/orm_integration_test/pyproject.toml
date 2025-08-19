@@ -1,0 +1,17 @@
+[project]
+name = "kinglet-orm-integration-test"
+version = "1.6.0"
+description = "Integration test for Kinglet 1.6.0 Micro-ORM"
+dependencies = [
+    "kinglet",
+]
+
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]

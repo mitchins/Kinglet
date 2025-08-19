@@ -1,5 +1,31 @@
 # Kinglet Examples
 
+Quick start examples for all Kinglet features.
+
+### Core Features
+- **[basic_api.py](basic_api.py)** - Simple REST API with routing
+- **[decorators_example.py](decorators_example.py)** - Error handling, validation decorators
+- **[middleware_example.py](middleware_example.py)** - CORS, timing, custom middleware
+
+### Database & Storage  
+- **[orm_d1_cost_optimization.py](orm_d1_cost_optimization.py)** - D1 cost optimization guide (v1.6.0+)
+- **[orm_error_handling_example.py](orm_error_handling_example.py)** - RFC7807 error handling (v1.6.0+)
+- **[orm_integration_test/](orm_integration_test/)** - Complete ORM demo with D1 
+- **[d1_r2_helpers_example.py](d1_r2_helpers_example.py)** - D1/R2 storage helpers
+- **[caching_example.py](caching_example.py)** - R2-backed caching
+- **[d1_cache_example.py](d1_cache_example.py)** - D1-backed caching
+
+### Security & Auth
+- **[secure_admin_example.py](secure_admin_example.py)** - JWT, geo-restrictions  
+- **[authz_example.py](authz_example.py)** - Fine-grained authorization
+- **[totp_example.py](totp_example.py)** - Two-factor authentication
+
+### Media & Advanced
+- **[r2_media_example.py](r2_media_example.py)** - File upload/download
+- **[experience_api_example.py](experience_api_example.py)** - Real-world API patterns
+
+---
+
 ## Fine-Grained Authorization (v1.4.0)
 
 ```bash

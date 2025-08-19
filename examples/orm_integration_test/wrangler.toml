@@ -1,0 +1,12 @@
+name = "kinglet-orm-integration-test"
+main = "worker.py"
+compatibility_date = "2024-12-01"
+
+[vars]
+MIGRATION_TOKEN = "dev-secret-123"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kinglet-orm-test"
+database_id = "replace-with-your-d1-database-id"
+preview_database_id = "replace-with-your-preview-d1-database-id"

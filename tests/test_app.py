@@ -141,7 +141,7 @@ class TestKingletApp:
     def test_error_handler_decorator(self, app):
         """Test error handler registration"""
         @app.exception_handler(404)
-        async def not_found_handler(request, exc):
+        async def not_found_handler(request, _exc):
             return {"error": "Custom not found"}
 
         assert 404 in app.error_handlers

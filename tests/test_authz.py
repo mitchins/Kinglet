@@ -399,7 +399,7 @@ class TestRequireParticipantDecorator:
     @pytest.mark.asyncio
     async def test_participant_access(self):
         """Test successful participant access"""
-        async def load_participants(req, conversation_id):
+        async def load_participants(req, _conversation_id):
             return {"user-1", "user-2", "user-3"}
 
         @require_participant(load_participants)
@@ -424,7 +424,7 @@ class TestRequireParticipantDecorator:
     @pytest.mark.asyncio
     async def test_non_participant_forbidden(self):
         """Test non-participant access denied"""
-        async def load_participants(req, conversation_id):
+        async def load_participants(req, _conversation_id):
             return {"user-1", "user-2", "user-3"}
 
         @require_participant(load_participants)

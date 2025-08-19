@@ -62,6 +62,16 @@ try:
 except ImportError:
     _d1_available = False
 
+# Micro-ORM (optional import)
+try:
+    from .orm import (
+        Model, Field, StringField, IntegerField, BooleanField, 
+        DateTimeField, JSONField, QuerySet, Manager, SchemaManager
+    )
+    _orm_available = True
+except ImportError:
+    _orm_available = False
+
 __version__ = "1.5.0"
 __author__ = "Mitchell Currie"
 
@@ -87,6 +97,15 @@ __all__ = [
     "CacheService", "cache_aside", "cache_aside_d1", "asset_url", "media_url",
     "EnvironmentCachePolicy", "AlwaysCachePolicy", "NeverCachePolicy",
     "set_default_cache_policy", "get_default_cache_policy",
+    # Micro-ORM (conditionally exported if available)
+    "Model", "Field", "StringField", "IntegerField", "BooleanField", 
+    "DateTimeField", "JSONField", "QuerySet", "Manager", "SchemaManager",
     # Modules
     "authz", "totp"
 ]
+
+# Only export ORM items if they're available
+if not _orm_available:
+    orm_items = ["Model", "Field", "StringField", "IntegerField", "BooleanField", 
+                 "DateTimeField", "JSONField", "QuerySet", "Manager", "SchemaManager"]
+    __all__ = [item for item in __all__ if item not in orm_items]
