@@ -192,6 +192,7 @@ class Request:
             if hasattr(self._raw, 'json'):
                 try:
                     raw_json = await self._raw.json()
+                    
 
                     if convert and raw_json is not None:
                         # Convert JsProxy to Python dict if needed
@@ -220,8 +221,17 @@ class Request:
                         # No conversion requested or raw_json is None
                         cached_value = raw_json
 
-                except Exception:
-                    cached_value = None
+                except Exception as e:
+                    # If Workers JSON fails, immediately try text fallback
+                    try:
+                        body = await self.text()
+                        if body:
+                            import json as json_module
+                            cached_value = json_module.loads(body)
+                        else:
+                            cached_value = None
+                    except Exception as text_e:
+                        cached_value = None
             else:
                 # Fallback to parsing text
                 body = await self.text()

@@ -39,7 +39,7 @@ def import_models(module_path: str) -> List[Type[Model]]:
     return models
 
 
-def generate_schema(module_path: str, include_indexes: bool = True) -> str:
+def generate_schema(module_path: str, include_indexes: bool = True, cleanslate: bool = False) -> str:
     """Generate SQL schema from models"""
     models = import_models(module_path)
     
@@ -53,11 +53,47 @@ def generate_schema(module_path: str, include_indexes: bool = True) -> str:
         "-- Run with: npx wrangler d1 execute DB --file=schema.sql\n"
     ]
     
-    # Generate CREATE TABLE statements
-    for model in models:
-        sql_parts.append(f"-- Model: {model.__name__}")
-        sql_parts.append(model.get_create_sql())
+    if cleanslate:
+        # Add DROP statements for clean slate deployment
+        sql_parts.append("-- Clean Slate: Drop all tables first")
+        
+        # Get all unique table names from models
+        tables = set()
+        for model in models:
+            tables.add(model._meta.table_name)
+        
+        # Add common tables that might have foreign keys to our models
+        dependent_tables = [
+            'game_media', 'game_reviews', 'game_tags', 'store_collaborators', 
+            'publisher_profiles', 'terms_acceptances', 'sessions', 
+            'transactions', 'game_listings', 'store_settings', 'terms_documents'
+        ]
+        
+        # Drop dependent tables first
+        for table in dependent_tables:
+            sql_parts.append(f"DROP TABLE IF EXISTS {table};")
+        
+        # Drop model tables
+        for table in sorted(tables):
+            sql_parts.append(f"DROP TABLE IF EXISTS {table};")
+        
         sql_parts.append("")
+    
+    # Generate CREATE TABLE statements
+    seen_tables = set()  # Track tables to avoid duplicates
+    for model in models:
+        table_name = model._meta.table_name
+        if table_name not in seen_tables:
+            sql_parts.append(f"-- Model: {model.__name__}")
+            create_sql = model.get_create_sql()
+            if cleanslate:
+                # Remove IF NOT EXISTS for clean slate
+                create_sql = create_sql.replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE")
+            sql_parts.append(create_sql)
+            sql_parts.append("")
+            seen_tables.add(table_name)
+        else:
+            print(f"Warning: Skipping duplicate table '{table_name}' from model {model.__name__}", file=sys.stderr)
     
     if include_indexes:
         # Add common indexes for better query performance
@@ -390,6 +426,8 @@ Migration Workflow:
     gen_parser.add_argument('module', help='Python module containing models')
     gen_parser.add_argument('--no-indexes', action='store_true', 
                            help='Skip index generation')
+    gen_parser.add_argument('--cleanslate', action='store_true',
+                           help='Include DROP statements for clean deployment')
     
     # Lock command
     lock_parser = subparsers.add_parser('lock', help='Generate schema lock file')
@@ -433,7 +471,7 @@ Migration Workflow:
     
     try:
         if args.command == 'generate':
-            schema = generate_schema(args.module, not args.no_indexes)
+            schema = generate_schema(args.module, not args.no_indexes, args.cleanslate)
             print(schema)
             return 0
             

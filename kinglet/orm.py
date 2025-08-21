@@ -22,6 +22,7 @@ from .orm_errors import (
 )
 
 
+
 class Field:
     """Base field class for model attributes"""
     
@@ -122,8 +123,22 @@ class DateTimeField(Field):
             return None
         if isinstance(value, datetime):
             return value
-        # Assume timestamp
-        return datetime.fromtimestamp(int(value))
+        # Handle string datetime format from D1
+        if isinstance(value, str):
+            try:
+                # Try parsing as ISO format datetime string
+                return datetime.fromisoformat(value.replace(' ', 'T'))
+            except ValueError:
+                # If that fails, try as Unix timestamp string
+                try:
+                    return datetime.fromtimestamp(int(value))
+                except ValueError:
+                    return None
+        # Assume Unix timestamp
+        try:
+            return datetime.fromtimestamp(int(value))
+        except (ValueError, TypeError):
+            return None
         
     def to_db(self, value: Any) -> Optional[int]:
         if value is None:
@@ -685,9 +700,15 @@ class Manager:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
         
-    async def get(self, db, **kwargs) -> Optional['Model']:
-        """Get single model instance or None"""
-        return await self.get_queryset(db).filter(**kwargs).first()
+    async def get(self, db, **kwargs) -> 'Model':
+        """
+        Get single model instance matching the given lookup parameters
+        
+        Raises:
+            DoesNotExistError: If no object matches the lookup parameters
+            MultipleObjectsReturnedError: If multiple objects match
+        """
+        return await self.get_queryset(db).filter(**kwargs).get()
         
     async def get_or_create(self, db, defaults=None, **kwargs) -> tuple['Model', bool]:
         """
@@ -769,8 +790,18 @@ class Manager:
             validated_data.pop('id', None)
             
         columns = list(validated_data.keys())
-        placeholders = ['?' for _ in columns]
         values = list(validated_data.values())
+        
+        # Build SQL with explicit NULL for None values to avoid JavaScript undefined conversion
+        value_expressions = []
+        bind_values = []
+        
+        for value in values:
+            if value is None:
+                value_expressions.append("NULL")
+            else:
+                value_expressions.append("?")
+                bind_values.append(value)
         
         # Use INSERT OR REPLACE with RETURNING for D1 cost optimization
         # This eliminates the need for post-check SELECT queries
@@ -778,12 +809,15 @@ class Manager:
         
         sql = f"""
             INSERT OR REPLACE INTO {self.model_class._meta.table_name} 
-            ({', '.join(columns)}) VALUES ({', '.join(placeholders)})
+            ({', '.join(columns)}) VALUES ({', '.join(value_expressions)})
             RETURNING {', '.join(returning_fields)}
         """
         
         try:
-            result = await db.prepare(sql).bind(*values).first()
+            if bind_values:
+                result = await db.prepare(sql).bind(*bind_values).first()
+            else:
+                result = await db.prepare(sql).first()
             
             if not result:
                 raise ValueError("INSERT OR REPLACE with RETURNING returned no rows")
@@ -886,9 +920,16 @@ class ModelMeta(type):
             
         # Then add other fields in order
         for key, value in list(attrs.items()):
-            if isinstance(value, Field) and key != 'id':  # Skip id since we added it first
-                value.name = key
-                fields[key] = value
+            if isinstance(value, Field):
+                if key == 'id':
+                    # Handle explicit id field (replace auto-generated if exists)
+                    value.name = key
+                    fields[key] = value
+                    attrs[key] = value
+                else:
+                    # Add non-id fields
+                    value.name = key
+                    fields[key] = value
             
         # Create Meta class if not present
         meta_attrs = {}
@@ -908,6 +949,12 @@ class ModelMeta(type):
         
         new_class = super().__new__(cls, name, bases, attrs)
         new_class.objects = Manager(new_class)
+        
+        # Add model-specific DoesNotExist exception class
+        class DoesNotExist(DoesNotExistError):
+            """Model-specific DoesNotExist exception"""
+            pass
+        new_class.DoesNotExist = DoesNotExist
         
         # Auto-register constraints with the global registry
         cls._register_model_constraints(new_class)
@@ -1000,29 +1047,38 @@ class Model(metaclass=ModelMeta):
                     setattr(self, field_name, value)
                     
             # Validate and convert
-            validated_value = field.validate(value)
-            db_value = field.to_db(validated_value)
-            field_data[field_name] = db_value
+            try:
+                validated_value = field.validate(value)
+                db_value = field.to_db(validated_value)
+                field_data[field_name] = db_value
+                
+            except Exception as field_e:
+                raise
             
         if self._state['saved']:
             # UPDATE existing record - single write operation
             pk_field = self._get_pk_field()
             pk_value = getattr(self, pk_field.name)
             
+            # Build SQL with explicit NULL for None values to avoid JavaScript undefined conversion
             set_clauses = []
-            params = []
+            bind_values = []
+            
             for field_name, value in field_data.items():
                 if field_name != pk_field.name:  # Don't update primary key
-                    set_clauses.append(f"{field_name} = ?")
-                    params.append(value)
+                    if value is None:
+                        set_clauses.append(f"{field_name} = NULL")
+                    else:
+                        set_clauses.append(f"{field_name} = ?")
+                        bind_values.append(value)
                     
             if not set_clauses:  # No fields to update
                 return
                 
-            params.append(pk_value)
+            bind_values.append(pk_value)
             sql = f"UPDATE {self._meta.table_name} SET {', '.join(set_clauses)} WHERE {pk_field.name} = ?"
             try:
-                await db.prepare(sql).bind(*params).run()
+                await db.prepare(sql).bind(*bind_values).run()
             except Exception as e:
                 raise D1ErrorClassifier.classify_error(e) from e
         else:
@@ -1037,9 +1093,23 @@ class Model(metaclass=ModelMeta):
             placeholders = ['?' for _ in columns]
             values = list(field_data.values())
             
-            sql = f"INSERT INTO {self._meta.table_name} ({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
+            # Build SQL with explicit NULL for None values to avoid JavaScript undefined conversion
+            value_expressions = []
+            bind_values = []
+            
+            for value in values:
+                if value is None:
+                    value_expressions.append("NULL")
+                else:
+                    value_expressions.append("?")
+                    bind_values.append(value)
+            
+            sql = f"INSERT INTO {self._meta.table_name} ({', '.join(columns)}) VALUES ({', '.join(value_expressions)})"
             try:
-                result = await db.prepare(sql).bind(*values).run()
+                if bind_values:
+                    result = await db.prepare(sql).bind(*bind_values).run()
+                else:
+                    result = await db.prepare(sql).run()
                 
                 # Set the auto-generated ID from D1 response
                 if pk_field.name == 'id' and hasattr(result, 'meta') and hasattr(result.meta, 'last_row_id'):

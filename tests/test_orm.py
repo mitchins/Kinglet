@@ -16,6 +16,7 @@ from kinglet.orm import (
     Model, Field, StringField, IntegerField, BooleanField, 
     DateTimeField, JSONField, QuerySet, Manager, SchemaManager
 )
+from kinglet.orm_errors import DoesNotExistError
 from .mock_d1 import MockD1Database, d1_unwrap, d1_unwrap_results
 
 
@@ -435,8 +436,12 @@ class TestManagerOperations:
             await game.delete(self.mock_db)
             
             # Verify deletion
-            deleted_game = await self.manager.get(self.mock_db, id=original_id)
-            assert deleted_game is None
+            try:
+                deleted_game = await self.manager.get(self.mock_db, id=original_id)
+                assert False, "Expected DoesNotExist exception after deletion"
+            except DoesNotExistError:
+                # Expected - object was deleted
+                pass
             
     def teardown_method(self):
         """Clean up after each test"""

@@ -28,10 +28,13 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 keywords = ["cloudflare", "workers", "python", "routing", "web", "framework", "asgi", "lightweight"]
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 dependencies = [
     "pytest-asyncio>=0.24.0",
 ]
+
+[project.scripts]
+kinglet-orm = "kinglet.orm_deploy:main"
 
 [project.urls]
 Homepage = "https://github.com/mitchins/Kinglet"
@@ -117,7 +120,7 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
