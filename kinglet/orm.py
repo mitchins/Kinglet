@@ -110,6 +110,35 @@ class BooleanField(Field):
         return "INTEGER"
 
 
+class FloatField(Field):
+    """Float/decimal field stored as REAL in D1"""
+    
+    def to_python(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        return float(value)
+        
+    def to_db(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        return float(value)
+        
+    def get_sql_type(self) -> str:
+        return "REAL"
+        
+    def validate(self, value: Any) -> float:
+        """Validate and convert field value"""
+        if value is None:
+            if not self.null:
+                raise ValueError("Field cannot be null")
+            return None
+        
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid float value: {value}")
+
+
 class DateTimeField(Field):
     """DateTime field stored as INTEGER timestamp"""
     
@@ -206,6 +235,26 @@ class QuerySet:
                 if key not in self._field_names:
                     raise ValueError(f"Field '{key}' does not exist on {self.model_class.__name__}")
                 condition = f"{key} = ?"
+            new_qs._where_conditions.append((condition, value))
+        return new_qs
+        
+    def exclude(self, **kwargs) -> 'QuerySet':
+        """Add WHERE NOT conditions with field validation (opposite of filter)"""
+        new_qs = self._clone()
+        for key, value in kwargs.items():
+            if '__' in key:
+                field_name, lookup = key.split('__', 1)
+                # Validate field exists to prevent SQL errors
+                if field_name not in self._field_names:
+                    raise ValueError(f"Field '{field_name}' does not exist on {self.model_class.__name__}")
+                condition = new_qs._build_lookup_condition(field_name, lookup, value)
+                # Wrap in NOT for exclude behavior
+                condition = f"NOT ({condition})"
+            else:
+                # Validate field exists
+                if key not in self._field_names:
+                    raise ValueError(f"Field '{key}' does not exist on {self.model_class.__name__}")
+                condition = f"NOT ({key} = ?)"
             new_qs._where_conditions.append((condition, value))
         return new_qs
         

@@ -65,14 +65,14 @@ except ImportError:
 # Micro-ORM (optional import)
 try:
     from .orm import (
-        Model, Field, StringField, IntegerField, BooleanField, 
+        Model, Field, StringField, IntegerField, BooleanField, FloatField,
         DateTimeField, JSONField, QuerySet, Manager, SchemaManager
     )
     _orm_available = True
 except ImportError:
     _orm_available = False
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 __author__ = "Mitchell Currie"
 
 # Export commonly used items
@@ -98,7 +98,7 @@ __all__ = [
     "EnvironmentCachePolicy", "AlwaysCachePolicy", "NeverCachePolicy",
     "set_default_cache_policy", "get_default_cache_policy",
     # Micro-ORM (conditionally exported if available)
-    "Model", "Field", "StringField", "IntegerField", "BooleanField", 
+    "Model", "Field", "StringField", "IntegerField", "BooleanField", "FloatField",
     "DateTimeField", "JSONField", "QuerySet", "Manager", "SchemaManager",
     # Modules
     "authz", "totp"
@@ -106,6 +106,6 @@ __all__ = [
 
 # Only export ORM items if they're available
 if not _orm_available:
-    orm_items = ["Model", "Field", "StringField", "IntegerField", "BooleanField", 
+    orm_items = ["Model", "Field", "StringField", "IntegerField", "BooleanField", "FloatField",
                  "DateTimeField", "JSONField", "QuerySet", "Manager", "SchemaManager"]
     __all__ = [item for item in __all__ if item not in orm_items]

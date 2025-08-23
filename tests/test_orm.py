@@ -13,7 +13,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from kinglet.orm import (
-    Model, Field, StringField, IntegerField, BooleanField, 
+    Model, Field, StringField, IntegerField, BooleanField, FloatField,
     DateTimeField, JSONField, QuerySet, Manager, SchemaManager
 )
 from kinglet.orm_errors import DoesNotExistError
@@ -443,6 +443,251 @@ class TestManagerOperations:
                 # Expected - object was deleted
                 pass
             
+    def teardown_method(self):
+        """Clean up after each test"""
+        self.mock_db.close()
+
+
+class TestFloatField:
+    """Test FloatField functionality"""
+    
+    def test_float_field_validation(self):
+        field = FloatField(null=False)
+        field.name = "price"
+        
+        # Test valid values
+        assert field.validate(10.5) == 10.5
+        assert field.validate("3.14") == 3.14
+        assert field.validate(0) == 0.0
+        assert field.validate(-5.5) == -5.5
+        
+        # Test null handling
+        field_nullable = FloatField(null=True)
+        field_nullable.name = "optional_price"
+        assert field_nullable.validate(None) is None
+        
+        # Test non-null validation
+        with pytest.raises(ValueError, match="Field cannot be null"):
+            field.validate(None)
+    
+    def test_float_field_invalid_values(self):
+        field = FloatField()
+        field.name = "rating"
+        
+        with pytest.raises(ValueError, match="Invalid float value"):
+            field.validate("not_a_number")
+        
+        with pytest.raises(ValueError, match="Invalid float value"):
+            field.validate("1.2.3")
+    
+    def test_float_field_to_python(self):
+        field = FloatField()
+        
+        assert field.to_python(3.14) == 3.14
+        assert field.to_python("2.5") == 2.5
+        assert field.to_python(None) is None
+        assert field.to_python(10) == 10.0
+    
+    def test_float_field_to_db(self):
+        field = FloatField()
+        
+        assert field.to_db(3.14) == 3.14
+        assert field.to_db("2.5") == 2.5
+        assert field.to_db(None) is None
+        assert field.to_db(10) == 10.0
+    
+    def test_float_field_sql_type(self):
+        field = FloatField()
+        assert field.get_sql_type() == "REAL"
+
+
+class TestQuerySetExclude:
+    """Test QuerySet.exclude() method functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.mock_db = MockD1Database()
+        self.manager = SampleGame.objects
+    
+    def test_exclude_basic(self):
+        """Test basic exclude functionality"""
+        qs = QuerySet(SampleGame, self.mock_db)
+        
+        # Test simple exclude
+        excluded_qs = qs.exclude(is_published=True)
+        
+        # Check that WHERE NOT condition was added
+        assert len(excluded_qs._where_conditions) == 1
+        condition, value = excluded_qs._where_conditions[0]
+        assert "NOT (is_published = ?)" in condition
+        assert value is True
+    
+    def test_exclude_multiple_conditions(self):
+        """Test exclude with multiple conditions"""
+        qs = QuerySet(SampleGame, self.mock_db)
+        
+        excluded_qs = qs.exclude(is_published=True, score=100)
+        
+        assert len(excluded_qs._where_conditions) == 2
+        
+        # Check both conditions are NOT conditions
+        conditions = [cond for cond, _ in excluded_qs._where_conditions]
+        assert all("NOT (" in cond for cond in conditions)
+    
+    def test_exclude_with_lookups(self):
+        """Test exclude with field lookups"""
+        qs = QuerySet(SampleGame, self.mock_db)
+        
+        excluded_qs = qs.exclude(score__gt=90)
+        
+        assert len(excluded_qs._where_conditions) == 1
+        condition, value = excluded_qs._where_conditions[0]
+        assert "NOT (" in condition
+        assert "score > ?" in condition
+        assert value == 90
+    
+    def test_exclude_invalid_field(self):
+        """Test exclude with invalid field name"""
+        qs = QuerySet(SampleGame, self.mock_db)
+        
+        with pytest.raises(ValueError, match="Field 'invalid_field' does not exist"):
+            qs.exclude(invalid_field="value")
+    
+    def test_exclude_with_filter_chaining(self):
+        """Test chaining filter and exclude"""
+        qs = QuerySet(SampleGame, self.mock_db)
+        
+        chained_qs = qs.filter(is_published=True).exclude(score=0)
+        
+        assert len(chained_qs._where_conditions) == 2
+        
+        # First condition should be filter (positive)
+        filter_condition, filter_value = chained_qs._where_conditions[0]
+        assert filter_condition == "is_published = ?"
+        assert filter_value is True
+        
+        # Second condition should be exclude (negative)
+        exclude_condition, exclude_value = chained_qs._where_conditions[1]
+        assert "NOT (score = ?)" in exclude_condition
+        assert exclude_value == 0
+    
+    def test_exclude_preserves_other_query_parts(self):
+        """Test that exclude preserves other query components"""
+        qs = QuerySet(SampleGame, self.mock_db)
+        
+        complex_qs = (qs
+                     .filter(is_published=True)
+                     .exclude(score=0)
+                     .order_by('-created_at')
+                     .limit(10))
+        
+        # Check where conditions
+        assert len(complex_qs._where_conditions) == 2
+        
+        # Check order by
+        assert complex_qs._order_by == ['created_at DESC']
+        
+        # Check limit
+        assert complex_qs._limit_count == 10
+    
+    @pytest.mark.asyncio
+    async def test_exclude_sql_generation(self):
+        """Test that exclude generates correct SQL"""
+        qs = QuerySet(SampleGame, self.mock_db)
+        
+        excluded_qs = qs.exclude(is_published=True, score__gt=50)
+        
+        # This would test SQL generation if we had access to the SQL
+        # For now, just verify the conditions are stored correctly
+        assert len(excluded_qs._where_conditions) == 2
+        
+        # Verify NOT conditions
+        conditions = [cond for cond, _ in excluded_qs._where_conditions]
+        assert all("NOT (" in cond for cond in conditions)
+    
+    def teardown_method(self):
+        """Clean up after each test"""
+        self.mock_db.close()
+
+
+# Add FloatField to test models for integration testing
+class SampleProduct(Model):
+    """Test model with FloatField for integration testing"""
+    name = StringField(max_length=100, null=False)
+    price = FloatField(null=False)
+    discount_rate = FloatField(default=0.0)
+    rating = FloatField(null=True)
+    
+    class Meta:
+        table_name = "test_products"
+
+
+class TestFloatFieldIntegration:
+    """Integration tests for FloatField with Model operations"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.mock_db = MockD1Database()
+        self.manager = SampleProduct.objects
+        
+        # Create the table schema for the test using the mock DB interface
+        schema_sql = """
+        CREATE TABLE IF NOT EXISTS test_products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            price REAL NOT NULL,
+            discount_rate REAL DEFAULT 0.0,
+            rating REAL
+        )
+        """
+        # Create schema synchronously using the mock DB's SQLite connection
+        cursor = self.mock_db.conn.cursor()
+        cursor.execute(schema_sql)
+        self.mock_db.conn.commit()
+    
+    @pytest.mark.asyncio
+    async def test_float_field_crud_operations(self):
+        """Test CRUD operations with FloatField"""
+        # Create
+        product = await self.manager.create(
+            self.mock_db,
+            name="Test Product",
+            price=29.99,
+            discount_rate=0.15,
+            rating=4.5
+        )
+        
+        assert product.price == 29.99
+        assert product.discount_rate == 0.15
+        assert product.rating == 4.5
+        
+        # Update
+        product.price = 34.99
+        product.rating = None  # Test nullable float
+        await product.save(self.mock_db)
+        
+        # Verify update
+        updated_product = await self.manager.get(self.mock_db, id=product.id)
+        assert updated_product.price == 34.99
+        assert updated_product.rating is None
+    
+    @pytest.mark.asyncio 
+    async def test_exclude_with_float_fields(self):
+        """Test exclude method with float field conditions"""
+        # Create test data
+        await self.manager.create(self.mock_db, name="Cheap", price=10.0, discount_rate=0.1)
+        await self.manager.create(self.mock_db, name="Expensive", price=100.0, discount_rate=0.2)
+        await self.manager.create(self.mock_db, name="Free", price=0.0, discount_rate=0.0)
+        
+        # Test exclude with float comparison
+        qs = self.manager.filter(self.mock_db).exclude(price=0.0)
+        
+        # Verify condition was added correctly
+        assert len(qs._where_conditions) == 1
+        condition, value = qs._where_conditions[0]
+        assert "NOT (price = ?)" in condition
+        assert value == 0.0
+    
     def teardown_method(self):
         """Clean up after each test"""
         self.mock_db.close()
