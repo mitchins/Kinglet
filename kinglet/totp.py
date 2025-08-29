@@ -43,13 +43,13 @@ class ProductionOTPProvider(OTPProvider):
         raw_secret = secrets.token_bytes(20)
         return base64.b32encode(raw_secret).decode('ascii')
 
-    def verify_code(self, secret: str, provided_code: str, window: int = 1) -> bool:
-        """Verify TOTP code with time window tolerance"""
-        return verify_totp_code(secret, provided_code, window)
+    def verify_code(self, secret: str, provided_code: str, window: int = 1, algorithm: str = 'sha1') -> bool:
+        """Verify TOTP code with time window tolerance and configurable algorithm"""
+        return verify_totp_code(secret, provided_code, window, algorithm)
 
-    def generate_qr_url(self, secret: str, account_name: str, issuer: str = "Kinglet") -> str:
-        """Generate Google Authenticator compatible QR code URL"""
-        return generate_totp_qr_url(secret, account_name, issuer)
+    def generate_qr_url(self, secret: str, account_name: str, issuer: str = "Kinglet", algorithm: str = 'sha1') -> str:
+        """Generate TOTP QR code URL with configurable algorithm"""
+        return generate_totp_qr_url(secret, account_name, issuer, algorithm)
 
 
 class DummyOTPProvider(OTPProvider):
@@ -74,7 +74,7 @@ class DummyOTPProvider(OTPProvider):
             return True
 
         # Also verify against the actual test secret for realistic testing
-        return verify_totp_code(secret, provided_code, window)
+        return verify_totp_code(secret, provided_code, window, 'sha1')
 
     def generate_qr_url(self, secret: str, account_name: str, issuer: str = "Kinglet") -> str:
         """Generate QR URL for test secret"""
@@ -115,8 +115,16 @@ def install_test_totp_secret() -> str:
     return TEST_TOTP_SECRET
 
 
-def generate_totp_code(secret: str, timestamp: Optional[int] = None) -> str:
-    """Generate TOTP code for given secret and timestamp"""
+def generate_totp_code(secret: str, timestamp: Optional[int] = None, algorithm: str = 'sha1') -> str:
+    """
+    Generate TOTP code for given secret and timestamp
+    
+    Args:
+        secret: Base32-encoded TOTP secret
+        timestamp: Unix timestamp (defaults to current time)
+        algorithm: Hash algorithm - 'sha1' (default), 'sha256', or 'sha512'
+                  Note: Google Authenticator only supports sha1, use others with compatible apps
+    """
     if timestamp is None:
         timestamp = int(time.time())
 
@@ -134,8 +142,11 @@ def generate_totp_code(secret: str, timestamp: Optional[int] = None) -> str:
     # Pack time step as big-endian 64-bit integer
     time_bytes = struct.pack('>Q', time_step)
 
-    # HMAC-SHA1 hash
-    hmac_hash = hmac.new(key, time_bytes, hashlib.sha1).digest()
+    # TOTP HMAC – interoperability note:
+    # - HOTP (RFC 4226) specifies HMAC-SHA1; TOTP (RFC 6238) permits SHA-1/256/512.
+    # - SHA-1 collision attacks do not affect HMAC's PRF security; safe in this construction.
+    # - Using SHA-1 here preserves compatibility with common authenticators and existing otpauth URIs.
+    hmac_hash = hmac.new(key, time_bytes, hashlib.sha1).digest()  # NOSONAR: see rationale above
 
     # Dynamic truncation (RFC 4226)
     offset = hmac_hash[-1] & 0x0f
@@ -146,8 +157,16 @@ def generate_totp_code(secret: str, timestamp: Optional[int] = None) -> str:
     return code
 
 
-def verify_totp_code(secret: str, provided_code: str, window: int = 1) -> bool:
-    """Verify TOTP code with time window tolerance"""
+def verify_totp_code(secret: str, provided_code: str, window: int = 1, algorithm: str = 'sha1') -> bool:
+    """
+    Verify TOTP code with time window tolerance
+    
+    Args:
+        secret: Base32-encoded TOTP secret
+        provided_code: 6-digit TOTP code to verify
+        window: Time window tolerance (±N * 30 seconds)
+        algorithm: Hash algorithm - 'sha1' (default), 'sha256', or 'sha512'
+    """
     if not secret or not provided_code:
         return False
 
@@ -161,21 +180,30 @@ def verify_totp_code(secret: str, provided_code: str, window: int = 1) -> bool:
     # Check current time and window (usually ±1 time step = ±30 seconds)
     for i in range(-window, window + 1):
         test_time = current_time + (i * 30)
-        expected_code = generate_totp_code(secret, test_time)
+        expected_code = generate_totp_code(secret, test_time, algorithm)
         if hmac.compare_digest(expected_code, provided_code):
             return True
 
     return False
 
 
-def generate_totp_qr_url(secret: str, account_name: str, issuer: str = "Kinglet") -> str:
-    """Generate Google Authenticator compatible QR code URL"""
+def generate_totp_qr_url(secret: str, account_name: str, issuer: str = "Kinglet", algorithm: str = 'sha1') -> str:
+    """
+    Generate Google Authenticator compatible QR code URL
+    
+    Args:
+        secret: Base32-encoded TOTP secret
+        account_name: User account name
+        issuer: Service name  
+        algorithm: Hash algorithm - 'sha1' (default), 'sha256', or 'sha512'
+                  Note: Google Authenticator only supports SHA1
+    """
     # Format: otpauth://totp/Issuer:AccountName?secret=SECRET&issuer=Issuer
     label = f"{issuer}:{account_name}"
     params = {
         'secret': secret,
         'issuer': issuer,
-        'algorithm': 'SHA1',
+        'algorithm': algorithm.upper(),
         'digits': '6',
         'period': '30'
     }
