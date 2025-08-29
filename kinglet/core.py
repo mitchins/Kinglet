@@ -214,6 +214,79 @@ class Kinglet:
         self.middleware_stack.append(middleware_instance)
         return middleware_instance
 
+    async def _process_request_middleware(self, request: Request):
+        """Process request through middleware stack, return response if short-circuited"""
+        for middleware in self.middleware_stack:
+            result = await middleware.process_request(request)
+            if result is not None:
+                return result
+        return None
+
+    async def _handle_route(self, request: Request):
+        """Handle route resolution and execution"""
+        handler, path_params = self.router.resolve(request.method, request.path)
+        
+        if not handler:
+            return Response({"error": "Not found"}, status=404)
+            
+        # Add path parameters and call handler
+        request.path_params = path_params
+        response = await handler(request)
+        
+        # Check if already a Workers Response - pass through directly
+        try:
+            from workers import Response as WorkersResponse
+            if isinstance(response, WorkersResponse):
+                return response
+        except ImportError:
+            pass
+            
+        # Convert dict/string responses to Response objects
+        if not isinstance(response, Response):
+            response = Response(response)
+        return response
+
+    async def _process_response_middleware(self, request: Request, response: Response) -> Response:
+        """Process response through middleware stack"""
+        for middleware in reversed(self.middleware_stack):
+            response = await middleware.process_response(request, response)
+        return response
+
+    def _convert_to_workers_response(self, response: Response):
+        """Convert response to Workers format if available"""
+        try:
+            return response.to_workers_response()
+        except ImportError:
+            return response
+
+    async def _handle_custom_error(self, request: Request, exception: Exception, status_code: int):
+        """Handle exception with custom error handler if available"""
+        if status_code not in self.error_handlers:
+            return None
+            
+        try:
+            response = await self.error_handlers[status_code](request, exception)
+            if not isinstance(response, Response):
+                response = Response(response)
+            
+            response = await self._process_response_middleware(request, response)
+            return self._convert_to_workers_response(response)
+        except Exception:
+            return None  # Fall through to default handler
+
+    def _create_default_error_response(self, request: Request, exception: Exception, status_code: int) -> Response:
+        """Create default error response"""
+        if isinstance(exception, HTTPError):
+            error_message = exception.message
+        else:
+            error_message = str(exception) if self.debug else "Internal server error"
+            
+        return Response({
+            "error": error_message,
+            "status_code": status_code,
+            "request_id": getattr(request, 'request_id', 'unknown')
+        }, status=status_code)
+
     async def __call__(self, request, env):
         """ASGI-compatible entry point for Workers"""
         try:
@@ -221,93 +294,26 @@ class Kinglet:
             kinglet_request = Request(request, env)
 
             # Process middleware (request phase)
-            for middleware in self.middleware_stack:
-                result = await middleware.process_request(kinglet_request)
-                if result is not None:
-                    # Middleware short-circuited, return response
-                    response = result
-                    break
+            middleware_response = await self._process_request_middleware(kinglet_request)
+            if middleware_response:
+                response = middleware_response
             else:
-                # Find and call route handler
-                handler, path_params = self.router.resolve(
-                    kinglet_request.method,
-                    kinglet_request.path
-                )
+                # Handle route
+                response = await self._handle_route(kinglet_request)
 
-                if handler:
-                    # Add path parameters to request
-                    kinglet_request.path_params = path_params
-
-                    # Call handler
-                    response = await handler(kinglet_request)
-
-                    # Check if already a Workers Response - pass through directly
-                    try:
-                        from workers import Response as WorkersResponse
-                        if isinstance(response, WorkersResponse):
-                            return response  # Pass through without any processing
-                    except ImportError:
-                        pass  # workers not available, continue normal processing
-
-                    # Convert dict/string responses to Response objects
-                    if not isinstance(response, Response):
-                        response = Response(response)
-                else:
-                    # No route found
-                    response = Response({"error": "Not found"}, status=404)
-
-            # Process middleware (response phase)
-            for middleware in reversed(self.middleware_stack):
-                response = await middleware.process_response(kinglet_request, response)
-
-            # Try to convert to Workers Response if possible
-            try:
-                return response.to_workers_response()
-            except ImportError:
-                return response
+            # Process response middleware and convert to Workers format
+            response = await self._process_response_middleware(kinglet_request, response)
+            return self._convert_to_workers_response(response)
 
         except Exception as e:
-            # Handle exceptions
             status_code = getattr(e, 'status_code', 500)
 
-            # Check for custom error handler
-            if status_code in self.error_handlers:
-                try:
-                    response = await self.error_handlers[status_code](kinglet_request, e)
-                    if not isinstance(response, Response):
-                        response = Response(response)
-
-                    # Process middleware (response phase) for error responses too
-                    for middleware in reversed(self.middleware_stack):
-                        response = await middleware.process_response(kinglet_request, response)
-
-                    try:
-                        return response.to_workers_response()
-                    except ImportError:
-                        return response
-                except Exception:
-                    pass  # Fall through to default error handler
+            # Try custom error handler first
+            custom_response = await self._handle_custom_error(kinglet_request, e, status_code)
+            if custom_response:
+                return custom_response
 
             # Default error response
-            # Security: Only expose specific error messages, not internal details
-            if isinstance(e, HTTPError):
-                # For HTTPError, use the provided message (it's intentional)
-                error_message = e.message
-            else:
-                # For unexpected exceptions, hide details unless in debug mode
-                error_message = str(e) if self.debug else "Internal server error"
-
-            error_resp = Response({
-                "error": error_message,
-                "status_code": status_code,
-                "request_id": getattr(kinglet_request, 'request_id', 'unknown')
-            }, status=status_code)
-
-            # Process middleware (response phase) for default error responses too
-            for middleware in reversed(self.middleware_stack):
-                error_resp = await middleware.process_response(kinglet_request, error_resp)
-
-            try:
-                return error_resp.to_workers_response()
-            except ImportError:
-                return error_resp
+            error_resp = self._create_default_error_response(kinglet_request, e, status_code)
+            error_resp = await self._process_response_middleware(kinglet_request, error_resp)
+            return self._convert_to_workers_response(error_resp)

@@ -678,6 +678,73 @@ class Manager:
         await instance.save(db)
         return instance
         
+    def _validate_bulk_instances(self, instances: List['Model']) -> None:
+        """Validate all instances are the same model type"""
+        if not instances:
+            return
+        first_model = instances[0]
+        if not all(isinstance(inst, first_model.__class__) for inst in instances):
+            raise ValueError("All instances must be of the same model type")
+
+    def _prepare_field_data(self, instance: 'Model') -> Dict[str, Any]:
+        """Prepare field data for a single instance"""
+        field_data = {}
+        for field_name, field in instance._fields.items():
+            value = getattr(instance, field_name, None)
+            
+            # Handle auto fields
+            if isinstance(field, DateTimeField):
+                if field.auto_now_add and not instance._state['saved']:
+                    value = datetime.now()
+                    setattr(instance, field_name, value)
+                    
+            # Validate and convert
+            validated_value = field.validate(value)
+            db_value = field.to_db(validated_value)
+            field_data[field_name] = db_value
+            
+        # Skip auto-increment ID fields
+        pk_field = instance._get_pk_field()
+        if pk_field.name == 'id' and getattr(instance, pk_field.name, None) is None:
+            field_data.pop('id', None)
+            
+        return field_data
+
+    def _prepare_bulk_data(self, instances: List['Model']) -> tuple[List[str], List[List[Any]]]:
+        """Prepare field names and values for bulk insert"""
+        field_names = []
+        all_values = []
+        
+        for instance in instances:
+            field_data = self._prepare_field_data(instance)
+            
+            if not field_names:
+                field_names = list(field_data.keys())
+            
+            values = [field_data.get(name) for name in field_names]
+            all_values.append(values)
+            
+        return field_names, all_values
+
+    def _create_batch_statements(self, db, field_names: List[str], all_values: List[List[Any]]) -> List:
+        """Create batch INSERT statements"""
+        placeholders = ['?' for _ in field_names]
+        base_sql = f"INSERT INTO {self.model_class._meta.table_name} ({', '.join(field_names)}) VALUES ({', '.join(placeholders)})"
+        
+        statements = []
+        for values in all_values:
+            stmt = db.prepare(base_sql).bind(*values)
+            statements.append(stmt)
+        return statements
+
+    def _update_instances_with_ids(self, instances: List['Model'], results: List) -> None:
+        """Update instances with generated primary key IDs"""
+        for instance, result in zip(instances, results):
+            pk_field = instance._get_pk_field()
+            if pk_field.name == 'id' and hasattr(result, 'meta') and hasattr(result.meta, 'last_row_id'):
+                setattr(instance, 'id', result.meta.last_row_id)
+            instance._state['saved'] = True
+
     async def bulk_create(self, db, instances: List['Model']) -> List['Model']:
         """
         Create multiple instances in a single batch
@@ -688,63 +755,13 @@ class Manager:
         if not instances:
             return []
             
-        # All instances must be of the same model
-        first_model = instances[0]
-        if not all(isinstance(inst, first_model.__class__) for inst in instances):
-            raise ValueError("All instances must be of the same model type")
-            
-        # Prepare data for batch insert
-        field_names = []
-        all_values = []
+        self._validate_bulk_instances(instances)
+        field_names, all_values = self._prepare_bulk_data(instances)
+        statements = self._create_batch_statements(db, field_names, all_values)
         
-        for instance in instances:
-            field_data = {}
-            for field_name, field in instance._fields.items():
-                value = getattr(instance, field_name, None)
-                
-                # Handle auto fields
-                if isinstance(field, DateTimeField):
-                    if field.auto_now_add and not instance._state['saved']:
-                        value = datetime.now()
-                        setattr(instance, field_name, value)
-                        
-                # Validate and convert
-                validated_value = field.validate(value)
-                db_value = field.to_db(validated_value)
-                field_data[field_name] = db_value
-                
-            # Skip auto-increment ID fields
-            pk_field = instance._get_pk_field()
-            if pk_field.name == 'id' and getattr(instance, pk_field.name, None) is None:
-                field_data.pop('id', None)
-                
-            if not field_names:
-                field_names = list(field_data.keys())
-            
-            values = [field_data.get(name) for name in field_names]
-            all_values.append(values)
-            
-        # Create batch INSERT statements
-        placeholders = ['?' for _ in field_names]
-        base_sql = f"INSERT INTO {self.model_class._meta.table_name} ({', '.join(field_names)}) VALUES ({', '.join(placeholders)})"
-        
-        # Use D1 batch for efficiency
-        statements = []
-        for values in all_values:
-            stmt = db.prepare(base_sql).bind(*values)
-            statements.append(stmt)
-            
-        # Execute batch
         try:
             results = await db.batch(statements)
-            
-            # Update instances with generated IDs
-            for i, (instance, result) in enumerate(zip(instances, results)):
-                pk_field = instance._get_pk_field()
-                if pk_field.name == 'id' and hasattr(result, 'meta') and hasattr(result.meta, 'last_row_id'):
-                    setattr(instance, 'id', result.meta.last_row_id)
-                instance._state['saved'] = True
-                
+            self._update_instances_with_ids(instances, results)
             return instances
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
@@ -1088,16 +1105,8 @@ class Model(metaclass=ModelMeta):
             
         return instance
         
-    async def save(self, db) -> None:
-        """
-        Save model instance to database
-        
-        D1 Optimization: Single write operation, same as raw SQL:
-        - INSERT: INSERT INTO table (...) VALUES (...)
-        - UPDATE: UPDATE table SET ... WHERE id = ?
-        No additional row reads/writes vs raw SQL
-        """
-        # Validate all fields
+    def _prepare_save_field_data(self) -> Dict[str, Any]:
+        """Prepare and validate field data for saving"""
         field_data = {}
         for field_name, field in self._fields.items():
             value = getattr(self, field_name, None)
@@ -1109,77 +1118,103 @@ class Model(metaclass=ModelMeta):
                     setattr(self, field_name, value)
                     
             # Validate and convert
-            try:
-                validated_value = field.validate(value)
-                db_value = field.to_db(validated_value)
-                field_data[field_name] = db_value
-                
-            except Exception as field_e:
-                raise
-            
-        if self._state['saved']:
-            # UPDATE existing record - single write operation
-            pk_field = self._get_pk_field()
-            pk_value = getattr(self, pk_field.name)
-            
-            # Build SQL with explicit NULL for None values to avoid JavaScript undefined conversion
-            set_clauses = []
-            bind_values = []
-            
-            for field_name, value in field_data.items():
-                if field_name != pk_field.name:  # Don't update primary key
-                    if value is None:
-                        set_clauses.append(f"{field_name} = NULL")
-                    else:
-                        set_clauses.append(f"{field_name} = ?")
-                        bind_values.append(value)
-                    
-            if not set_clauses:  # No fields to update
-                return
-                
-            bind_values.append(pk_value)
-            sql = f"UPDATE {self._meta.table_name} SET {', '.join(set_clauses)} WHERE {pk_field.name} = ?"
-            try:
-                await db.prepare(sql).bind(*bind_values).run()
-            except Exception as e:
-                raise D1ErrorClassifier.classify_error(e) from e
-        else:
-            # INSERT new record - single write operation
-            pk_field = self._get_pk_field()
-            
-            # For auto-increment primary keys, don't include them in INSERT
-            if pk_field.name == 'id' and getattr(self, pk_field.name, None) is None:
-                field_data.pop('id', None)
-                
-            columns = list(field_data.keys())
-            placeholders = ['?' for _ in columns]
-            values = list(field_data.values())
-            
-            # Build SQL with explicit NULL for None values to avoid JavaScript undefined conversion
-            value_expressions = []
-            bind_values = []
-            
-            for value in values:
+            validated_value = field.validate(value)
+            db_value = field.to_db(validated_value)
+            field_data[field_name] = db_value
+        return field_data
+
+    def _build_update_sql(self, field_data: Dict[str, Any]) -> tuple[str, List[Any]]:
+        """Build UPDATE SQL with explicit NULL handling"""
+        pk_field = self._get_pk_field()
+        pk_value = getattr(self, pk_field.name)
+        
+        set_clauses = []
+        bind_values = []
+        
+        for field_name, value in field_data.items():
+            if field_name != pk_field.name:  # Don't update primary key
                 if value is None:
-                    value_expressions.append("NULL")
+                    set_clauses.append(f"{field_name} = NULL")
                 else:
-                    value_expressions.append("?")
+                    set_clauses.append(f"{field_name} = ?")
                     bind_values.append(value)
-            
-            sql = f"INSERT INTO {self._meta.table_name} ({', '.join(columns)}) VALUES ({', '.join(value_expressions)})"
-            try:
-                if bind_values:
-                    result = await db.prepare(sql).bind(*bind_values).run()
-                else:
-                    result = await db.prepare(sql).run()
-                
-                # Set the auto-generated ID from D1 response
-                if pk_field.name == 'id' and hasattr(result, 'meta') and hasattr(result.meta, 'last_row_id'):
-                    setattr(self, 'id', result.meta.last_row_id)
                     
-                self._state['saved'] = True
-            except Exception as e:
-                raise D1ErrorClassifier.classify_error(e) from e
+        if not set_clauses:  # No fields to update
+            return None, []
+            
+        bind_values.append(pk_value)
+        sql = f"UPDATE {self._meta.table_name} SET {', '.join(set_clauses)} WHERE {pk_field.name} = ?"
+        return sql, bind_values
+
+    def _build_insert_sql(self, field_data: Dict[str, Any]) -> tuple[str, List[Any]]:
+        """Build INSERT SQL with explicit NULL handling"""
+        pk_field = self._get_pk_field()
+        
+        # For auto-increment primary keys, don't include them in INSERT
+        if pk_field.name == 'id' and getattr(self, pk_field.name, None) is None:
+            field_data.pop('id', None)
+            
+        columns = list(field_data.keys())
+        values = list(field_data.values())
+        
+        # Build SQL with explicit NULL for None values to avoid JavaScript undefined conversion
+        value_expressions = []
+        bind_values = []
+        
+        for value in values:
+            if value is None:
+                value_expressions.append("NULL")
+            else:
+                value_expressions.append("?")
+                bind_values.append(value)
+        
+        sql = f"INSERT INTO {self._meta.table_name} ({', '.join(columns)}) VALUES ({', '.join(value_expressions)})"
+        return sql, bind_values
+
+    async def _execute_update(self, db, sql: str, bind_values: List[Any]) -> None:
+        """Execute UPDATE statement"""
+        try:
+            await db.prepare(sql).bind(*bind_values).run()
+        except Exception as e:
+            raise D1ErrorClassifier.classify_error(e) from e
+
+    async def _execute_insert(self, db, sql: str, bind_values: List[Any]) -> None:
+        """Execute INSERT statement and handle auto-generated ID"""
+        try:
+            if bind_values:
+                result = await db.prepare(sql).bind(*bind_values).run()
+            else:
+                result = await db.prepare(sql).run()
+            
+            # Set the auto-generated ID from D1 response
+            pk_field = self._get_pk_field()
+            if pk_field.name == 'id' and hasattr(result, 'meta') and hasattr(result.meta, 'last_row_id'):
+                setattr(self, 'id', result.meta.last_row_id)
+                
+            self._state['saved'] = True
+        except Exception as e:
+            raise D1ErrorClassifier.classify_error(e) from e
+
+    async def save(self, db) -> None:
+        """
+        Save model instance to database
+        
+        D1 Optimization: Single write operation, same as raw SQL:
+        - INSERT: INSERT INTO table (...) VALUES (...)
+        - UPDATE: UPDATE table SET ... WHERE id = ?
+        No additional row reads/writes vs raw SQL
+        """
+        field_data = self._prepare_save_field_data()
+        
+        if self._state['saved']:
+            # UPDATE existing record
+            sql, bind_values = self._build_update_sql(field_data)
+            if sql:  # Only execute if there are fields to update
+                await self._execute_update(db, sql, bind_values)
+        else:
+            # INSERT new record
+            sql, bind_values = self._build_insert_sql(field_data)
+            await self._execute_insert(db, sql, bind_values)
             
     async def delete(self, db) -> None:
         """

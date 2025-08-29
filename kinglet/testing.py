@@ -22,15 +22,12 @@ class TestClient:
         import asyncio
         return asyncio.run(self._async_request(method, path, json_data, data, headers, **kwargs))
 
-    async def _async_request(self, method: str, path: str, json_data=None, data=None, headers=None, **kwargs):
-        """Internal async request handler"""
+    def _prepare_request_data(self, json_data, data, headers, kwargs):
+        """Prepare request headers and body content"""
         # Handle 'json' keyword argument (common in test APIs)
         if 'json' in kwargs and json_data is None:
             json_data = kwargs.pop('json')
-
-        # Build full URL
-        url = f"{self.base_url}{path}"
-
+            
         # Prepare headers
         test_headers = {"content-type": "application/json"} if json_data else {}
         if headers:
@@ -43,41 +40,55 @@ class TestClient:
             test_headers["content-type"] = "application/json"
         elif data is not None:
             body_content = str(data)
+            
+        return test_headers, body_content
 
-        # Create mock request object matching Workers format
+    def _serialize_response_content(self, content):
+        """Serialize response content for test consumption"""
+        if isinstance(content, (dict, list)):
+            return json.dumps(content)
+        return str(content) if content is not None else ""
+
+    def _handle_kinglet_response(self, response):
+        """Handle Kinglet Response objects"""
+        if hasattr(response, 'status') and hasattr(response, 'content'):
+            status = response.status
+            headers = response.headers
+            content = response.content
+            body = self._serialize_response_content(content)
+            return status, headers, body
+        return None
+
+    def _handle_raw_response(self, response):
+        """Handle raw response objects (dict, string, etc.)"""
+        if isinstance(response, dict):
+            return 200, {}, json.dumps(response)
+        elif isinstance(response, str):
+            return 200, {}, response
+        else:
+            return 200, {}, str(response)
+
+    async def _async_request(self, method: str, path: str, json_data=None, data=None, headers=None, **kwargs):
+        """Internal async request handler"""
+        test_headers, body_content = self._prepare_request_data(json_data, data, headers, kwargs)
+        url = f"{self.base_url}{path}"
+        
+        # Create mock objects
         mock_request = MockRequest(method, url, test_headers, body_content)
-
-        # Create mock env with test defaults
         mock_env = MockEnv(self.env)
 
         try:
-            # Call the app
             response = await self.app(mock_request, mock_env)
 
-            # Handle Kinglet Response objects
-            if hasattr(response, 'status') and hasattr(response, 'content'):
-                status = response.status
-                headers = response.headers
-                content = response.content
-
-                # Serialize content for test consumption
-                if isinstance(content, (dict, list)):
-                    body = json.dumps(content)
-                else:
-                    body = str(content) if content is not None else ""
-
-                return status, headers, body
-
-            # Handle raw response objects (dict, string, etc.)
-            elif isinstance(response, dict):
-                return 200, {}, json.dumps(response)
-            elif isinstance(response, str):
-                return 200, {}, response
-            else:
-                return 200, {}, str(response)
+            # Try to handle as Kinglet Response first
+            kinglet_result = self._handle_kinglet_response(response)
+            if kinglet_result:
+                return kinglet_result
+                
+            # Handle as raw response
+            return self._handle_raw_response(response)
 
         except Exception as e:
-            # Return error response format
             error_body = json.dumps({"error": str(e)})
             return 500, {}, error_body
 

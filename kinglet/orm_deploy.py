@@ -398,7 +398,8 @@ async def apply_migrations(request):
 '''
 
 
-def main():
+def _create_argument_parser() -> argparse.ArgumentParser:
+    """Create and configure argument parser with all subcommands"""
     parser = argparse.ArgumentParser(
         description="Kinglet ORM deployment helper with migration tracking",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -421,89 +422,106 @@ Migration Workflow:
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Commands')
+    _add_generate_parser(subparsers)
+    _add_lock_parser(subparsers)
+    _add_verify_parser(subparsers)
+    _add_migrate_parser(subparsers)
+    _add_deploy_parser(subparsers)
+    _add_status_parser(subparsers)
+    _add_endpoint_parser(subparsers)
     
-    # Generate command
+    return parser
+
+def _add_generate_parser(subparsers):
+    """Add generate subcommand parser"""
     gen_parser = subparsers.add_parser('generate', help='Generate initial SQL schema')
     gen_parser.add_argument('module', help=PYTHON_MODULE_HELP)
     gen_parser.add_argument('--no-indexes', action='store_true', 
                            help='Skip index generation')
     gen_parser.add_argument('--cleanslate', action='store_true',
                            help='Include DROP statements for clean deployment')
-    
-    # Lock command
+
+def _add_lock_parser(subparsers):
+    """Add lock subcommand parser"""
     lock_parser = subparsers.add_parser('lock', help='Generate schema lock file')
     lock_parser.add_argument('module', help=PYTHON_MODULE_HELP)
-    lock_parser.add_argument('--output', default='schema.lock.json',
+    lock_parser.add_argument('--output', default=SCHEMA_LOCK_FILE,
                             help='Output lock file (default: schema.lock.json)')
-    
-    # Verify command
+
+def _add_verify_parser(subparsers):
+    """Add verify subcommand parser"""
     verify_parser = subparsers.add_parser('verify', help='Verify schema against lock')
     verify_parser.add_argument('module', help=PYTHON_MODULE_HELP)
-    verify_parser.add_argument('--lock', default='schema.lock.json',
+    verify_parser.add_argument('--lock', default=SCHEMA_LOCK_FILE,
                               help='Lock file to verify against')
-    
-    # Migrate command
+
+def _add_migrate_parser(subparsers):
+    """Add migrate subcommand parser"""
     migrate_parser = subparsers.add_parser('migrate', help='Generate migration SQL')
     migrate_parser.add_argument('module', help=PYTHON_MODULE_HELP)
-    migrate_parser.add_argument('--lock', default='schema.lock.json',
+    migrate_parser.add_argument('--lock', default=SCHEMA_LOCK_FILE,
                                help='Lock file to compare against')
-    
-    # Deploy command
+
+def _add_deploy_parser(subparsers):
+    """Add deploy subcommand parser"""
     deploy_parser = subparsers.add_parser('deploy', help='Deploy schema via wrangler')
     deploy_parser.add_argument('module', help=PYTHON_MODULE_HELP)
     deploy_parser.add_argument('--database', default='DB', 
                               help='D1 database binding name (default: DB)')
     deploy_parser.add_argument('--env', choices=['local', 'preview', 'production'],
                               default='production', help='Deployment environment')
-    
-    # Status endpoint command
+
+def _add_status_parser(subparsers):
+    """Add status subcommand parser"""
     status_parser = subparsers.add_parser('status', help='Generate status endpoint code')
     status_parser.add_argument('module', help=PYTHON_MODULE_HELP)
-    
-    # Endpoint command (legacy)
+
+def _add_endpoint_parser(subparsers):
+    """Add endpoint subcommand parser (legacy)"""
     ep_parser = subparsers.add_parser('endpoint', help='Generate migration endpoint code')
     ep_parser.add_argument('module', help=PYTHON_MODULE_HELP)
-    
-    args = parser.parse_args()
-    
-    if not args.command:
-        parser.print_help()
-        return 1
-    
+
+def _execute_command(args) -> int:
+    """Execute the selected command with error handling"""
     try:
         if args.command == 'generate':
             schema = generate_schema(args.module, not args.no_indexes, args.cleanslate)
             print(schema)
             return 0
-            
         elif args.command == 'lock':
             return generate_lock(args.module, args.output)
-            
         elif args.command == 'verify':
             return verify_schema(args.module, args.lock)
-            
         elif args.command == 'migrate':
             return generate_migrations(args.module, args.lock)
-            
         elif args.command == 'deploy':
             return deploy_schema(args.module, args.database, args.env)
-            
         elif args.command == 'status':
             code = generate_status_endpoint(args.module)
             print(code)
             return 0
-            
         elif args.command == 'endpoint':
             code = generate_migration_endpoint(args.module)
             print(code)
             return 0
-            
     except ImportError as e:
         print(f"Error importing module: {e}", file=sys.stderr)
         return 1
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+    
+    return 0
+
+def main():
+    parser = _create_argument_parser()
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        return 1
+    
+    return _execute_command(args)
 
 
 if __name__ == "__main__":

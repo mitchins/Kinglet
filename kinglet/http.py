@@ -55,33 +55,41 @@ class Request:
         """Get the query string portion of the URL"""
         return self._parsed_url.query
 
+    def _extract_headers_with_items(self, headers_obj):
+        """Extract headers using items() method"""
+        for key, value in headers_obj.items():
+            self._headers[key.lower()] = value
+
+    def _extract_headers_with_get(self, headers_obj):
+        """Extract headers using get() method for common headers"""
+        common_headers = ['authorization', 'content-type', 'user-agent', 'cf-ipcountry']
+        for header in common_headers:
+            value = headers_obj.get(header)
+            if value:
+                self._headers[header.lower()] = value
+
+    def _extract_headers_iterable(self, headers_obj):
+        """Extract headers from iterable format"""
+        try:
+            for header in headers_obj:
+                self._headers[header[0].lower()] = header[1]
+        except (TypeError, AttributeError, IndexError):
+            pass
+
     def _init_headers(self, raw_request):
         """Initialize headers from raw request"""
         try:
-            if hasattr(raw_request, 'headers'):
-                headers_obj = raw_request.headers
-                if hasattr(headers_obj, 'items'):
-                    # Standard headers object with items()
-                    for key, value in headers_obj.items():
-                        self._headers[key.lower()] = value
-                elif hasattr(headers_obj, 'get'):
-                    # Headers object with get() method
-                    # Try common headers
-                    common_headers = ['authorization', 'content-type', 'user-agent', 'cf-ipcountry']
-                    for header in common_headers:
-                        value = headers_obj.get(header)
-                        if value:
-                            self._headers[header.lower()] = value
-                else:
-                    # Try to iterate if it's iterable
-                    try:
-                        for header in headers_obj:
-                            self._headers[header[0].lower()] = header[1]
-                    except (TypeError, AttributeError, IndexError):
-                        # If all else fails, just continue without headers
-                        pass
+            if not hasattr(raw_request, 'headers'):
+                return
+                
+            headers_obj = raw_request.headers
+            if hasattr(headers_obj, 'items'):
+                self._extract_headers_with_items(headers_obj)
+            elif hasattr(headers_obj, 'get'):
+                self._extract_headers_with_get(headers_obj)
+            else:
+                self._extract_headers_iterable(headers_obj)
         except AttributeError:
-            # Headers might be in a different format in Workers
             pass
 
     def header(self, name: str, default: str = None) -> str:
@@ -174,6 +182,56 @@ class Request:
         except Exception:
             return b""
 
+    def _convert_jsproxy_to_dict(self, raw_json):
+        """Convert JsProxy object to Python dict"""
+        if hasattr(raw_json, 'to_py'):
+            return raw_json.to_py()
+            
+        if not (hasattr(raw_json, '__iter__') and not isinstance(raw_json, (str, bytes))):
+            return raw_json
+            
+        try:
+            if hasattr(raw_json, 'Object') and hasattr(raw_json.Object, 'keys'):
+                result = {}
+                keys = list(raw_json.Object.keys(raw_json))
+                for key in keys:
+                    result[key] = raw_json[key]
+                return result
+            return raw_json
+        except Exception:
+            return raw_json
+
+    async def _parse_workers_json(self, convert: bool):
+        """Parse JSON using Workers request.json() method"""
+        try:
+            raw_json = await self._raw.json()
+            if convert and raw_json is not None:
+                return self._convert_jsproxy_to_dict(raw_json)
+            return raw_json
+        except Exception:
+            return await self._parse_text_fallback_json()
+
+    async def _parse_text_fallback_json(self):
+        """Fallback JSON parsing from text body"""
+        try:
+            body = await self.text()
+            if body:
+                import json as json_module
+                return json_module.loads(body)
+            return None
+        except Exception:
+            return None
+
+    async def _parse_text_json(self):
+        """Parse JSON from text body (non-Workers)"""
+        body = await self.text()
+        if not body:
+            return None
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            return None
+
     async def json(self, convert=True) -> Optional[Dict]:
         """Get request body as parsed JSON
         
@@ -188,60 +246,10 @@ class Request:
         cached_value = getattr(self, cache_key, None)
 
         if cached_value is None:
-            # Check if raw request has json() method (like in Workers)
             if hasattr(self._raw, 'json'):
-                try:
-                    raw_json = await self._raw.json()
-                    
-
-                    if convert and raw_json is not None:
-                        # Convert JsProxy to Python dict if needed
-                        if hasattr(raw_json, 'to_py'):
-                            # JsProxy object with to_py() method
-                            cached_value = raw_json.to_py()
-                        elif hasattr(raw_json, '__iter__') and not isinstance(raw_json, (str, bytes)):
-                            # Try to convert object-like JsProxy manually
-                            try:
-                                # For object-like JsProxy, try to extract as dict
-                                if hasattr(raw_json, 'Object') and hasattr(raw_json.Object, 'keys'):
-                                    # Extract keys and values from JsProxy object
-                                    result = {}
-                                    keys = list(raw_json.Object.keys(raw_json))
-                                    for key in keys:
-                                        result[key] = raw_json[key]
-                                    cached_value = result
-                                else:
-                                    cached_value = raw_json
-                            except Exception:
-                                cached_value = raw_json
-                        else:
-                            # Already a Python object
-                            cached_value = raw_json
-                    else:
-                        # No conversion requested or raw_json is None
-                        cached_value = raw_json
-
-                except Exception as e:
-                    # If Workers JSON fails, immediately try text fallback
-                    try:
-                        body = await self.text()
-                        if body:
-                            import json as json_module
-                            cached_value = json_module.loads(body)
-                        else:
-                            cached_value = None
-                    except Exception as text_e:
-                        cached_value = None
+                cached_value = await self._parse_workers_json(convert)
             else:
-                # Fallback to parsing text
-                body = await self.text()
-                if body:
-                    try:
-                        cached_value = json.loads(body)
-                    except json.JSONDecodeError:
-                        cached_value = None
-                else:
-                    cached_value = None
+                cached_value = await self._parse_text_json()
 
             setattr(self, cache_key, cached_value)
 

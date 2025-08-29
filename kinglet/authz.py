@@ -33,39 +33,62 @@ def verify_jwt_hs256(token: str, secret: str) -> Optional[dict]:
         return None
 
 
+def _extract_bearer_user(req, env_key: str) -> Optional[dict]:
+    """Extract user from Bearer token"""
+    auth = (getattr(req, "header", lambda *_: None)("authorization") or "")
+    if not auth.lower().startswith("bearer "):
+        return None
+        
+    token = auth.split(" ", 1)[1].strip()
+    secret = getattr(req.env, env_key, None)
+    if not secret:
+        return None
+        
+    claims = verify_jwt_hs256(token, secret)
+    if not claims:
+        return None
+        
+    uid = claims.get("sub") or claims.get("uid") or claims.get("user_id")
+    if uid:
+        return {"id": str(uid), "claims": claims}
+    return None
+
+
+def _extract_cloudflare_user(req) -> Optional[dict]:
+    """Extract user from Cloudflare Access JWT"""
+    access_jwt = (getattr(req, "header", lambda *_: None)("cf-access-jwt-assertion") or
+                  getattr(req, "header", lambda *_: None)("cf-access-jwt"))
+    if not access_jwt:
+        return None
+        
+    try:
+        _, p_b64, _ = access_jwt.split(".")
+        claims = json.loads(_b64url_decode(p_b64))
+        uid = claims.get("sub") or claims.get("email") or claims.get("user_uuid")
+        if uid:
+            return {"id": str(uid), "claims": claims}
+    except Exception:
+        pass
+    return None
+
+
 async def get_user(req, *, env_key="JWT_SECRET") -> Optional[dict]:
     """
     Returns {"id": <user_id>, "claims": {...}} or None.
     Prefers Bearer token; falls back to Cloudflare Access JWT header if present.
     """
     from .utils import async_noop
-    # Placeholder await to keep async signature valid until real async operations are added
     await async_noop()
-    # Bearer token
-    auth = (getattr(req, "header", lambda *_: None)("authorization") or "")
-    if auth.lower().startswith("bearer "):
-        token = auth.split(" ", 1)[1].strip()
-        secret = getattr(req.env, env_key, None)
-        if secret:
-            claims = verify_jwt_hs256(token, secret)
-            if claims:
-                uid = claims.get("sub") or claims.get("uid") or claims.get("user_id")
-                if uid:
-                    return {"id": str(uid), "claims": claims}
-    # Cloudflare Access (optional): CF-Access-Jwt-Assertion already verified by Access
-    access_jwt = (getattr(req, "header", lambda *_: None)("cf-access-jwt-assertion") or
-                  getattr(req, "header", lambda *_: None)("cf-access-jwt"))  # relax
-    if access_jwt:
-        # Trust upstream; parse payload without verify (optional: add JWKS verification later)
-        try:
-            _, p_b64, _ = access_jwt.split(".")
-            claims = json.loads(_b64url_decode(p_b64))
-            uid = claims.get("sub") or claims.get("email") or claims.get("user_uuid")
-            if uid:
-                return {"id": str(uid), "claims": claims}
-        except Exception:
-            pass
-    return None
+    
+    # Try Bearer token first
+    user = _extract_bearer_user(req, env_key)
+    if user:
+        return user
+        
+    # Fall back to Cloudflare Access JWT
+    return _extract_cloudflare_user(req)
+
+# ---------- Helper functions for user extraction ----------
 
 # ---------- Relationship resolvers (pluggable) ----------
 # You supply these per resource; keep them tiny + fast.

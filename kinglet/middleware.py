@@ -109,6 +109,46 @@ class ORMErrorMiddleware(Middleware):
         """No response processing needed - errors are caught by error boundary"""
         return response
         
+    def _get_correlation_instance(self, request):
+        """Extract correlation ID instance for tracing"""
+        if hasattr(request, 'headers') and self.correlation_header in request.headers:
+            return f"/requests/{request.headers[self.correlation_header]}"
+        return None
+
+    def _add_trace_if_enabled(self, problem):
+        """Add stack trace to problem if trace is enabled and not in prod"""
+        if not self.is_prod and self.include_trace:
+            import traceback
+            problem["trace"] = traceback.format_exc()
+
+    def _handle_orm_error(self, request, error):
+        """Handle ORM-specific errors"""
+        instance = self._get_correlation_instance(request)
+        problem, status, headers = orm_problem_response(
+            error, instance=instance, is_prod=self.is_prod
+        )
+        self._add_trace_if_enabled(problem)
+        return Response(problem, status=status, headers=headers)
+
+    def _handle_generic_error(self, request, error):
+        """Handle generic non-ORM errors"""
+        instance = self._get_correlation_instance(request)
+        
+        problem = {
+            "type": "https://errors.kinglet.dev/internal",
+            "title": "Internal server error",
+            "status": 500,
+            "detail": "An unexpected error occurred" if self.is_prod else str(error),
+            "code": error.__class__.__name__
+        }
+        
+        if instance:
+            problem["instance"] = instance
+        
+        self._add_trace_if_enabled(problem)
+        headers = {"Content-Type": "application/problem+json"}
+        return Response(problem, status=500, headers=headers)
+
     def create_error_boundary(self, handler: Callable) -> Callable:
         """
         Create error boundary wrapper for route handlers
@@ -134,48 +174,9 @@ class ORMErrorMiddleware(Middleware):
             try:
                 return await handler(request, env)
             except ORMError as e:
-                # Get correlation ID for tracing
-                instance = None
-                if hasattr(request, 'headers') and self.correlation_header in request.headers:
-                    instance = f"/requests/{request.headers[self.correlation_header]}"
-                
-                # Create problem+json response
-                problem, status, headers = orm_problem_response(
-                    e,
-                    instance=instance,
-                    is_prod=self.is_prod
-                )
-                
-                # Add stack trace in development
-                if not self.is_prod and self.include_trace:
-                    import traceback
-                    problem["trace"] = traceback.format_exc()
-                
-                return Response(problem, status=status, headers=headers)
-                
+                return self._handle_orm_error(request, e)
             except Exception as e:
-                # Handle non-ORM errors
-                instance = None
-                if hasattr(request, 'headers') and self.correlation_header in request.headers:
-                    instance = f"/requests/{request.headers[self.correlation_header]}"
-                
-                problem = {
-                    "type": "https://errors.kinglet.dev/internal",
-                    "title": "Internal server error",
-                    "status": 500,
-                    "detail": "An unexpected error occurred" if self.is_prod else str(e),
-                    "code": e.__class__.__name__
-                }
-                
-                if instance:
-                    problem["instance"] = instance
-                    
-                if not self.is_prod and self.include_trace:
-                    import traceback
-                    problem["trace"] = traceback.format_exc()
-                
-                headers = {"Content-Type": "application/problem+json"}
-                return Response(problem, status=500, headers=headers)
+                return self._handle_generic_error(request, e)
                 
         return error_boundary_wrapper
 

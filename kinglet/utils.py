@@ -231,6 +231,37 @@ def get_default_cache_policy() -> CachePolicy:
     return _default_cache_policy
 
 
+def _build_asset_path(uid: str, asset_type: str) -> str:
+    """Build asset path based on type"""
+    if asset_type == "media":
+        return f"/api/media/{uid}"
+    elif asset_type == "static":
+        return f"/assets/{uid}"
+    else:
+        return f"/{asset_type}/{uid}"
+
+def _get_cdn_url(request: Request, path: str, asset_type: str) -> str:
+    """Get CDN URL if available for media assets"""
+    if asset_type == "media" and hasattr(request.env, 'CDN_BASE_URL'):
+        cdn_base = request.env.CDN_BASE_URL.rstrip('/')
+        return f"{cdn_base}{path}"
+    return None
+
+def _detect_protocol(request: Request) -> str:
+    """Detect if we're running on HTTPS"""
+    if request.header('x-forwarded-proto') == 'https':
+        return "https"
+    elif hasattr(request, '_parsed_url') and request._parsed_url.scheme == 'https':
+        return "https"
+    return "http"
+
+def _get_host(request: Request) -> str:
+    """Get host from header, fallback to parsed URL if available"""
+    host = request.header('host')
+    if not host and hasattr(request, '_parsed_url'):
+        host = request._parsed_url.netloc
+    return host
+
 def asset_url(request: Request, uid: str, asset_type: str = "media") -> str:
     """
     Generate asset URL based on environment and type
@@ -243,32 +274,18 @@ def asset_url(request: Request, uid: str, asset_type: str = "media") -> str:
     Returns:
         Complete URL for the asset
     """
-    # Build path based on asset type
-    if asset_type == "media":
-        path = f"/api/media/{uid}"
-    elif asset_type == "static":
-        path = f"/assets/{uid}"
-    else:
-        path = f"/{asset_type}/{uid}"
+    path = _build_asset_path(uid, asset_type)
 
     try:
         # Check if CDN_BASE_URL is available for media assets
-        if asset_type == "media" and hasattr(request.env, 'CDN_BASE_URL'):
-            cdn_base = request.env.CDN_BASE_URL.rstrip('/')
-            return f"{cdn_base}{path}"
+        cdn_url = _get_cdn_url(request, path, asset_type)
+        if cdn_url:
+            return cdn_url
 
-        # Detect if we're running on HTTPS
-        protocol = "http"
-        if request.header('x-forwarded-proto') == 'https':
-            protocol = "https"
-        elif hasattr(request, '_parsed_url') and request._parsed_url.scheme == 'https':
-            protocol = "https"
-
-        # Get host from header, fallback to parsed URL if available
-        host = request.header('host')
-        if not host and hasattr(request, '_parsed_url'):
-            host = request._parsed_url.netloc
-
+        # Build full URL with protocol and host
+        protocol = _detect_protocol(request)
+        host = _get_host(request)
+        
         if host:
             return f"{protocol}://{host}{path}"
     except Exception:

@@ -335,6 +335,78 @@ class D1ErrorClassifier:
     ]
     
     @classmethod
+    def _classify_constraint_error(cls, constraint_info: Dict, error: Exception) -> Optional[ORMError]:
+        """Classify error based on constraint registry information"""
+        constraint_type = constraint_info["type"]
+        fields = constraint_info["fields"]
+        
+        if constraint_type == "unique":
+            field_name = fields[0] if len(fields) == 1 else None
+            return UniqueViolationError(field_name=field_name, original_error=error)
+        elif constraint_type == "not_null":
+            field_name = fields[0] if fields else None
+            return NotNullViolationError(field_name=field_name, original_error=error)
+        elif constraint_type == "foreign_key":
+            field_name = fields[0] if fields else None
+            return ForeignKeyViolationError(field_name=field_name, original_error=error)
+        elif constraint_type == "check":
+            return CheckViolationError(CHECK_CONSTRAINT_VIOLATION, original_error=error)
+        return None
+
+    @classmethod
+    def _extract_field_from_match(cls, match) -> Optional[str]:
+        """Extract field name from regex match groups"""
+        if not match.groups():
+            return None
+        if len(match.groups()) >= 2:
+            return match.group(2)
+        return match.group(1)
+
+    @classmethod
+    def _check_unique_patterns(cls, error_msg_lower: str, error: Exception) -> Optional[ORMError]:
+        """Check for unique constraint violations using pattern matching"""
+        for pattern in cls.UNIQUE_PATTERNS:
+            match = re.search(pattern, error_msg_lower, re.IGNORECASE)
+            if match:
+                field_name = cls._extract_field_from_match(match)
+                return UniqueViolationError(field_name=field_name, original_error=error)
+        return None
+
+    @classmethod
+    def _check_not_null_patterns(cls, error_msg_lower: str, error: Exception) -> Optional[ORMError]:
+        """Check for NOT NULL violations using pattern matching"""
+        for pattern in cls.NOT_NULL_PATTERNS:
+            match = re.search(pattern, error_msg_lower, re.IGNORECASE)
+            if match:
+                field_name = cls._extract_field_from_match(match)
+                return NotNullViolationError(field_name=field_name, original_error=error)
+        return None
+
+    @classmethod
+    def _check_other_patterns(cls, error_msg_lower: str, error: Exception) -> Optional[ORMError]:
+        """Check for foreign key, check, deadlock, and timeout patterns"""
+        # Foreign key violations
+        for pattern in cls.FOREIGN_KEY_PATTERNS:
+            if re.search(pattern, error_msg_lower, re.IGNORECASE):
+                return ForeignKeyViolationError(original_error=error)
+        
+        # Check constraint violations
+        for pattern in cls.CHECK_PATTERNS:
+            if re.search(pattern, error_msg_lower, re.IGNORECASE):
+                return CheckViolationError(CHECK_CONSTRAINT_VIOLATION, original_error=error)
+        
+        # Retryable errors
+        for pattern in cls.DEADLOCK_PATTERNS:
+            if re.search(pattern, error_msg_lower, re.IGNORECASE):
+                return DeadlockError(original_error=error)
+        
+        for pattern in cls.TIMEOUT_PATTERNS:
+            if re.search(pattern, error_msg_lower, re.IGNORECASE):
+                return TimeoutError(original_error=error)
+        
+        return None
+
+    @classmethod
     def classify_error(cls, error: Exception, registry: Optional[ConstraintRegistry] = None) -> ORMError:
         """
         Classify a database error into appropriate ORM exception with constraint registry
@@ -354,72 +426,23 @@ class D1ErrorClassifier:
         
         # Step 1: Try to extract constraint name from error message
         constraint_info = cls._extract_constraint_info(error_msg, registry)
-        
         if constraint_info:
-            # Use registry for precise field extraction
-            constraint_type = constraint_info["type"]
-            fields = constraint_info["fields"]
-            
-            if constraint_type == "unique":
-                # For multiple fields, join them or use primary field
-                field_name = fields[0] if len(fields) == 1 else None
-                return UniqueViolationError(field_name=field_name, original_error=error)
-                
-            elif constraint_type == "not_null":
-                field_name = fields[0] if fields else None
-                return NotNullViolationError(field_name=field_name, original_error=error)
-                
-            elif constraint_type == "foreign_key":
-                field_name = fields[0] if fields else None
-                return ForeignKeyViolationError(field_name=field_name, original_error=error)
-                
-            elif constraint_type == "check":
-                return CheckViolationError(CHECK_CONSTRAINT_VIOLATION, original_error=error)
+            result = cls._classify_constraint_error(constraint_info, error)
+            if result:
+                return result
                 
         # Step 2: Fall back to pattern matching for backward compatibility
-        # Check for unique constraint violations
-        for pattern in cls.UNIQUE_PATTERNS:
-            match = re.search(pattern, error_msg_lower, re.IGNORECASE)
-            if match:
-                field_name = None
-                if match.groups():
-                    # Extract field name if available (table.column format)
-                    if len(match.groups()) >= 2:
-                        field_name = match.group(2)
-                    else:
-                        field_name = match.group(1)
-                return UniqueViolationError(field_name=field_name, original_error=error)
-        
-        # Check for NOT NULL violations
-        for pattern in cls.NOT_NULL_PATTERNS:
-            match = re.search(pattern, error_msg_lower, re.IGNORECASE)
-            if match:
-                field_name = None
-                if match.groups():
-                    if len(match.groups()) >= 2:
-                        field_name = match.group(2)
-                    else:
-                        field_name = match.group(1)
-                return NotNullViolationError(field_name=field_name, original_error=error)
-        
-        # Check for foreign key violations
-        for pattern in cls.FOREIGN_KEY_PATTERNS:
-            if re.search(pattern, error_msg_lower, re.IGNORECASE):
-                return ForeignKeyViolationError(original_error=error)
-        
-        # Check for check constraint violations
-        for pattern in cls.CHECK_PATTERNS:
-            if re.search(pattern, error_msg_lower, re.IGNORECASE):
-                return CheckViolationError(CHECK_CONSTRAINT_VIOLATION, original_error=error)
-        
-        # Check for retryable errors
-        for pattern in cls.DEADLOCK_PATTERNS:
-            if re.search(pattern, error_msg_lower, re.IGNORECASE):
-                return DeadlockError(original_error=error)
-        
-        for pattern in cls.TIMEOUT_PATTERNS:
-            if re.search(pattern, error_msg_lower, re.IGNORECASE):
-                return TimeoutError(original_error=error)
+        result = cls._check_unique_patterns(error_msg_lower, error)
+        if result:
+            return result
+            
+        result = cls._check_not_null_patterns(error_msg_lower, error)
+        if result:
+            return result
+            
+        result = cls._check_other_patterns(error_msg_lower, error)
+        if result:
+            return result
         
         # Generic query error
         return QueryError(f"Database query failed: {error}", original_error=error)

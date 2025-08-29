@@ -57,6 +57,55 @@ def d1_unwrap_results(results):
     # Single result
     return [d1_unwrap(results)]
 
+def _is_js_undefined(value, default):
+    """Check if value is JavaScript undefined"""
+    try:
+        import js
+        if value is js.undefined:
+            return default
+    except (ImportError, AttributeError):
+        if str(value) == "undefined":
+            return default
+    return value
+
+def _access_attribute(obj, part, default):
+    """Try to access object attribute"""
+    if hasattr(obj, part):
+        current = getattr(obj, part)
+        return _is_js_undefined(current, default)
+    return None
+
+def _access_dict_key(obj, part):
+    """Try to access dictionary key"""
+    if isinstance(obj, dict):
+        return obj.get(part)
+    return None
+
+def _access_bracket_notation(obj, part, default):
+    """Try to access using bracket notation"""
+    try:
+        return obj[part]
+    except (KeyError, TypeError, AttributeError):
+        return default
+
+def _traverse_path_part(current, part, default):
+    """Traverse one part of the path"""
+    if current is None:
+        return default
+        
+    # Try attribute access first (most common)
+    result = _access_attribute(current, part, default)
+    if result is not None:
+        return result
+        
+    # Then dict access
+    result = _access_dict_key(current, part)
+    if result is not None:
+        return result
+        
+    # Then JS object bracket access
+    return _access_bracket_notation(current, part, default)
+
 def r2_get_metadata(obj, path, default=None):
     """
     Extract metadata from R2 objects using dot notation.
@@ -74,43 +123,12 @@ def r2_get_metadata(obj, path, default=None):
 
     current = obj
     for part in path.split('.'):
-        if current is None:
+        current = _traverse_path_part(current, part, default)
+        if current == default:
             return default
-
-        # Try attribute access first (most common)
-        if hasattr(current, part):
-            current = getattr(current, part)
-            # Check for JavaScript undefined immediately after getattr
-            try:
-                import js
-                if current is js.undefined:
-                    return default
-            except (ImportError, AttributeError):
-                if str(current) == "undefined":
-                    return default
-        # Then dict access
-        elif isinstance(current, dict):
-            current = current.get(part)
-        # Then JS object bracket access
-        else:
-            try:
-                current = current[part]
-            except (KeyError, TypeError, AttributeError):
-                return default
 
     result = current if current is not None else default
-
-    # Check for JavaScript undefined before stringifying
-    try:
-        import js
-        if result is js.undefined:
-            return default
-    except (ImportError, AttributeError):
-        # Fallback: check string representation
-        if str(result) == "undefined":
-            return default
-
-    return result
+    return _is_js_undefined(result, default)
 
 def r2_get_content_info(obj):
     """
