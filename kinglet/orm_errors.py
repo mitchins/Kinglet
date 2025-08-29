@@ -449,15 +449,19 @@ class D1ErrorClassifier:
                         return constraint_info
                         
         # Try to extract table.column pattern and find matching constraint
-        table_column_match = re.search(r"(\w+)\.(\w+)", error_msg)
-        if table_column_match:
-            table_name = table_column_match.group(1)
-            column_name = table_column_match.group(2)
-            
-            # Look for constraint involving this field
-            constraint_info = registry.find_constraint_by_fields(table_name, [column_name])
-            if constraint_info:
-                return constraint_info
+        # Use simple string operations to avoid ReDoS vulnerability
+        for word in error_msg.split():
+            if '.' in word and word.count('.') == 1:
+                table_name, column_name = word.split('.')
+                # Basic validation for SQL identifiers
+                if (table_name.replace('_', '').isalnum() and 
+                    column_name.replace('_', '').isalnum() and
+                    not table_name[0].isdigit() and not column_name[0].isdigit()):
+                    
+                    # Look for constraint involving this field
+                    constraint_info = registry.find_constraint_by_fields(table_name, [column_name])
+                    if constraint_info:
+                        return constraint_info
                 
         return None
     
