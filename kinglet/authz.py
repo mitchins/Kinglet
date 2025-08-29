@@ -32,11 +32,15 @@ def verify_jwt_hs256(token: str, secret: str) -> Optional[dict]:
     except Exception:
         return None
 
+
 async def get_user(req, *, env_key="JWT_SECRET") -> Optional[dict]:
     """
     Returns {"id": <user_id>, "claims": {...}} or None.
     Prefers Bearer token; falls back to Cloudflare Access JWT header if present.
     """
+    from .utils import async_noop
+    # Placeholder await to keep async signature valid until real async operations are added
+    await async_noop()
     # Bearer token
     auth = (getattr(req, "header", lambda *_: None)("authorization") or "")
     if auth.lower().startswith("bearer "):

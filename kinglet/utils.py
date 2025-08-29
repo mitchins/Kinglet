@@ -10,6 +10,21 @@ from typing import Any, Callable, Optional, Protocol
 from .http import Request
 
 
+async def async_noop() -> None:
+    """
+    No-operation coroutine for maintaining async function signatures.
+    
+    Use this when you have an async function that doesn't yet perform
+    any actual async operations, but needs to maintain API compatibility.
+    
+    Example:
+        async def my_function():
+            await async_noop()  # Keeps function async-compliant
+            return synchronous_operation()
+    """
+    return None
+
+
 class CachePolicy(Protocol):
     """Protocol for cache policy implementations"""
 
