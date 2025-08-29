@@ -1311,7 +1311,7 @@ class D1Transaction:
         """Add a statement to the transaction batch"""
         if self.executed:
             raise RuntimeError("Transaction already executed")
-        stmt = self.db.prepare(sql)
+        stmt = await self.db.prepare(sql)
         if params:
             stmt = stmt.bind(*params)
         self.statements.append(stmt)
@@ -1328,7 +1328,7 @@ class D1Transaction:
         # Use D1's batch API for atomicity
         return await self.db.batch(self.statements)
         
-    async def rollback(self) -> None:
+    def rollback(self) -> None:
         """Rollback (clear statements without executing)"""
         self.statements.clear()
         self.executed = True
@@ -1466,7 +1466,8 @@ class BatchOperations:
         # Prepare statements
         statements = []
         for op in self.operations:
-            stmt = self.db.prepare(op['sql']).bind(*op['params'])
+            stmt = await self.db.prepare(op['sql'])
+            stmt = stmt.bind(*op['params'])
             statements.append(stmt)
             
         # Execute as D1 batch

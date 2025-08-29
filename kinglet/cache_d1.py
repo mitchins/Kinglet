@@ -43,7 +43,7 @@ class D1CacheService:
             
             if self.track_hits:
                 # Get from cache and update hit count atomically
-                stmt = self.db.prepare(f"""
+                stmt = await self.db.prepare(f"""
                     UPDATE {self.table_name} 
                     SET hit_count = hit_count + 1 
                     WHERE cache_key = ? AND expires_at > ?
@@ -61,7 +61,7 @@ class D1CacheService:
                     }
             else:
                 # Read-only cache lookup (no write operations)
-                stmt = self.db.prepare(f"""
+                stmt = await self.db.prepare(f"""
                     SELECT content, created_at 
                     FROM {self.table_name} 
                     WHERE cache_key = ? AND expires_at > ?
@@ -98,7 +98,7 @@ class D1CacheService:
             expires_at = current_time + self.ttl
             
             # Upsert cache entry
-            stmt = self.db.prepare(f"""
+            stmt = await self.db.prepare(f"""
                 INSERT OR REPLACE INTO {self.table_name} 
                 (cache_key, content, created_at, expires_at, size_bytes)
                 VALUES (?, ?, ?, ?, ?)
@@ -114,7 +114,7 @@ class D1CacheService:
     async def delete(self, cache_key: str) -> bool:
         """Delete specific cache entry"""
         try:
-            stmt = self.db.prepare(f"DELETE FROM {self.table_name} WHERE cache_key = ?")
+            stmt = await self.db.prepare(f"DELETE FROM {self.table_name} WHERE cache_key = ?")
             result = await stmt.bind(cache_key).run()
             return result.changes > 0
         except Exception as e:
@@ -125,7 +125,7 @@ class D1CacheService:
         """Remove expired cache entries and return count removed"""
         try:
             current_time = int(time.time())
-            stmt = self.db.prepare(f"DELETE FROM {self.table_name} WHERE expires_at <= ?")
+            stmt = await self.db.prepare(f"DELETE FROM {self.table_name} WHERE expires_at <= ?")
             result = await stmt.bind(current_time).run()
             return result.changes
         except Exception as e:
@@ -135,7 +135,7 @@ class D1CacheService:
     async def invalidate_pattern(self, pattern: str) -> int:
         """Invalidate cache entries matching a pattern (e.g., '/api/games/%')"""
         try:
-            stmt = self.db.prepare(f"DELETE FROM {self.table_name} WHERE cache_key LIKE ?")
+            stmt = await self.db.prepare(f"DELETE FROM {self.table_name} WHERE cache_key LIKE ?")
             result = await stmt.bind(pattern).run()
             return result.changes
         except Exception as e:
@@ -145,7 +145,7 @@ class D1CacheService:
     async def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics for monitoring"""
         try:
-            stmt = self.db.prepare(f"""
+            stmt = await self.db.prepare(f"""
                 SELECT 
                     COUNT(*) as total_entries,
                     SUM(size_bytes) as total_size,
@@ -232,11 +232,18 @@ async def ensure_cache_table(db) -> bool:
     try:
         # Read the schema file
         import os
+        import asyncio
         schema_path = os.path.join(os.path.dirname(__file__), "cache_d1.sql")
         
         if os.path.exists(schema_path):
-            with open(schema_path, 'r') as f:
-                schema_sql = f.read()
+            # Use run_in_executor for async file I/O
+            loop = asyncio.get_event_loop()
+            
+            def read_schema_file():
+                with open(schema_path, 'r') as f:
+                    return f.read()
+            
+            schema_sql = await loop.run_in_executor(None, read_schema_file)
             
             # Execute schema (D1 supports multiple statements)
             await db.exec(schema_sql)
