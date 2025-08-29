@@ -32,7 +32,7 @@ class Request:
             self.method = getattr(raw_request, 'method', 'GET').upper()
         else:
             # Fallback for test cases
-            url_string = getattr(raw_request, 'url', 'http://localhost/')
+            url_string = getattr(raw_request, 'url', 'https://testserver/')
             self.url = url_string
             self._parsed_url = urlparse(url_string)
             self.method = getattr(raw_request, 'method', 'GET').upper()

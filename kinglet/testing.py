@@ -8,7 +8,7 @@ class TestClient:
     """Simple sync wrapper for testing Kinglet apps without HTTP/Wrangler overhead"""
     __test__ = False  # Tell pytest this is not a test class
 
-    def __init__(self, app, base_url="http://testserver", env=None):
+    def __init__(self, app, base_url="https://testserver", env=None):
         self.app = app
         self.base_url = base_url.rstrip('/')
         self.env = env or {}
