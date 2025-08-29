@@ -12,7 +12,8 @@ from kinglet.orm import Model, StringField, IntegerField
 from kinglet.orm_errors import (
     ValidationError, UniqueViolationError, NotNullViolationError,
     DoesNotExistError, MultipleObjectsReturnedError, D1ErrorClassifier,
-    IntegrityError
+    IntegrityError, ConstraintRegistry, ForeignKeyViolationError,
+    CheckViolationError, DeadlockError, TimeoutError
 )
 from .mock_d1 import MockD1Database
 
@@ -213,6 +214,159 @@ class TestRFC7807Responses:
         assert "field" not in prod_problem
         assert "value" not in prod_problem
         assert prod_problem["code"] == "ValidationError"
+
+
+class TestConstraintRegistry:
+    """Test ConstraintRegistry functionality"""
+
+    def test_register_constraint_with_none_type(self):
+        """Test register_constraint when constraint_type is None - covers lines 82-88"""
+        registry = ConstraintRegistry()
+        
+        # Register constraint without specifying type (should infer)
+        registry.register_constraint("users", "uq_users_email", ["email"], constraint_type=None)
+        
+        info = registry.get_constraint_info("users", "uq_users_email")
+        assert info is not None
+        assert info["fields"] == ["email"]
+        assert info["type"] == "unique"  # Should be inferred from name
+
+    def test_infer_constraint_type_coverage(self):
+        """Test all branches of _infer_constraint_type - covers lines 141-147, 150"""
+        registry = ConstraintRegistry()
+        
+        # Foreign key patterns - lines 141-142
+        assert registry._infer_constraint_type("fk_users_tenant") == "foreign_key"
+        assert registry._infer_constraint_type("users_tenant_fkey") == "foreign_key"
+        assert registry._infer_constraint_type("users_foreign_key") == "foreign_key"
+        
+        # Check constraint patterns - lines 143-144
+        assert registry._infer_constraint_type("ck_users_age") == "check"
+        assert registry._infer_constraint_type("users_age_check") == "check"
+        
+        # Not null patterns - lines 145-146
+        assert registry._infer_constraint_type("nn_users_name") == "not_null"
+        assert registry._infer_constraint_type("users_name_not_null") == "not_null"
+        
+        # Primary key patterns - lines 147-148
+        assert registry._infer_constraint_type("pk_users") == "primary_key"
+        assert registry._infer_constraint_type("users_pkey") == "primary_key"
+        assert registry._infer_constraint_type("users_primary_key") == "primary_key"
+        
+        # Unknown pattern - line 150
+        assert registry._infer_constraint_type("weird_constraint_name") == "unknown"
+
+
+class TestErrorConstructorMessages:
+    """Test error constructors with None messages"""
+
+    def test_foreign_key_error_none_message_with_field(self):
+        """Test ForeignKeyViolationError with None message and field - covers lines 215-217"""
+        error = ForeignKeyViolationError(field_name="user_id", message=None)
+        assert "Foreign key constraint violation on field 'user_id'" in str(error)
+
+    def test_foreign_key_error_none_message_no_field(self):
+        """Test ForeignKeyViolationError with None message and no field"""
+        error = ForeignKeyViolationError(field_name=None, message=None)
+        assert "Foreign key constraint violation" in str(error)
+
+    def test_deadlock_error_none_message(self):
+        """Test DeadlockError with None message - covers lines 270-272"""
+        error = DeadlockError(message=None)
+        assert "Database deadlock detected - retry recommended" in str(error)
+        assert error.retry_after == 0.1
+
+    def test_timeout_error_none_message(self):
+        """Test TimeoutError with None message - covers lines 279-281"""
+        error = TimeoutError(message=None)
+        assert "Database operation timed out - retry recommended" in str(error)
+        assert error.retry_after == 1.0
+
+
+class TestD1ErrorClassifierRegistryPaths:
+    """Test D1ErrorClassifier registry-based error classification"""
+
+    def test_classify_with_registry_foreign_key(self):
+        """Test registry-based foreign key classification - covers lines 372-374"""
+        registry = ConstraintRegistry()
+        registry.register_constraint("users", "fk_users_tenant", ["tenant_id"], "foreign_key")
+        
+        # Mock error with constraint name
+        error = Exception("CONSTRAINT fk_users_tenant failed")
+        
+        result = D1ErrorClassifier.classify_error(error, registry)
+        assert isinstance(result, ForeignKeyViolationError)
+        assert result.field_name == "tenant_id"
+
+    def test_classify_with_registry_check_constraint(self):
+        """Test registry-based check constraint classification - covers lines 376-377"""
+        registry = ConstraintRegistry()
+        registry.register_constraint("users", "ck_users_age", ["age"], "check")
+        
+        error = Exception("CHECK constraint `ck_users_age` failed")
+        
+        result = D1ErrorClassifier.classify_error(error, registry)
+        assert isinstance(result, CheckViolationError)
+
+    def test_classify_fallback_patterns_unique_with_groups(self):
+        """Test fallback regex patterns for unique constraint - covers lines 382-391"""
+        error = Exception("UNIQUE constraint failed: users.email")
+        
+        result = D1ErrorClassifier.classify_error(error)
+        assert isinstance(result, UniqueViolationError)
+        assert result.field_name == "email"
+
+    def test_classify_fallback_patterns_unique_single_group(self):
+        """Test unique constraint with single group - covers lines 389-390"""
+        error = Exception("column name is not unique")
+        
+        result = D1ErrorClassifier.classify_error(error)
+        assert isinstance(result, UniqueViolationError)
+        assert result.field_name == "name"
+
+    def test_classify_fallback_patterns_not_null_two_groups(self):
+        """Test NOT NULL constraint with two groups - covers lines 395-403"""
+        error = Exception("NOT NULL constraint failed: users.email")
+        
+        result = D1ErrorClassifier.classify_error(error)
+        assert isinstance(result, NotNullViolationError)
+        assert result.field_name == "email"
+
+    def test_classify_fallback_patterns_not_null_one_group(self):
+        """Test NOT NULL constraint with one group - covers lines 401-402"""
+        error = Exception("column email may not be NULL")
+        
+        result = D1ErrorClassifier.classify_error(error)
+        assert isinstance(result, NotNullViolationError)
+        assert result.field_name == "email"
+
+    def test_classify_fallback_foreign_key_patterns(self):
+        """Test foreign key pattern matching - covers lines 406-408"""
+        error = Exception("FOREIGN KEY constraint failed")
+        
+        result = D1ErrorClassifier.classify_error(error)
+        assert isinstance(result, ForeignKeyViolationError)
+
+    def test_classify_fallback_check_patterns(self):
+        """Test check constraint pattern matching - covers lines 411-413"""
+        error = Exception("CHECK constraint failed: age_positive")
+        
+        result = D1ErrorClassifier.classify_error(error)
+        assert isinstance(result, CheckViolationError)
+
+    def test_classify_fallback_deadlock_patterns(self):
+        """Test deadlock pattern matching - covers lines 416-418"""
+        error = Exception("database is locked")
+        
+        result = D1ErrorClassifier.classify_error(error)
+        assert isinstance(result, DeadlockError)
+
+    def test_classify_fallback_timeout_patterns(self):
+        """Test timeout pattern matching - covers lines 420-422"""
+        error = Exception("operation timed out")
+        
+        result = D1ErrorClassifier.classify_error(error)
+        assert isinstance(result, TimeoutError)
 
 
 if __name__ == "__main__":
