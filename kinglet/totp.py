@@ -125,7 +125,9 @@ def generate_totp_code(secret: str, timestamp: Optional[int] = None) -> str:
 
     # Convert secret from base32
     try:
-        key = base64.b32decode(secret.upper() + '=' * (8 - len(secret) % 8))
+        # Add correct padding (only if needed)
+        padding_needed = (8 - len(secret) % 8) % 8
+        key = base64.b32decode(secret.upper() + '=' * padding_needed)
     except Exception:
         raise ValueError("Invalid TOTP secret format")
 

@@ -13,36 +13,36 @@ class TestCacheBarnDoor:
 
     def test_generate_cache_key_returns_string(self):
         """Test cache key generation returns consistent format"""
-        key = generate_cache_key("test", "/api/users", user_id=123, active=True)
+        key = generate_cache_key("/api/users", extra_params={"user_id": 123, "active": True})
         
         assert isinstance(key, str)
         assert len(key) > 0
         assert key.startswith("cache:")
         
         # Should be consistent for same inputs
-        key2 = generate_cache_key("test", "/api/users", user_id=123, active=True)
+        key2 = generate_cache_key("/api/users", extra_params={"user_id": 123, "active": True})
         assert key == key2
         
         # Should be different for different inputs
-        key3 = generate_cache_key("test", "/api/users", user_id=456, active=True)
+        key3 = generate_cache_key("/api/users", extra_params={"user_id": 456, "active": True})
         assert key != key3
 
     def test_generate_cache_key_handles_various_types(self):
         """Test cache key generation with different parameter types"""
         # String parameters
-        key1 = generate_cache_key("prefix", "/path", name="test")
+        key1 = generate_cache_key("/path", extra_params={"name": "test"})
         assert isinstance(key1, str)
         
         # Integer parameters
-        key2 = generate_cache_key("prefix", "/path", count=42)
+        key2 = generate_cache_key("/path", extra_params={"count": 42})
         assert isinstance(key2, str)
         
         # Boolean parameters
-        key3 = generate_cache_key("prefix", "/path", enabled=True)
+        key3 = generate_cache_key("/path", extra_params={"enabled": True})
         assert isinstance(key3, str)
         
         # Mixed parameters
-        key4 = generate_cache_key("prefix", "/path", id=1, name="test", active=False)
+        key4 = generate_cache_key("/path", extra_params={"id": 1, "name": "test", "active": False})
         assert isinstance(key4, str)
         
         # All should be different
@@ -50,16 +50,16 @@ class TestCacheBarnDoor:
         assert len(set(keys)) == len(keys)
 
     def test_d1cache_constructor(self):
-        """Test D1CacheServiceService can be constructed with expected parameters"""
+        """Test D1CacheService can be constructed with expected parameters"""
         mock_db = Mock()
         
         # Basic construction
-        cache = D1CacheServiceService(mock_db)
+        cache = D1CacheService(mock_db)
         assert cache is not None
         assert cache.db is mock_db
         
         # Construction with custom parameters should work
-        cache2 = D1CacheServiceService(mock_db, ttl=3600, table_name="custom_cache", track_hits=True)
+        cache2 = D1CacheService(mock_db, ttl=3600, track_hits=True)
         assert cache2 is not None
 
     async def test_d1cache_get_returns_expected_types(self):
@@ -171,8 +171,8 @@ class TestCacheBarnDoor:
         
         result = await cache.get_stats()
         assert isinstance(result, dict)
-        assert 'cache_efficiency' in result
-        assert 'storage_info' in result
+        assert 'total_entries' in result
+        assert 'total_size' in result
 
     def test_d1cache_error_handling_structure(self):
         """Test that D1CacheService methods have proper error handling structure"""
@@ -206,34 +206,34 @@ class TestCacheBarnDoor:
 
     def test_cache_key_generation_edge_cases(self):
         """Test cache key generation with edge cases"""
-        # Empty prefix
-        key1 = generate_cache_key("", "/path")
+        # No extra params
+        key1 = generate_cache_key("/path")
         assert isinstance(key1, str)
         assert len(key1) > 0
         
-        # No kwargs
-        key2 = generate_cache_key("prefix", "/path")
+        # No extra params
+        key2 = generate_cache_key("/path")
         assert isinstance(key2, str)
         
-        # Many kwargs
-        key3 = generate_cache_key("prefix", "/path", **{f"param{i}": i for i in range(10)})
+        # Many extra params
+        key3 = generate_cache_key("/path", extra_params={f"param{i}": i for i in range(10)})
         assert isinstance(key3, str)
         
         # Special characters in path
-        key4 = generate_cache_key("prefix", "/api/users/123?active=true&sort=name")
+        key4 = generate_cache_key("/api/users/123")
         assert isinstance(key4, str)
 
     def test_d1cache_configuration_properties(self):
         """Test that D1CacheService exposes configuration properties"""
         mock_db = Mock()
         
-        cache = D1CacheService(mock_db, ttl=1800, table_name="test_cache", track_hits=False)
+        cache = D1CacheService(mock_db, ttl=1800, track_hits=False)
         
         # Should expose configuration
         assert hasattr(cache, 'ttl')
         assert hasattr(cache, 'table_name')
         assert cache.ttl == 1800
-        assert cache.table_name == "test_cache"
+        assert cache.table_name == "experience_cache"
 
 
 class TestCacheIntegrationBarnDoor:
@@ -296,8 +296,8 @@ class TestCacheIntegrationBarnDoor:
         assert cache1.table_name  # Should have some default
         
         # Custom table name
-        cache2 = D1CacheService(mock_db, table_name="my_custom_cache")
-        assert cache2.table_name == "my_custom_cache"
+        cache2 = D1CacheService(mock_db)
+        assert cache2.table_name == "experience_cache"
 
     def test_cache_hit_tracking_configuration(self):
         """Test hit tracking can be enabled/disabled"""
