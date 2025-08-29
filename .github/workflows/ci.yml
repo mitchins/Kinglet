@@ -138,16 +138,13 @@ jobs:
         uv run bandit -r kinglet/ -f json -o bandit-report.json || true
     
     - name: SonarQube Scan
-      uses: sonarqube-community/sonarqube-scanner-action@v2
+      uses: SonarSource/sonarqube-scan-action@v5
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     
     - name: SonarQube Quality Gate check
-      id: sonarqube-quality-gate-check
-      uses: sonarqube-quality-gate-action@master
+      uses: SonarSource/sonarqube-quality-gate-action@v1
       timeout-minutes: 5
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
