@@ -82,6 +82,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Shallow clones should be disabled for better analysis
     
     - name: Install uv
       uses: astral-sh/setup-uv@v5
@@ -97,8 +99,55 @@ jobs:
     
     - name: Run security checks with bandit
       run: |
-        uv run bandit -r kinglet/ || true  # Allow bandit failures for now
+        uv run bandit -r kinglet/ -f json -o bandit-report.json || true
+        uv run bandit -r kinglet/ || true  # Also show human-readable output
     
     - name: Check for known vulnerabilities in dependencies
       run: |
         uv run safety check || true  # Allow safety failures for now
+
+  sonarqube:
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Shallow clones should be disabled for better analysis
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+    
+    - name: Set up Python
+      run: uv python install 3.12
+    
+    - name: Install dependencies
+      run: uv sync --all-extras --dev
+    
+    - name: Run tests with coverage for SonarQube
+      run: |
+        uv run pytest --cov=kinglet --cov-branch --cov-report=xml --junitxml=test-results.xml
+    
+    - name: Run security analysis
+      run: |
+        uv run bandit -r kinglet/ -f json -o bandit-report.json || true
+    
+    - name: SonarQube Scan
+      uses: sonarqube-community/sonarqube-scanner-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    
+    - name: SonarQube Quality Gate check
+      id: sonarqube-quality-gate-check
+      uses: sonarqube-quality-gate-action@master
+      timeout-minutes: 5
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
