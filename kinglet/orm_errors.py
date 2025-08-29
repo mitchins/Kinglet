@@ -8,6 +8,8 @@ Maps D1/SQLite errors to semantic ORM exceptions.
 import re
 from typing import Optional, Dict, List, Set
 
+from .constants import CHECK_CONSTRAINT_VIOLATION
+
 
 class ConstraintRegistry:
     """
@@ -372,7 +374,7 @@ class D1ErrorClassifier:
                 return ForeignKeyViolationError(field_name=field_name, original_error=error)
                 
             elif constraint_type == "check":
-                return CheckViolationError("Check constraint violation", original_error=error)
+                return CheckViolationError(CHECK_CONSTRAINT_VIOLATION, original_error=error)
                 
         # Step 2: Fall back to pattern matching for backward compatibility
         # Check for unique constraint violations
@@ -408,7 +410,7 @@ class D1ErrorClassifier:
         # Check for check constraint violations
         for pattern in cls.CHECK_PATTERNS:
             if re.search(pattern, error_msg_lower, re.IGNORECASE):
-                return CheckViolationError("Check constraint violation", original_error=error)
+                return CheckViolationError(CHECK_CONSTRAINT_VIOLATION, original_error=error)
         
         # Check for retryable errors
         for pattern in cls.DEADLOCK_PATTERNS:
@@ -574,7 +576,7 @@ ERROR_TYPE_MAP = {
     "UniqueViolationError": (409, "https://errors.kinglet.dev/unique", "Unique constraint violation"),
     "NotNullViolationError": (400, "https://errors.kinglet.dev/not-null", "Missing required field"),  
     "ForeignKeyViolationError": (409, "https://errors.kinglet.dev/foreign-key", "Foreign key violation"),
-    "CheckViolationError": (400, "https://errors.kinglet.dev/check", "Check constraint violation"),
+    "CheckViolationError": (400, "https://errors.kinglet.dev/check", CHECK_CONSTRAINT_VIOLATION),
     "DoesNotExistError": (404, "https://errors.kinglet.dev/not-found", "Resource not found"),
     "MultipleObjectsReturnedError": (409, "https://errors.kinglet.dev/multiple", "Multiple results returned"),
     "DeadlockError": (503, "https://errors.kinglet.dev/deadlock", "Database deadlock"),

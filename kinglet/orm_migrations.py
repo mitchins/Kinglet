@@ -8,6 +8,8 @@ Tracks applied migrations without complex migration frameworks.
 import hashlib
 import json
 import time
+
+from .constants import SCHEMA_LOCK_FILE
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
@@ -277,13 +279,13 @@ class SchemaLock:
         return lock_data
     
     @staticmethod
-    def write_lock_file(lock_data: Dict[str, Any], filename: str = "schema.lock.json") -> None:
+    def write_lock_file(lock_data: Dict[str, Any], filename: str = SCHEMA_LOCK_FILE) -> None:
         """Write schema lock to file"""
         with open(filename, 'w') as f:
             json.dump(lock_data, f, indent=2)
     
     @staticmethod
-    def read_lock_file(filename: str = "schema.lock.json") -> Optional[Dict[str, Any]]:
+    def read_lock_file(filename: str = SCHEMA_LOCK_FILE) -> Optional[Dict[str, Any]]:
         """Read schema lock from file"""
         try:
             with open(filename, 'r') as f:
@@ -292,7 +294,7 @@ class SchemaLock:
             return None
     
     @staticmethod
-    def verify_schema(current_models: List, lock_file: str = "schema.lock.json") -> Dict[str, Any]:
+    def verify_schema(current_models: List, lock_file: str = SCHEMA_LOCK_FILE) -> Dict[str, Any]:
         """Verify current schema matches lock file"""
         from .orm import Model
         

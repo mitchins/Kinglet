@@ -957,41 +957,11 @@ class ModelMeta(type):
         if name == 'Model':
             return super().__new__(cls, name, bases, attrs)
             
-        # Extract fields, maintaining ordered dict for consistent field ordering
-        fields = {}
+        # Process model fields and metadata
+        fields = cls._extract_fields(attrs)
+        meta_attrs = cls._create_meta_attrs(attrs, name)
         
-        # Add auto-generated ID field first if not present
-        if not any(isinstance(v, Field) and getattr(v, 'primary_key', False) for v in attrs.values()):
-            id_field = IntegerField(primary_key=True)
-            id_field.name = 'id'
-            fields['id'] = id_field
-            attrs['id'] = id_field
-            
-        # Then add other fields in order
-        for key, value in list(attrs.items()):
-            if isinstance(value, Field):
-                if key == 'id':
-                    # Handle explicit id field (replace auto-generated if exists)
-                    value.name = key
-                    fields[key] = value
-                    attrs[key] = value
-                else:
-                    # Add non-id fields
-                    value.name = key
-                    fields[key] = value
-            
-        # Create Meta class if not present
-        meta_attrs = {}
-        if 'Meta' in attrs:
-            for attr_name in dir(attrs['Meta']):
-                if not attr_name.startswith('_'):
-                    meta_attrs[attr_name] = getattr(attrs['Meta'], attr_name)
-                    
-        # Set default table name
-        if 'table_name' not in meta_attrs:
-            meta_attrs['table_name'] = name.lower() + 's'
-            
-        # Create _meta attribute
+        # Set up model attributes
         attrs['_meta'] = type('Meta', (), meta_attrs)
         attrs['_fields'] = fields
         attrs['objects'] = Manager(None)  # Will be set after class creation
@@ -999,16 +969,59 @@ class ModelMeta(type):
         new_class = super().__new__(cls, name, bases, attrs)
         new_class.objects = Manager(new_class)
         
-        # Add model-specific DoesNotExist exception class
+        # Add model-specific exception and register constraints
+        cls._add_model_exception(new_class)
+        cls._register_model_constraints(new_class)
+        
+        return new_class
+    
+    @staticmethod
+    def _extract_fields(attrs):
+        """Extract and process field definitions from class attributes"""
+        fields = {}
+        
+        # Add auto-generated ID field first if not present
+        has_primary_key = any(
+            isinstance(v, Field) and getattr(v, 'primary_key', False) 
+            for v in attrs.values()
+        )
+        if not has_primary_key:
+            id_field = IntegerField(primary_key=True)
+            id_field.name = 'id'
+            fields['id'] = id_field
+            attrs['id'] = id_field
+            
+        # Process field definitions
+        for key, value in list(attrs.items()):
+            if isinstance(value, Field):
+                value.name = key
+                fields[key] = value
+                    
+        return fields
+    
+    @staticmethod
+    def _create_meta_attrs(attrs, class_name):
+        """Create meta attributes dictionary from Meta class"""
+        meta_attrs = {}
+        
+        if 'Meta' in attrs:
+            for attr_name in dir(attrs['Meta']):
+                if not attr_name.startswith('_'):
+                    meta_attrs[attr_name] = getattr(attrs['Meta'], attr_name)
+                    
+        # Set default table name if not specified
+        if 'table_name' not in meta_attrs:
+            meta_attrs['table_name'] = class_name.lower() + 's'
+            
+        return meta_attrs
+    
+    @staticmethod
+    def _add_model_exception(new_class):
+        """Add model-specific DoesNotExist exception class"""
         class DoesNotExist(DoesNotExistError):
             """Model-specific DoesNotExist exception"""
             pass
         new_class.DoesNotExist = DoesNotExist
-        
-        # Auto-register constraints with the global registry
-        cls._register_model_constraints(new_class)
-        
-        return new_class
         
     @staticmethod
     def _register_model_constraints(model_class):

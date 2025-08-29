@@ -20,6 +20,7 @@ import argparse
 import importlib
 from typing import List, Type, Optional
 from datetime import datetime
+from .constants import SCHEMA_LOCK_FILE, MIGRATIONS_FILE, PYTHON_MODULE_HELP
 from .orm import Model, SchemaManager
 from .orm_migrations import Migration, MigrationTracker, SchemaLock, MigrationGenerator
 
@@ -195,7 +196,7 @@ async def migrate_database(request):
 '''
 
 
-def generate_lock(module_path: str, output: str = "schema.lock.json") -> int:
+def generate_lock(module_path: str, output: str = SCHEMA_LOCK_FILE) -> int:
     """Generate schema lock file"""
     try:
         models = import_models(module_path)
@@ -206,8 +207,8 @@ def generate_lock(module_path: str, output: str = "schema.lock.json") -> int:
         
         # Check for existing migrations
         migrations = []
-        if os.path.exists("migrations.json"):
-            with open("migrations.json", 'r') as f:
+        if os.path.exists(MIGRATIONS_FILE):
+            with open(MIGRATIONS_FILE, 'r') as f:
                 migration_data = json.load(f)
                 for m in migration_data.get("migrations", []):
                     migrations.append(Migration(
@@ -233,7 +234,7 @@ def generate_lock(module_path: str, output: str = "schema.lock.json") -> int:
         return 1
 
 
-def verify_schema(module_path: str, lock_file: str = "schema.lock.json") -> int:
+def verify_schema(module_path: str, lock_file: str = SCHEMA_LOCK_FILE) -> int:
     """Verify schema against lock file"""
     try:
         models = import_models(module_path)
@@ -265,7 +266,7 @@ def verify_schema(module_path: str, lock_file: str = "schema.lock.json") -> int:
         return 1
 
 
-def generate_migrations(module_path: str, lock_file: str = "schema.lock.json") -> int:
+def generate_migrations(module_path: str, lock_file: str = SCHEMA_LOCK_FILE) -> int:
     """Generate migrations from schema changes"""
     try:
         models = import_models(module_path)
@@ -309,7 +310,7 @@ def generate_migrations(module_path: str, lock_file: str = "schema.lock.json") -
             "migrations": [m.to_dict() for m in migrations]
         }
         
-        with open("migrations.json", 'w') as f:
+        with open(MIGRATIONS_FILE, 'w') as f:
             json.dump(migration_data, f, indent=2)
         
         print(f"\n-- Migration metadata saved to migrations.json", file=sys.stderr)
@@ -346,7 +347,7 @@ async def migration_status(request):
     try:
         import json
         # This would need to be bundled with your worker
-        with open("schema.lock.json", 'r') as f:
+        with open(SCHEMA_LOCK_FILE, 'r') as f:
             lock_data = json.load(f)
             if lock_data.get("migrations"):
                 expected_version = lock_data["migrations"][-1]["version"]
@@ -423,7 +424,7 @@ Migration Workflow:
     
     # Generate command
     gen_parser = subparsers.add_parser('generate', help='Generate initial SQL schema')
-    gen_parser.add_argument('module', help='Python module containing models')
+    gen_parser.add_argument('module', help=PYTHON_MODULE_HELP)
     gen_parser.add_argument('--no-indexes', action='store_true', 
                            help='Skip index generation')
     gen_parser.add_argument('--cleanslate', action='store_true',
@@ -431,25 +432,25 @@ Migration Workflow:
     
     # Lock command
     lock_parser = subparsers.add_parser('lock', help='Generate schema lock file')
-    lock_parser.add_argument('module', help='Python module containing models')
+    lock_parser.add_argument('module', help=PYTHON_MODULE_HELP)
     lock_parser.add_argument('--output', default='schema.lock.json',
                             help='Output lock file (default: schema.lock.json)')
     
     # Verify command
     verify_parser = subparsers.add_parser('verify', help='Verify schema against lock')
-    verify_parser.add_argument('module', help='Python module containing models')
+    verify_parser.add_argument('module', help=PYTHON_MODULE_HELP)
     verify_parser.add_argument('--lock', default='schema.lock.json',
                               help='Lock file to verify against')
     
     # Migrate command
     migrate_parser = subparsers.add_parser('migrate', help='Generate migration SQL')
-    migrate_parser.add_argument('module', help='Python module containing models')
+    migrate_parser.add_argument('module', help=PYTHON_MODULE_HELP)
     migrate_parser.add_argument('--lock', default='schema.lock.json',
                                help='Lock file to compare against')
     
     # Deploy command
     deploy_parser = subparsers.add_parser('deploy', help='Deploy schema via wrangler')
-    deploy_parser.add_argument('module', help='Python module containing models')
+    deploy_parser.add_argument('module', help=PYTHON_MODULE_HELP)
     deploy_parser.add_argument('--database', default='DB', 
                               help='D1 database binding name (default: DB)')
     deploy_parser.add_argument('--env', choices=['local', 'preview', 'production'],
@@ -457,11 +458,11 @@ Migration Workflow:
     
     # Status endpoint command
     status_parser = subparsers.add_parser('status', help='Generate status endpoint code')
-    status_parser.add_argument('module', help='Python module containing models')
+    status_parser.add_argument('module', help=PYTHON_MODULE_HELP)
     
     # Endpoint command (legacy)
     ep_parser = subparsers.add_parser('endpoint', help='Generate migration endpoint code')
-    ep_parser.add_argument('module', help='Python module containing models')
+    ep_parser.add_argument('module', help=PYTHON_MODULE_HELP)
     
     args = parser.parse_args()
     

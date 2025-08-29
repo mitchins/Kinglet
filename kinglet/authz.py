@@ -6,6 +6,7 @@ import json
 import time
 from typing import Any, Awaitable, Callable, Optional
 
+from .constants import AUTH_REQUIRED, NOT_FOUND, TOTP_STEP_UP_PATH
 from .http import Response  # Import directly from http module
 from .totp import DummyOTPProvider, set_otp_provider  # TOTP support
 
@@ -108,7 +109,7 @@ def allow_public_or_owner(
             rid = req.path_param(id_param)
             rec = await load_fn(req, rid)
             if not rec:
-                return Response({"error": "not found"}, status=404)
+                return Response({"error": NOT_FOUND}, status=404)
             if rec.get("public", False):
                 return await handler(req, obj=rec)
             user = await get_user(req)
@@ -118,7 +119,7 @@ def allow_public_or_owner(
                 return await handler(req, obj=rec)
             # Deny: optionally hide existence
             if forbidden_as_404:
-                return Response({"error": "not found"}, status=404)
+                return Response({"error": NOT_FOUND}, status=404)
             return Response({"error": "forbidden"}, status=403)
         return wrapped
     return deco
@@ -135,7 +136,7 @@ def require_owner(
             rid = req.path_param(id_param)
             rec = await load_fn(req, rid)
             if not rec:
-                return Response({"error": "not found"}, status=404)
+                return Response({"error": NOT_FOUND}, status=404)
             uid = str(user["id"])
             if rec.get("owner_id") and uid == str(rec["owner_id"]):
                 req.state = getattr(req, "state", type("S", (), {})())
@@ -178,7 +179,7 @@ def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
     async def wrapped(req):
         user = await get_user(req)
         if not user:
-            return Response({"error": "authentication required"}, status=401)
+            return Response({"error": AUTH_REQUIRED}, status=401)
 
         # Check if TOTP is enabled in this environment
         totp_enabled = getattr(req.env, 'TOTP_ENABLED', 'true').lower() == 'true'
@@ -195,7 +196,7 @@ def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
             return Response({
                 "error": "elevated session required",
                 "code": "ELEVATION_REQUIRED",
-                "step_up_url": "/auth/totp/step-up"
+                "step_up_url": TOTP_STEP_UP_PATH
             }, status=403)
 
         # Check elevation hasn't expired (double-check beyond JWT exp)
@@ -205,7 +206,7 @@ def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
             return Response({
                 "error": "elevated session expired",
                 "code": "ELEVATION_EXPIRED",
-                "step_up_url": "/auth/totp/step-up"
+                "step_up_url": TOTP_STEP_UP_PATH
             }, status=403)
 
         req.state = getattr(req, "state", type("S", (), {})())
@@ -220,7 +221,7 @@ def require_claim(claim_name: str, claim_value: Any = True):
         async def wrapped(req):
             user = await get_user(req)
             if not user:
-                return Response({"error": "authentication required"}, status=401)
+                return Response({"error": AUTH_REQUIRED}, status=401)
 
             claims = user.get('claims', {})
             actual_value = claims.get(claim_name)
@@ -245,7 +246,7 @@ def require_elevated_claim(claim_name: str, claim_value: Any = True):
         async def wrapped(req):
             user = await get_user(req)
             if not user:
-                return Response({"error": "authentication required"}, status=401)
+                return Response({"error": AUTH_REQUIRED}, status=401)
 
             claims = user.get('claims', {})
 
@@ -257,7 +258,7 @@ def require_elevated_claim(claim_name: str, claim_value: Any = True):
                 return Response({
                     "error": "elevated session required",
                     "code": "ELEVATION_REQUIRED",
-                    "step_up_url": "/auth/totp/step-up"
+                    "step_up_url": TOTP_STEP_UP_PATH
                 }, status=403)
 
             # Check specific claim
