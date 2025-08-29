@@ -425,6 +425,52 @@ class D1ErrorClassifier:
         return QueryError(f"Database query failed: {error}", original_error=error)
         
     @classmethod
+    def _find_constraint_by_name(cls, error_msg: str, registry: ConstraintRegistry) -> Optional[Dict]:
+        """Find constraint by extracting constraint name from error message"""
+        for pattern in cls.CONSTRAINT_NAME_PATTERNS:
+            match = re.search(pattern, error_msg, re.IGNORECASE)
+            if not match:
+                continue
+                
+            constraint_name = match.group(1)
+            # Search all tables for this constraint name
+            for table_name in registry.list_tables():
+                constraint_info = registry.get_constraint_info(table_name, constraint_name)
+                if constraint_info:
+                    return constraint_info
+        return None
+    
+    @classmethod
+    def _is_valid_sql_identifier(cls, name: str) -> bool:
+        """Check if string is a valid SQL identifier"""
+        if not name:
+            return False
+        if name[0].isdigit():
+            return False
+        return name.replace('_', '').isalnum()
+    
+    @classmethod
+    def _find_constraint_by_table_column(cls, error_msg: str, registry: ConstraintRegistry) -> Optional[Dict]:
+        """Find constraint by extracting table.column pattern from error message"""
+        for word in error_msg.split():
+            if '.' not in word or word.count('.') != 1:
+                continue
+                
+            table_name, column_name = word.split('.')
+            
+            # Validate SQL identifiers
+            if not cls._is_valid_sql_identifier(table_name):
+                continue
+            if not cls._is_valid_sql_identifier(column_name):
+                continue
+                
+            # Look for constraint involving this field
+            constraint_info = registry.find_constraint_by_fields(table_name, [column_name])
+            if constraint_info:
+                return constraint_info
+        return None
+    
+    @classmethod
     def _extract_constraint_info(cls, error_msg: str, registry: ConstraintRegistry) -> Optional[Dict]:
         """
         Extract constraint information from error message using registry
@@ -436,34 +482,13 @@ class D1ErrorClassifier:
         Returns:
             Constraint info dict or None if not found
         """
-        # Try to extract constraint name from error message
-        for pattern in cls.CONSTRAINT_NAME_PATTERNS:
-            match = re.search(pattern, error_msg, re.IGNORECASE)
-            if match:
-                constraint_name = match.group(1)
-                
-                # Search all tables for this constraint name
-                for table_name in registry.list_tables():
-                    constraint_info = registry.get_constraint_info(table_name, constraint_name)
-                    if constraint_info:
-                        return constraint_info
-                        
-        # Try to extract table.column pattern and find matching constraint
-        # Use simple string operations to avoid ReDoS vulnerability
-        for word in error_msg.split():
-            if '.' in word and word.count('.') == 1:
-                table_name, column_name = word.split('.')
-                # Basic validation for SQL identifiers
-                if (table_name.replace('_', '').isalnum() and 
-                    column_name.replace('_', '').isalnum() and
-                    not table_name[0].isdigit() and not column_name[0].isdigit()):
-                    
-                    # Look for constraint involving this field
-                    constraint_info = registry.find_constraint_by_fields(table_name, [column_name])
-                    if constraint_info:
-                        return constraint_info
-                
-        return None
+        # Try to find constraint by name
+        constraint_info = cls._find_constraint_by_name(error_msg, registry)
+        if constraint_info:
+            return constraint_info
+            
+        # Try to find constraint by table.column pattern
+        return cls._find_constraint_by_table_column(error_msg, registry)
     
     @classmethod
     def wrap_database_call(cls, func):

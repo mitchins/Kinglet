@@ -146,7 +146,7 @@ def generate_totp_code(secret: str, timestamp: Optional[int] = None, algorithm: 
     # - HOTP (RFC 4226) specifies HMAC-SHA1; TOTP (RFC 6238) permits SHA-1/256/512.
     # - SHA-1 collision attacks do not affect HMAC's PRF security; safe in this construction.
     # - Using SHA-1 here preserves compatibility with common authenticators and existing otpauth URIs.
-    hmac_hash = hmac.new(key, time_bytes, hashlib.sha1).digest()  # NOSONAR: see rationale above
+    hmac_hash = hmac.new(key, time_bytes, hashlib.sha1).digest()  # NOSONAR
 
     # Dynamic truncation (RFC 4226)
     offset = hmac_hash[-1] & 0x0f
