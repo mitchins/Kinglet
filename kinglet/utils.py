@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional, Protocol
 from .http import Request
 
 
-async def async_noop() -> None:
+async def async_noop() -> None:  # NOSONAR
     """
     No-operation coroutine for maintaining async function signatures.
     
