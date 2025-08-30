@@ -347,10 +347,20 @@ class MigrationGenerator:
     """Generate migrations from model changes"""
     
     @staticmethod
+    def _safe_ident(name: str) -> str:
+        """Validate SQL identifier (table/column) to mitigate injection via string formatting"""
+        import re
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name or ""):
+            raise ValueError("Invalid SQL identifier")
+        return name
+
+    @staticmethod
     def generate_add_column(table: str, field_name: str, field) -> str:
         """Generate ALTER TABLE ADD COLUMN statement"""
         sql_type = field.get_sql_type()
         
+        table = MigrationGenerator._safe_ident(table)
+        field_name = MigrationGenerator._safe_ident(field_name)
         sql = f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type}"
         
         if not field.null:
@@ -395,11 +405,12 @@ class MigrationGenerator:
         for model_name in set(old_models.keys()) & set(new_models.keys()):
             old_fields = old_models[model_name]["fields"]
             new_fields = new_models[model_name]["fields"]
-            table = new_models[model_name]["table"]
+            table = MigrationGenerator._safe_ident(new_models[model_name]["table"])  
             
             for field_name, field_schema in new_fields.items():
                 if field_name not in old_fields:
-                    sql = f"ALTER TABLE {table} ADD COLUMN {field_name} {field_schema['sql_type']}"
+                    field_name_safe = MigrationGenerator._safe_ident(field_name)
+                    sql = f"ALTER TABLE {table} ADD COLUMN {field_name_safe} {field_schema['sql_type']}"
                     
                     if not field_schema['null']:
                         sql += " DEFAULT NULL"  # Temporary default

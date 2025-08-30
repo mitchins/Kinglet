@@ -133,6 +133,11 @@ def deploy_schema(module_path: str, database: str = "DB", env: str = "production
         schema_file = f.name
     
     try:
+        # Validate inputs and build command safely (no shell)
+        import re
+        if not re.match(r"^[A-Za-z0-9_-]+$", database or ""):
+            print("Invalid database binding name", file=sys.stderr)
+            return 1
         # Build wrangler command
         cmd = ["npx", "wrangler", "d1", "execute", database, f"--file={schema_file}"]
         
@@ -158,10 +163,12 @@ def deploy_schema(module_path: str, database: str = "DB", env: str = "production
 
 def generate_migration_endpoint(module_path: str) -> str:
     """Generate migration endpoint code"""
-    return f'''
+    from string import Template
+    models_list = ', '.join([m.__name__ for m in import_models(module_path)])
+    template = Template('''
 # Add this endpoint to your Kinglet app for development migrations
 
-from {module_path} import *  # Import your models
+from ${module_path} import *  # Import your models
 from kinglet import SchemaManager
 
 @app.post("/api/_migrate")
@@ -182,7 +189,7 @@ async def migrate_database(request):
     
     # Get all models
     models = [
-        {', '.join([m.__name__ for m in import_models(module_path)])}
+        ${models_list}
     ]
     
     # Run migrations
@@ -193,7 +200,8 @@ async def migrate_database(request):
         "migrated": results,
         "models": [m.__name__ for m in models]
     }}
-'''
+''')
+    return template.substitute(module_path=module_path, models_list=models_list)
 
 
 def generate_lock(module_path: str, output: str = SCHEMA_LOCK_FILE) -> int:
@@ -241,12 +249,12 @@ def verify_schema(module_path: str, lock_file: str = SCHEMA_LOCK_FILE) -> int:
         result = SchemaLock.verify_schema(models, lock_file)
         
         if result["valid"]:
-            print(f"✅ Schema matches lock file", file=sys.stderr)
+            print("✅ Schema matches lock file", file=sys.stderr)
             print(f"   Hash: {result['schema_hash']}", file=sys.stderr)
             print(f"   Models: {result['models_count']}", file=sys.stderr)
             return 0
         else:
-            print(f"❌ Schema has changed!", file=sys.stderr)
+            print("❌ Schema has changed!", file=sys.stderr)
             print(f"   Reason: {result['reason']}", file=sys.stderr)
             
             if "changes" in result:
@@ -294,7 +302,7 @@ def generate_migrations(module_path: str, lock_file: str = SCHEMA_LOCK_FILE) -> 
         
         # Output migrations
         print(f"-- Generated {len(migrations)} migration(s)", file=sys.stderr)
-        print(f"-- Run with: npx wrangler d1 execute DB --file=migrations.sql --remote\n", file=sys.stderr)
+        print("-- Run with: npx wrangler d1 execute DB --file=migrations.sql --remote\n", file=sys.stderr)
         
         for migration in migrations:
             print(f"-- Migration: {migration.version}")
@@ -325,10 +333,11 @@ def generate_migrations(module_path: str, lock_file: str = SCHEMA_LOCK_FILE) -> 
 
 def generate_status_endpoint(module_path: str) -> str:
     """Generate status endpoint code"""
-    return f'''
+    from string import Template
+    template = Template('''
 # Add this endpoint to check migration status
 
-from {module_path} import *  # Import your models
+from ${module_path} import *  # Import your models
 from kinglet.orm_migrations import MigrationTracker, SchemaLock
 
 @app.get("/api/_status")
@@ -351,7 +360,7 @@ async def migration_status(request):
             lock_data = json.load(f)
             if lock_data.get("migrations"):
                 expected_version = lock_data["migrations"][-1]["version"]
-    except:
+    except Exception:
         pass
     
     return {{
@@ -395,7 +404,8 @@ async def apply_migrations(request):
         "results": results,
         "current_version": await MigrationTracker.get_schema_version(request.env.DB)
     }}
-'''
+''')
+    return template.substitute(module_path=module_path)
 
 
 def _create_argument_parser() -> argparse.ArgumentParser:

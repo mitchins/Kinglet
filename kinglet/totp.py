@@ -15,7 +15,7 @@ from typing import Optional
 
 # Test TOTP secret that generates predictable codes for development/testing
 # This secret will generate "000000" at Unix timestamp 0 (and cyclically)
-TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXP"  # "Hello" in base32 - predictable for testing
+TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXP"  # nosec B105: Test-only predictable secret for development
 
 
 class OTPProvider:
@@ -300,7 +300,7 @@ def decrypt_totp_secret(encrypted_secret: str, encryption_key: str) -> str:
 def test_totp_implementation():
     """Test TOTP implementation with known values"""
     # Test with a known secret
-    test_secret = "JBSWY3DPEHPK3PXP"  # "Hello!" in base32
+    test_secret = "JBSWY3DPEHPK3PXP"  # nosec B105: Test-only predictable secret for development
 
     # Generate code for current time
     current_code = generate_totp_code(test_secret)

@@ -61,7 +61,7 @@ class StringField(Field):
         super().__init__(**kwargs)
         self.max_length = max_length
         
-    def validate(self, value: Any) -> str:
+    def validate(self, value: Any) -> Optional[str]:
         value = super().validate(value)
         if value is None:
             return None
@@ -119,14 +119,13 @@ class FloatField(Field):
         return float(value)
         
     def to_db(self, value: Any) -> Optional[float]:
-        if value is None:
-            return None
-        return float(value)
+        # Reuse to_python to avoid duplication
+        return self.to_python(value)
         
     def get_sql_type(self) -> str:
         return "REAL"
         
-    def validate(self, value: Any) -> float:
+    def validate(self, value: Any) -> Optional[float]:
         """Validate and convert field value"""
         if value is None:
             if not self.null:
@@ -826,9 +825,8 @@ class Manager:
         # Validate we have a unique field to conflict on
         unique_fields = []
         for field_name, field in self.model_class._fields.items():
-            if field.unique or field.primary_key:
-                if field_name in kwargs:
-                    unique_fields.append(field_name)
+            if (field.unique or field.primary_key) and field_name in kwargs:
+                unique_fields.append(field_name)
                     
         if not unique_fields:
             raise ValueError("create_or_update requires at least one unique field in kwargs")
@@ -1029,7 +1027,12 @@ class ModelMeta(type):
         # Set default table name if not specified
         if 'table_name' not in meta_attrs:
             meta_attrs['table_name'] = class_name.lower() + 's'
-            
+        # Validate table name to avoid unsafe identifiers in SQL
+        import re
+        table_name = meta_attrs.get('table_name')
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table_name or ""):
+            raise ValueError(f"Invalid table name: {table_name}")
+        
         return meta_attrs
     
     @staticmethod

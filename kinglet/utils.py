@@ -66,14 +66,14 @@ class EnvironmentCachePolicy:
 class AlwaysCachePolicy:
     """Policy that always enables caching"""
 
-    def should_cache(self, request: Request) -> bool:
+    def should_cache(self, _request: Request) -> bool:
         return True
 
 
 class NeverCachePolicy:
     """Policy that never enables caching"""
 
-    def should_cache(self, request: Request) -> bool:
+    def should_cache(self, _request: Request) -> bool:
         return False
 
 
@@ -107,7 +107,8 @@ class CacheService:
                     if time.time() < cached_data.get('expires_at', 0):
                         return cached_data.get('data')
         except (json.JSONDecodeError, AttributeError):
-            pass  # Invalid cache, return None
+            # Invalid cache, treat as miss
+            return None
         return None
 
     async def set(self, key: str, value: Any) -> None:
@@ -121,7 +122,8 @@ class CacheService:
                 }
                 await self.storage.put(key, json.dumps(cache_data))
         except Exception:
-            pass  # Ignore cache failures
+            # Ignore cache failures
+            return None
 
     async def get_or_generate(self, cache_key: str, generator_func: Callable, **kwargs):
         """Get from cache or generate fresh data"""
@@ -140,7 +142,8 @@ class CacheService:
                         cached_data['_cache_hit'] = True
                         return cached_data
                 except (json.JSONDecodeError, AttributeError):
-                    pass  # Invalid cache, generate fresh
+                    # Invalid cache entry; regenerate
+                    pass
 
             # Generate fresh data
             fresh_data = await generator_func(**kwargs)
@@ -288,7 +291,8 @@ def asset_url(request: Request, uid: str, asset_type: str = "media") -> str:
         if host:
             return f"{protocol}://{host}{path}"
     except Exception:
-        pass  # Fall through to return path-only
+        # Fall through to return path-only
+        return path
 
     return path
 
@@ -324,7 +328,7 @@ def media_url(request: Request, uid: str) -> str:
         if host:
             return f"{protocol}://{host}/api/media/{uid}"
     except Exception:
-        pass
+        return f"/api/media/{uid}"
 
     return f"/api/media/{uid}"
 

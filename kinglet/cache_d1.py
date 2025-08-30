@@ -35,6 +35,14 @@ class D1CacheService:
         self.max_size = max_size
         self.track_hits = track_hits
         self.table_name = "experience_cache"
+
+    def _safe_table(self) -> str:
+        """Validate and return safe table identifier"""
+        import re
+        name = self.table_name or "experience_cache"
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+            raise ValueError("Invalid cache table name")
+        return name
     
     async def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """Get value from cache with optional hit tracking"""
@@ -43,12 +51,15 @@ class D1CacheService:
             
             if self.track_hits:
                 # Get from cache and update hit count atomically
-                stmt = await self.db.prepare(f"""
-                    UPDATE {self.table_name} 
-                    SET hit_count = hit_count + 1 
+                tn = self._safe_table()
+                stmt = await self.db.prepare(
+                    f"""
+                    UPDATE {tn}
+                    SET hit_count = hit_count + 1
                     WHERE cache_key = ? AND expires_at > ?
                     RETURNING content, created_at, hit_count
-                """)
+                    """
+                )
                 result = await stmt.bind(cache_key, current_time).first()
                 
                 if result:
@@ -61,11 +72,14 @@ class D1CacheService:
                     }
             else:
                 # Read-only cache lookup (no write operations)
-                stmt = await self.db.prepare(f"""
-                    SELECT content, created_at 
-                    FROM {self.table_name} 
+                tn = self._safe_table()
+                stmt = await self.db.prepare(
+                    f"""
+                    SELECT content, created_at
+                    FROM {tn}
                     WHERE cache_key = ? AND expires_at > ?
-                """)
+                    """
+                )
                 result = await stmt.bind(cache_key, current_time).first()
                 
                 if result:
@@ -114,7 +128,8 @@ class D1CacheService:
     async def delete(self, cache_key: str) -> bool:
         """Delete specific cache entry"""
         try:
-            stmt = await self.db.prepare(f"DELETE FROM {self.table_name} WHERE cache_key = ?")
+            tn = self._safe_table()
+            stmt = await self.db.prepare(f"DELETE FROM {tn} WHERE cache_key = ?")
             result = await stmt.bind(cache_key).run()
             return result.changes > 0
         except Exception as e:
@@ -125,7 +140,8 @@ class D1CacheService:
         """Remove expired cache entries and return count removed"""
         try:
             current_time = int(time.time())
-            stmt = await self.db.prepare(f"DELETE FROM {self.table_name} WHERE expires_at <= ?")
+            tn = self._safe_table()
+            stmt = await self.db.prepare(f"DELETE FROM {tn} WHERE expires_at <= ?")
             result = await stmt.bind(current_time).run()
             return result.changes
         except Exception as e:
@@ -135,7 +151,8 @@ class D1CacheService:
     async def invalidate_pattern(self, pattern: str) -> int:
         """Invalidate cache entries matching a pattern (e.g., '/api/games/%')"""
         try:
-            stmt = await self.db.prepare(f"DELETE FROM {self.table_name} WHERE cache_key LIKE ?")
+            tn = self._safe_table()
+            stmt = await self.db.prepare(f"DELETE FROM {tn} WHERE cache_key LIKE ?")
             result = await stmt.bind(pattern).run()
             return result.changes
         except Exception as e:
@@ -145,15 +162,18 @@ class D1CacheService:
     async def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics for monitoring"""
         try:
-            stmt = await self.db.prepare(f"""
-                SELECT 
+            tn = self._safe_table()
+            stmt = await self.db.prepare(
+                f"""
+                SELECT
                     COUNT(*) as total_entries,
                     SUM(size_bytes) as total_size,
                     SUM(hit_count) as total_hits,
                     AVG(hit_count) as avg_hits_per_entry,
                     COUNT(*) FILTER (WHERE expires_at <= ?) as expired_entries
-                FROM {self.table_name}
-            """)
+                FROM {tn}
+                """
+            )
             
             current_time = int(time.time())
             result = await stmt.bind(current_time).first()

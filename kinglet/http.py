@@ -74,7 +74,8 @@ class Request:
             for header in headers_obj:
                 self._headers[header[0].lower()] = header[1]
         except (TypeError, AttributeError, IndexError):
-            pass
+            # Unable to iterate headers; leave headers as-is
+            return
 
     def _init_headers(self, raw_request):
         """Initialize headers from raw request"""
@@ -90,7 +91,8 @@ class Request:
             else:
                 self._extract_headers_iterable(headers_obj)
         except AttributeError:
-            pass
+            # Raw request has no usable headers
+            return
 
     def header(self, name: str, default: str = None) -> str:
         """Get header value (case-insensitive)"""
@@ -129,7 +131,7 @@ class Request:
         except ValueError:
             raise HTTPError(400, f"Path parameter '{key}' must be an integer")
 
-    def basic_auth(self) -> tuple:
+    def basic_auth(self) -> Optional[tuple[str, str]]:
         """Extract basic auth credentials"""
         auth_header = self.header('authorization', '')
         if auth_header.startswith('Basic '):
@@ -141,7 +143,7 @@ class Request:
                     username, password = decoded.split(':', 1)
                     return (username, password)
             except Exception:
-                pass
+                return None
         return None
 
     async def body(self) -> str:
