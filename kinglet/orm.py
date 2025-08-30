@@ -516,22 +516,48 @@ class QuerySet:
             return f"{field_name} IN ({placeholders})"
         raise ValueError(f"Unsupported lookup: {lookup}")
             
+    def _normalize_like_value(self, cond: str, val: Any) -> Any:
+        """Normalize LIKE values for SQL wildcard patterns"""
+        if 'LIKE' not in cond:
+            return val
+        
+        s = str(val)
+        
+        if self._is_startswith_condition(cond):
+            return self._ensure_ends_with_percent(s)
+        
+        if 'endswith' in cond:
+            return self._ensure_starts_with_percent(s)
+        
+        if self._is_contains_condition(cond):
+            return self._ensure_surrounded_with_percent(s)
+        
+        return val
+    
+    def _is_startswith_condition(self, cond: str) -> bool:
+        """Check if condition is for startswith matching"""
+        return 'startswith' in cond or cond.endswith('LIKE ?')
+    
+    def _is_contains_condition(self, cond: str) -> bool:
+        """Check if condition is for contains matching"""
+        return 'contains' in cond or 'icontains' in cond
+    
+    def _ensure_ends_with_percent(self, s: str) -> str:
+        """Ensure string ends with % for prefix matching"""
+        return s if s.endswith('%') else f"{s}%"
+    
+    def _ensure_starts_with_percent(self, s: str) -> str:
+        """Ensure string starts with % for suffix matching"""
+        return s if s.startswith('%') else f"%{s}"
+    
+    def _ensure_surrounded_with_percent(self, s: str) -> str:
+        """Ensure string is surrounded with % for substring matching"""
+        return s if (s.startswith('%') or s.endswith('%')) else f"%{s}%"
+
     def _build_where_clause(self) -> tuple[str, List[Any]]:
         """Build WHERE clause and parameters with LIKE value normalization"""
         if not self._where_conditions:
             return "", []
-
-        def _normalize_like_value(cond: str, val: Any) -> Any:
-            if 'LIKE' not in cond:
-                return val
-            s = str(val)
-            if 'startswith' in cond or cond.endswith('LIKE ?'):
-                return s if s.endswith('%') else f"{s}%"
-            if 'endswith' in cond:
-                return s if s.startswith('%') else f"%{s}"
-            if 'contains' in cond or 'icontains' in cond:
-                return s if (s.startswith('%') or s.endswith('%')) else f"%{s}%"
-            return val
 
         conditions: List[str] = []
         params: List[Any] = []
@@ -541,7 +567,7 @@ class QuerySet:
             if isinstance(value, (list, tuple)) and 'IN' in condition:
                 params.extend(value)
             else:
-                params.append(_normalize_like_value(condition, value))
+                params.append(self._normalize_like_value(condition, value))
 
         return " AND ".join(conditions), params
         
