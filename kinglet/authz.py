@@ -97,9 +97,10 @@ async def get_user(req, *, env_key="JWT_SECRET") -> Optional[dict]:
 # Example D1 owner resolver (table with columns: id TEXT PRIMARY KEY, owner_id TEXT, public INTEGER)
 async def d1_load_owner_public(d1, table: str, rid: str) -> Optional[dict]:
     # Validate identifier to avoid SQL injection in table name
-    from .sql import safe_ident
+    from .sql import safe_ident, quote_ident_sqlite
     safe_ident(table)
-    sql = f"SELECT owner_id, public FROM {table} WHERE id=? LIMIT 1"
+    quoted_table = quote_ident_sqlite(table)
+    sql = f"SELECT owner_id, public FROM {quoted_table} WHERE id=? LIMIT 1"  # nosec B608: identifier validated+quoted; values parameterized
     row = (await d1.prepare(sql).bind(rid).first()) or None
     if not row: return None
     return {"owner_id": str(row["owner_id"]), "public": bool(row["public"])}

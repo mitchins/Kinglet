@@ -195,11 +195,11 @@ class TestQuerySet:
     def test_field_validation_in_order_by(self):
         # Valid field
         qs = self.queryset.order_by("title")
-        assert "title ASC" in qs._order_by
+        assert '"title" ASC' in qs._order_by
         
         # Descending order
         qs = self.queryset.order_by("-score")
-        assert "score DESC" in qs._order_by
+        assert '"score" DESC' in qs._order_by
         
         # Invalid field should raise error
         with pytest.raises(ValueError, match="Field 'invalid_field' does not exist"):
@@ -224,9 +224,9 @@ class TestQuerySet:
         qs = self.queryset.filter(is_published=True).order_by("-created_at").limit(10)
         sql, params = qs._build_sql()
         
-        # Now uses projection instead of SELECT * for D1 cost optimization
-        expected_fields = "id, title, description, score, is_published, created_at, metadata"
-        expected_sql = f"SELECT {expected_fields} FROM test_games WHERE is_published = ? ORDER BY created_at DESC LIMIT 10"
+        # Now uses projection instead of SELECT * for D1 cost optimization, with quoted identifiers
+        expected_fields = '"id", "title", "description", "score", "is_published", "created_at", "metadata"'
+        expected_sql = f'SELECT {expected_fields} FROM "test_games" WHERE is_published = ? ORDER BY "created_at" DESC LIMIT 10'
         assert sql == expected_sql
         assert params == [True]
         
@@ -585,7 +585,7 @@ class TestQuerySetExclude:
         assert len(complex_qs._where_conditions) == 2
         
         # Check order by
-        assert complex_qs._order_by == ['created_at DESC']
+        assert complex_qs._order_by == ['"created_at" DESC']
         
         # Check limit
         assert complex_qs._limit_count == 10

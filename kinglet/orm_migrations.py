@@ -14,6 +14,7 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 from .storage import d1_unwrap, d1_unwrap_results
+from .sql import safe_ident, quote_ident_sqlite
 
 
 class Migration:
@@ -68,8 +69,10 @@ class MigrationTracker:
     async def get_applied_migrations(cls, db) -> List[str]:
         """Get list of applied migration versions"""
         try:
+            safe_ident(cls.MIGRATIONS_TABLE)  # Validate table name
+            quoted_table = quote_ident_sqlite(cls.MIGRATIONS_TABLE)
             result = await db.prepare(
-                f"SELECT version FROM {cls.MIGRATIONS_TABLE} ORDER BY applied_at"
+                f"SELECT version FROM {quoted_table} ORDER BY applied_at"  # nosec B608: identifier validated+quoted
             ).all()
             
             if hasattr(result, 'results'):
@@ -82,19 +85,24 @@ class MigrationTracker:
     @classmethod
     async def is_applied(cls, db, version: str) -> bool:
         """Check if a specific migration has been applied"""
+        safe_ident(cls.MIGRATIONS_TABLE)  # Validate table name
+        quoted_table = quote_ident_sqlite(cls.MIGRATIONS_TABLE)
         result = await db.prepare(
-            f"SELECT version FROM {cls.MIGRATIONS_TABLE} WHERE version = ?"
+            f"SELECT version FROM {quoted_table} WHERE version = ?"  # nosec B608: identifier validated+quoted; values parameterized
         ).bind(version).first()
         return result is not None
     
     @classmethod
     async def record_migration(cls, db, migration: Migration) -> None:
         """Record that a migration has been applied"""
+        safe_ident(cls.MIGRATIONS_TABLE)  # Validate table name
+        quoted_table = quote_ident_sqlite(cls.MIGRATIONS_TABLE)
         await db.prepare(f"""
-            INSERT INTO {cls.MIGRATIONS_TABLE} 
+            INSERT INTO {quoted_table}
             (version, checksum, description, applied_at, sql_hash)
             VALUES (?, ?, ?, ?, ?)
-        """).bind(
+        """  # nosec B608: identifier validated+quoted; values parameterized
+        ).bind(
             migration.version,
             migration.checksum,
             migration.description,
@@ -167,12 +175,15 @@ class MigrationTracker:
     async def get_schema_version(cls, db) -> Optional[str]:
         """Get current schema version (latest applied migration)"""
         try:
+            safe_ident(cls.MIGRATIONS_TABLE)  # Validate table name
+            quoted_table = quote_ident_sqlite(cls.MIGRATIONS_TABLE)
             result = await db.prepare(f"""
-                SELECT version, applied_at 
-                FROM {cls.MIGRATIONS_TABLE} 
-                ORDER BY applied_at DESC 
+                SELECT version, applied_at
+                FROM {quoted_table}
+                ORDER BY applied_at DESC
                 LIMIT 1
-            """).first()
+            """  # nosec B608: identifier validated+quoted
+                                  ).first()
             
             if result:
                 row = d1_unwrap(result)
@@ -188,11 +199,14 @@ class MigrationTracker:
             await cls.ensure_migrations_table(db)
             
             # Get all migrations
+            safe_ident(cls.MIGRATIONS_TABLE)  # Validate table name
+            quoted_table = quote_ident_sqlite(cls.MIGRATIONS_TABLE)
             result = await db.prepare(f"""
-                SELECT version, checksum, description, applied_at 
-                FROM {cls.MIGRATIONS_TABLE} 
+                SELECT version, checksum, description, applied_at
+                FROM {quoted_table}
                 ORDER BY applied_at DESC
-            """).all()
+            """  # nosec B608: identifier validated+quoted
+                                  ).all()
             
             migrations = []
             if hasattr(result, 'results'):

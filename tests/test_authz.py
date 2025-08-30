@@ -159,7 +159,7 @@ class TestD1Resolver:
         assert result["public"] is True
 
         # Verify correct SQL was called
-        mock_d1.prepare.assert_called_once_with("SELECT owner_id, public FROM listings WHERE id=? LIMIT 1")
+        mock_d1.prepare.assert_called_once_with('SELECT owner_id, public FROM "listings" WHERE id=? LIMIT 1')
         mock_result.bind.assert_called_once_with("listing-123")
 
     @pytest.mark.asyncio

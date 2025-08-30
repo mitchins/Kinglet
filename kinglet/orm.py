@@ -11,10 +11,21 @@ Key differences from Peewee/SQLAlchemy:
 
 import json
 import hashlib
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Type, Union, AsyncContextManager, Coroutine
 from contextlib import asynccontextmanager
 from .storage import d1_unwrap, d1_unwrap_results
+# Safe SQL identifier validation and quoting
+_IDENT = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+
+def _qi(name: str) -> str:
+    """Quote and validate SQL identifier to prevent injection"""
+    if not _IDENT.fullmatch(name):
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    return f'"{name}"'  # SQLite identifier quoting
+
 from .orm_errors import (
     ValidationError, IntegrityError, UniqueViolationError, NotNullViolationError,
     DoesNotExistError, MultipleObjectsReturnedError, D1ErrorClassifier,
@@ -267,9 +278,9 @@ class QuerySet:
                 raise ValueError(f"Field '{field_name}' does not exist on {self.model_class.__name__}")
             
             if field.startswith('-'):
-                new_qs._order_by.append(f"{field_name} DESC")
+                new_qs._order_by.append(f"{_qi(field_name)} DESC")
             else:
-                new_qs._order_by.append(f"{field_name} ASC")
+                new_qs._order_by.append(f"{_qi(field_name)} ASC")
         return new_qs
         
     def limit(self, count: int) -> 'QuerySet':
@@ -443,7 +454,8 @@ class QuerySet:
         SELECT COUNT(*) FROM table WHERE conditions
         No additional overhead vs raw SQL
         """
-        base_sql = f"SELECT COUNT(*) as count FROM {self.model_class._meta.table_name}"
+        table = _qi(self.model_class._meta.table_name)
+        base_sql = f"SELECT COUNT(*) as count FROM {table}"  # nosec B608: identifier validated+quoted; values parameterized
         where_clause, params = self._build_where_clause()
         if where_clause:
             sql = f"{base_sql} WHERE {where_clause}"
@@ -468,7 +480,8 @@ class QuerySet:
         Cost: 1 row read maximum vs full table scan
         """
         where_clause, params = self._build_where_clause()
-        base_sql = f"SELECT 1 FROM {self.model_class._meta.table_name}"
+        table = _qi(self.model_class._meta.table_name)
+        base_sql = f"SELECT 1 FROM {table}"  # nosec B608: identifier validated+quoted; values parameterized
         
         if where_clause:
             sql = f"{base_sql} WHERE {where_clause} LIMIT 1"
@@ -576,15 +589,16 @@ class QuerySet:
         # D1 Cost Optimization: Use projection instead of SELECT *
         if self._values_fields:
             # values() mode - only select specified fields
-            select_fields = ', '.join(self._values_fields)
+            select_fields = ', '.join(_qi(f) for f in self._values_fields)
         elif self._only_fields:
             # only() mode - only select specified fields
-            select_fields = ', '.join(self._only_fields)
+            select_fields = ', '.join(_qi(f) for f in self._only_fields)
         else:
             # Default: select all fields (but this should be rare in optimized code)
-            select_fields = ', '.join(self.model_class._fields.keys())
-        
-        sql = f"SELECT {select_fields} FROM {self.model_class._meta.table_name}"
+            select_fields = ', '.join(_qi(f) for f in self.model_class._fields.keys())
+
+        table = _qi(self.model_class._meta.table_name)
+        sql = f"SELECT {select_fields} FROM {table}"  # nosec B608: identifier validated+quoted; values parameterized
         params = []
         
         # WHERE clause
@@ -595,7 +609,7 @@ class QuerySet:
             
         # ORDER BY clause
         if self._order_by:
-            sql += f" ORDER BY {', '.join(self._order_by)}"
+            sql += f" ORDER BY {', '.join(self._order_by)}"  # nosec B608: field names already validated+quoted in order_by()
             
         # LIMIT clause
         if self._limit_count:
@@ -624,7 +638,8 @@ class QuerySet:
         DELETE FROM table WHERE conditions
         Returns count of deleted rows
         """
-        base_sql = f"DELETE FROM {self.model_class._meta.table_name}"
+        table = _qi(self.model_class._meta.table_name)
+        base_sql = f"DELETE FROM {table}"  # nosec B608: identifier validated+quoted; values parameterized
         where_clause, params = self._build_where_clause()
         
         if where_clause:
@@ -648,7 +663,7 @@ class QuerySet:
                 raise ValueError(f"Cannot update primary key field '{field_name}'")
             validated_value = field.validate(value)
             db_value = field.to_db(validated_value)
-            set_clauses.append(f"{field_name} = ?")
+            set_clauses.append(f"{_qi(field_name)} = ?")
             set_params.append(db_value)
         return set_clauses, set_params
 
@@ -667,7 +682,8 @@ class QuerySet:
         set_clauses, set_params = self._build_update_set(kwargs)
             
         # Build complete query
-        base_sql = f"UPDATE {self.model_class._meta.table_name} SET {', '.join(set_clauses)}"
+        table = _qi(self.model_class._meta.table_name)
+        base_sql = f"UPDATE {table} SET {', '.join(set_clauses)}"  # nosec B608: identifier validated+quoted; values parameterized
         where_clause, where_params = self._build_where_clause()
         
         if where_clause:
@@ -752,7 +768,9 @@ class Manager:
     def _create_batch_statements(self, db, field_names: List[str], all_values: List[List[Any]]) -> List:
         """Create batch INSERT statements"""
         placeholders = ['?' for _ in field_names]
-        base_sql = f"INSERT INTO {self.model_class._meta.table_name} ({', '.join(field_names)}) VALUES ({', '.join(placeholders)})"
+        table = _qi(self.model_class._meta.table_name)
+        quoted_fields = ', '.join(_qi(field) for field in field_names)
+        base_sql = f"INSERT INTO {table} ({quoted_fields}) VALUES ({', '.join(placeholders)})"  # nosec B608: identifier validated+quoted; values parameterized
         
         statements = []
         for values in all_values:
@@ -1147,16 +1165,18 @@ class Model(metaclass=ModelMeta):
         for field_name, value in field_data.items():
             if field_name != pk_field.name:  # Don't update primary key
                 if value is None:
-                    set_clauses.append(f"{field_name} = NULL")
+                    set_clauses.append(f"{_qi(field_name)} = NULL")
                 else:
-                    set_clauses.append(f"{field_name} = ?")
+                    set_clauses.append(f"{_qi(field_name)} = ?")
                     bind_values.append(value)
                     
         if not set_clauses:  # No fields to update
             return None, []
             
         bind_values.append(pk_value)
-        sql = f"UPDATE {self._meta.table_name} SET {', '.join(set_clauses)} WHERE {pk_field.name} = ?"
+        table = _qi(self._meta.table_name)
+        pk_col = _qi(pk_field.name)
+        sql = f"UPDATE {table} SET {', '.join(set_clauses)} WHERE {pk_col} = ?"  # nosec B608: identifier validated+quoted; values parameterized
         return sql, bind_values
 
     def _build_insert_sql(self, field_data: Dict[str, Any]) -> tuple[str, List[Any]]:
@@ -1180,8 +1200,10 @@ class Model(metaclass=ModelMeta):
             else:
                 value_expressions.append("?")
                 bind_values.append(value)
-        
-        sql = f"INSERT INTO {self._meta.table_name} ({', '.join(columns)}) VALUES ({', '.join(value_expressions)})"
+
+        table = _qi(self._meta.table_name)
+        quoted_columns = ', '.join(_qi(col) for col in columns)
+        sql = f"INSERT INTO {table} ({quoted_columns}) VALUES ({', '.join(value_expressions)})"  # nosec B608: identifier validated+quoted; values parameterized
         return sql, bind_values
 
     async def _execute_update(self, db, sql: str, bind_values: List[Any]) -> None:
@@ -1242,8 +1264,10 @@ class Model(metaclass=ModelMeta):
             
         pk_field = self._get_pk_field()
         pk_value = getattr(self, pk_field.name)
-        
-        sql = f"DELETE FROM {self._meta.table_name} WHERE {pk_field.name} = ?"
+
+        table = _qi(self._meta.table_name)
+        pk_col = _qi(pk_field.name)
+        sql = f"DELETE FROM {table} WHERE {pk_col} = ?"  # nosec B608: identifier validated+quoted; values parameterized
         try:
             await db.prepare(sql).bind(pk_value).run()
             self._state['saved'] = False
@@ -1452,8 +1476,10 @@ class BatchOperations:
         columns = list(validated_data.keys())
         placeholders = ['?' for _ in columns]
         values = list(validated_data.values())
-        
-        sql = f"INSERT INTO {model_class._meta.table_name} ({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
+
+        table = _qi(model_class._meta.table_name)
+        quoted_columns = ', '.join(_qi(col) for col in columns)
+        sql = f"INSERT INTO {table} ({quoted_columns}) VALUES ({', '.join(placeholders)})"  # nosec B608: identifier validated+quoted; values parameterized
         
         self.operations.append({
             'type': 'create',
@@ -1487,14 +1513,16 @@ class BatchOperations:
         params = []
         for field_name, value in field_data.items():
             if field_name != pk_field.name:
-                set_clauses.append(f"{field_name} = ?")
+                set_clauses.append(f"{_qi(field_name)} = ?")
                 params.append(value)
-                
+
         if not set_clauses:
             return self  # Nothing to update
             
         params.append(pk_value)
-        sql = f"UPDATE {instance._meta.table_name} SET {', '.join(set_clauses)} WHERE {pk_field.name} = ?"
+        table = _qi(instance._meta.table_name)
+        pk_col = _qi(pk_field.name)
+        sql = f"UPDATE {table} SET {', '.join(set_clauses)} WHERE {pk_col} = ?"  # nosec B608: identifier validated+quoted; values parameterized
         
         self.operations.append({
             'type': 'update',
@@ -1508,8 +1536,10 @@ class BatchOperations:
         """Add a delete operation to the batch"""
         pk_field = instance._get_pk_field()
         pk_value = getattr(instance, pk_field.name)
-        
-        sql = f"DELETE FROM {instance._meta.table_name} WHERE {pk_field.name} = ?"
+
+        table = _qi(instance._meta.table_name)
+        pk_col = _qi(pk_field.name)
+        sql = f"DELETE FROM {table} WHERE {pk_col} = ?"  # nosec B608: identifier validated+quoted; values parameterized
         
         self.operations.append({
             'type': 'delete',
