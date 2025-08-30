@@ -12,7 +12,7 @@ Key differences from Peewee/SQLAlchemy:
 import json
 import hashlib
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type, Union, AsyncContextManager
+from typing import Any, Dict, List, Optional, Type, Union, AsyncContextManager, Coroutine
 from contextlib import asynccontextmanager
 from .storage import d1_unwrap, d1_unwrap_results
 from .orm_errors import (
@@ -808,7 +808,7 @@ class Manager:
                 instance = await self.create(db, **create_kwargs)
                 return instance, True
         
-    def create_or_update(self, db, defaults=None, **kwargs) -> 'typing.Coroutine[Any, Any, tuple["Model", bool]]':
+    def create_or_update(self, db, defaults=None, **kwargs) -> Coroutine[Any, Any, tuple['Model', bool]]:
         """
         Create or update using ON CONFLICT DO UPDATE (upsert)
         
