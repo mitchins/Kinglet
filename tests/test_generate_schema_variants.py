@@ -7,10 +7,11 @@ from kinglet.orm_deploy import generate_schema
 def _install_models(mod_name: str):
     mod = types.ModuleType(mod_name)
     sys.modules[mod_name] = mod
-    from kinglet.orm import Model, StringField
+    from kinglet.orm import Model, StringField, DateTimeField
 
     class A(Model):
-        name = StringField()
+        name = StringField(index=True)  # Explicit index for performance-critical field
+        created_at = DateTimeField()  # This will generate an index
 
         class Meta:
             table_name = "dups"

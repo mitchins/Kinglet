@@ -18,11 +18,11 @@ import json
 import subprocess
 import argparse
 import importlib
-from typing import List, Type, Optional
+from typing import List, Type
 from datetime import datetime
 from .constants import SCHEMA_LOCK_FILE, MIGRATIONS_FILE, PYTHON_MODULE_HELP
-from .orm import Model, SchemaManager, StringField
-from .orm_migrations import Migration, MigrationTracker, SchemaLock, MigrationGenerator
+from .orm import Model, SchemaManager  # noqa: F401 - Used in template generation
+from .orm_migrations import Migration, MigrationTracker, SchemaLock, MigrationGenerator  # noqa: F401 - Used in endpoints
 
 
 def import_models(module_path: str) -> List[Type[Model]]:
@@ -96,7 +96,7 @@ def _append_indexes(parts: list[str], models: List[Type[Model]], include_indexes
                 parts.append(
                     f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
                 )
-            elif isinstance(field, StringField) and not field.primary_key:
+            elif hasattr(field, 'index') and field.index and not field.primary_key:
                 parts.append(
                     f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
                 )

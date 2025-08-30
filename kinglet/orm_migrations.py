@@ -76,7 +76,7 @@ class MigrationTracker:
             ).all()
             
             if hasattr(result, 'results'):
-                return [row['version'] for row in result.results]
+                return [row['version'] for row in d1_unwrap_results(result)]
             return []
         except Exception:
             # Table might not exist yet
@@ -148,7 +148,7 @@ class MigrationTracker:
         await cls.ensure_migrations_table(db)
         
         # Get already applied migrations
-        applied = await cls.get_applied_migrations(db)
+        await cls.get_applied_migrations(db)
         
         results = {
             "applied": [],
@@ -183,7 +183,7 @@ class MigrationTracker:
                 ORDER BY applied_at DESC
                 LIMIT 1
             """  # nosec B608: identifier validated+quoted
-                                  ).first()
+            ).first()
             
             if result:
                 row = d1_unwrap(result)
@@ -206,11 +206,11 @@ class MigrationTracker:
                 FROM {quoted_table}
                 ORDER BY applied_at DESC
             """  # nosec B608: identifier validated+quoted
-                                  ).all()
+            ).all()
             
             migrations = []
             if hasattr(result, 'results'):
-                for row in result.results:
+                for row in d1_unwrap_results(result):
                     migrations.append({
                         "version": row['version'],
                         "checksum": row['checksum'],
@@ -310,7 +310,6 @@ class SchemaLock:
     @staticmethod
     def verify_schema(current_models: List, lock_file: str = SCHEMA_LOCK_FILE) -> Dict[str, Any]:
         """Verify current schema matches lock file"""
-        from .orm import Model
         
         # Read existing lock
         existing_lock = SchemaLock.read_lock_file(lock_file)

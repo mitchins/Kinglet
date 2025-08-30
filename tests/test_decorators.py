@@ -304,3 +304,59 @@ class TestDecoratorCombinations:
         status, headers, body = client.request("GET", "/restricted-error")
 
         assert status == 404  # Dev restriction blackhole, not the ValueError
+
+
+class TestValidateJsonBodyErrorCases:
+    """Test error handling in validate_json_body decorator"""
+
+    def test_validate_json_body_empty_body_error(self):
+        """Test validate_json_body handles empty request bodies"""
+        from kinglet.decorators import validate_json_body
+        from kinglet import Kinglet, TestClient
+
+        app = Kinglet()
+
+        @app.post("/test")
+        @validate_json_body
+        async def test_endpoint(request):
+            return {"success": True}
+
+        client = TestClient(app)
+        
+        # Send empty JSON object (should trigger line 109)
+        status, headers, body = client.request(
+            "POST", "/test",
+            body='{}',
+            headers={"content-type": "application/json"}
+        )
+
+        assert status == 400
+        assert "Request body cannot be empty" in body
+
+
+class TestRequireFieldErrorCases:
+    """Test error handling in require_field decorator"""
+
+    def test_require_field_missing_required_field(self):
+        """Test require_field validates required fields"""
+        from kinglet.decorators import require_field
+        from kinglet import Kinglet, TestClient
+
+        app = Kinglet()
+
+        @app.post("/test")
+        @require_field("name")
+        async def test_endpoint(request):
+            return {"success": True}
+
+        client = TestClient(app)
+        
+        # Send JSON without required field
+        status, headers, body = client.request(
+            "POST", "/test",
+            body='{"other": "value"}',
+            headers={"content-type": "application/json"}
+        )
+
+        assert status == 400
+        assert "Missing required field: name" in body

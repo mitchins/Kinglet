@@ -10,14 +10,21 @@ Key differences from Peewee/SQLAlchemy:
 """
 
 import json
-import hashlib
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type, Union, AsyncContextManager, Coroutine
+from typing import Any, Dict, List, Optional, Type, AsyncContextManager, Coroutine
 from contextlib import asynccontextmanager
+
 from .storage import d1_unwrap, d1_unwrap_results
+from .orm_errors import (
+    ValidationError, UniqueViolationError,
+    DoesNotExistError, MultipleObjectsReturnedError, D1ErrorClassifier,
+    get_constraint_registry
+)
+
+
 # Safe SQL identifier validation and quoting
-_IDENT = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+_IDENT = re.compile(r'^[A-Za-z_]\w*$')
 
 
 def _qi(name: str) -> str:
@@ -25,12 +32,6 @@ def _qi(name: str) -> str:
     if not _IDENT.fullmatch(name):
         raise ValueError(f"Unsafe SQL identifier: {name!r}")
     return f'"{name}"'  # SQLite identifier quoting
-
-from .orm_errors import (
-    ValidationError, IntegrityError, UniqueViolationError, NotNullViolationError,
-    DoesNotExistError, MultipleObjectsReturnedError, D1ErrorClassifier,
-    get_constraint_registry
-)
 
 
 
@@ -68,9 +69,10 @@ class Field:
 class StringField(Field):
     """Text field with optional max length"""
     
-    def __init__(self, max_length: Optional[int] = None, **kwargs):
+    def __init__(self, max_length: Optional[int] = None, index: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.max_length = max_length
+        self.index = index  # Explicit indexing for performance-critical string fields
         
     def validate(self, value: Any) -> Optional[str]:
         value = super().validate(value)

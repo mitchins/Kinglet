@@ -479,10 +479,10 @@ class TestEndToEndMigration:
             result = await MigrationTracker.apply_migration(db, add_field_migration)
             assert result["status"] == "applied"
             
-            # 8. Check final migration status - mock the status response
+            # 8. Check final migration status - mock the status response (ORDER BY applied_at DESC)
             mock_unwrap_results.return_value = [
-                {'version': initial_migration.version, 'applied_at': 1234567890, 'checksum': 'abc', 'description': 'Initial'},
                 {'version': add_field_migration.version, 'applied_at': 1234567891, 'checksum': 'def', 'description': 'Add field'},
+                {'version': initial_migration.version, 'applied_at': 1234567890, 'checksum': 'abc', 'description': 'Initial'},
             ]
             mock_unwrap.return_value = {'version': add_field_migration.version, 'applied_at': 1234567891}
             
