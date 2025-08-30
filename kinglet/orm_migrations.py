@@ -348,11 +348,9 @@ class MigrationGenerator:
     
     @staticmethod
     def _safe_ident(name: str) -> str:
-        """Validate SQL identifier (table/column) to mitigate injection via string formatting"""
-        import re
-        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name or ""):
-            raise ValueError("Invalid SQL identifier")
-        return name
+        """Validate SQL identifier via shared helper"""
+        from .sql import safe_ident
+        return safe_ident(name)
 
     @staticmethod
     def generate_add_column(table: str, field_name: str, field) -> str:

@@ -38,11 +38,9 @@ class D1CacheService:
 
     def _safe_table(self) -> str:
         """Validate and return safe table identifier"""
-        import re
+        from .sql import safe_ident
         name = self.table_name or "experience_cache"
-        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
-            raise ValueError("Invalid cache table name")
-        return name
+        return safe_ident(name)
     
     async def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """Get value from cache with optional hit tracking"""
@@ -52,14 +50,13 @@ class D1CacheService:
             if self.track_hits:
                 # Get from cache and update hit count atomically
                 tn = self._safe_table()
-                stmt = await self.db.prepare(
-                    f"""
+                sql = f"""
                     UPDATE {tn}
                     SET hit_count = hit_count + 1
                     WHERE cache_key = ? AND expires_at > ?
                     RETURNING content, created_at, hit_count
-                    """
-                )
+                """  # nosec B608: identifier validated via _safe_table(); values parameterized
+                stmt = await self.db.prepare(sql)
                 result = await stmt.bind(cache_key, current_time).first()
                 
                 if result:
@@ -73,13 +70,12 @@ class D1CacheService:
             else:
                 # Read-only cache lookup (no write operations)
                 tn = self._safe_table()
-                stmt = await self.db.prepare(
-                    f"""
+                sql = f"""
                     SELECT content, created_at
                     FROM {tn}
                     WHERE cache_key = ? AND expires_at > ?
-                    """
-                )
+                """  # nosec B608: identifier validated via _safe_table(); values parameterized
+                stmt = await self.db.prepare(sql)
                 result = await stmt.bind(cache_key, current_time).first()
                 
                 if result:
@@ -129,7 +125,8 @@ class D1CacheService:
         """Delete specific cache entry"""
         try:
             tn = self._safe_table()
-            stmt = await self.db.prepare(f"DELETE FROM {tn} WHERE cache_key = ?")
+            sql = f"DELETE FROM {tn} WHERE cache_key = ?"  # nosec B608: identifier validated via _safe_table(); value parameterized
+            stmt = await self.db.prepare(sql)
             result = await stmt.bind(cache_key).run()
             return result.changes > 0
         except Exception as e:
@@ -141,7 +138,8 @@ class D1CacheService:
         try:
             current_time = int(time.time())
             tn = self._safe_table()
-            stmt = await self.db.prepare(f"DELETE FROM {tn} WHERE expires_at <= ?")
+            sql = f"DELETE FROM {tn} WHERE expires_at <= ?"  # nosec B608: identifier validated via _safe_table(); value parameterized
+            stmt = await self.db.prepare(sql)
             result = await stmt.bind(current_time).run()
             return result.changes
         except Exception as e:
@@ -152,7 +150,8 @@ class D1CacheService:
         """Invalidate cache entries matching a pattern (e.g., '/api/games/%')"""
         try:
             tn = self._safe_table()
-            stmt = await self.db.prepare(f"DELETE FROM {tn} WHERE cache_key LIKE ?")
+            sql = f"DELETE FROM {tn} WHERE cache_key LIKE ?"  # nosec B608: identifier validated via _safe_table(); value parameterized
+            stmt = await self.db.prepare(sql)
             result = await stmt.bind(pattern).run()
             return result.changes
         except Exception as e:
@@ -163,8 +162,7 @@ class D1CacheService:
         """Get cache statistics for monitoring"""
         try:
             tn = self._safe_table()
-            stmt = await self.db.prepare(
-                f"""
+            sql = f"""
                 SELECT
                     COUNT(*) as total_entries,
                     SUM(size_bytes) as total_size,
@@ -172,8 +170,8 @@ class D1CacheService:
                     AVG(hit_count) as avg_hits_per_entry,
                     COUNT(*) FILTER (WHERE expires_at <= ?) as expired_entries
                 FROM {tn}
-                """
-            )
+            """  # nosec B608: identifier validated via _safe_table(); value parameterized
+            stmt = await self.db.prepare(sql)
             
             current_time = int(time.time())
             result = await stmt.bind(current_time).first()

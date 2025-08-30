@@ -1028,10 +1028,9 @@ class ModelMeta(type):
         if 'table_name' not in meta_attrs:
             meta_attrs['table_name'] = class_name.lower() + 's'
         # Validate table name to avoid unsafe identifiers in SQL
-        import re
+        from .sql import safe_ident
         table_name = meta_attrs.get('table_name')
-        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table_name or ""):
-            raise ValueError(f"Invalid table name: {table_name}")
+        safe_ident(table_name or "")
         
         return meta_attrs
     
