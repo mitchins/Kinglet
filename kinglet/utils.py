@@ -300,9 +300,9 @@ def media_url(request: Request, uid: str) -> str:
 
         # Fallback to generating URL from request
         protocol = "http"
-        if request.header('x-forwarded-proto') == 'https':
-            protocol = "https"
-        elif hasattr(request, '_parsed_url') and request._parsed_url.scheme == 'https':
+        if (request.header('x-forwarded-proto') == 'https' or
+            (hasattr(request, '_parsed_url') and 
+             request._parsed_url.scheme == 'https')):
             protocol = "https"
 
         host = request.header('host')

@@ -92,11 +92,8 @@ def _append_indexes(parts: list[str], models: List[Type[Model]], include_indexes
                 parts.append(
                     f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
                 )
-            elif field_name.endswith('_at'):
-                parts.append(
-                    f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
-                )
-            elif hasattr(field, 'index') and field.index and not field.primary_key:
+            elif (field_name.endswith('_at') or 
+                  (hasattr(field, 'index') and field.index and not field.primary_key)):
                 parts.append(
                     f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
                 )
@@ -328,7 +325,7 @@ def generate_migrations(module_path: str, lock_file: str = SCHEMA_LOCK_FILE) -> 
         with open(MIGRATIONS_FILE, 'w') as f:
             json.dump(migration_data, f, indent=2)
         
-        print(f"\n-- Migration metadata saved to migrations.json", file=sys.stderr)
+        print("\n-- Migration metadata saved to migrations.json", file=sys.stderr)
         print(f"-- After applying migrations, run: python -m kinglet.orm_deploy lock {module_path}", file=sys.stderr)
         
         return 0

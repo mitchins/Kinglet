@@ -952,7 +952,7 @@ class Manager:
                 last_seen=datetime.now()
             )
         """
-        instance, created = await self.create_or_update(db, **kwargs)
+        instance, _ = await self.create_or_update(db, **kwargs)
         return instance
         
     def filter(self, db, **kwargs) -> QuerySet:
@@ -1038,7 +1038,7 @@ class ModelMeta(type):
             attrs['id'] = id_field
             
         # Process field definitions
-        for key, value in list(attrs.items()):
+        for key, value in attrs.items():
             if isinstance(value, Field):
                 value.name = key
                 fields[key] = value
