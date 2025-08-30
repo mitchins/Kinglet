@@ -228,14 +228,13 @@ class QuerySet:
                 # Validate field exists to prevent SQL errors
                 if field_name not in self._field_names:
                     raise ValueError(f"Field '{field_name}' does not exist on {self.model_class.__name__}")
-                condition, norm_value = new_qs._build_lookup_condition(field_name, lookup, value)
+                condition = new_qs._build_lookup_condition(field_name, lookup, value)
             else:
                 # Validate field exists
                 if key not in self._field_names:
                     raise ValueError(f"Field '{key}' does not exist on {self.model_class.__name__}")
                 condition = f"{key} = ?"
-                norm_value = value
-            new_qs._where_conditions.append((condition, norm_value))
+            new_qs._where_conditions.append((condition, value))
         return new_qs
         
     def exclude(self, **kwargs) -> 'QuerySet':
@@ -247,7 +246,7 @@ class QuerySet:
                 # Validate field exists to prevent SQL errors
                 if field_name not in self._field_names:
                     raise ValueError(f"Field '{field_name}' does not exist on {self.model_class.__name__}")
-                condition, norm_value = new_qs._build_lookup_condition(field_name, lookup, value)
+                condition = new_qs._build_lookup_condition(field_name, lookup, value)
                 # Wrap in NOT for exclude behavior
                 condition = f"NOT ({condition})"
             else:
@@ -255,8 +254,7 @@ class QuerySet:
                 if key not in self._field_names:
                     raise ValueError(f"Field '{key}' does not exist on {self.model_class.__name__}")
                 condition = f"NOT ({key} = ?)"
-                norm_value = value
-            new_qs._where_conditions.append((condition, norm_value))
+            new_qs._where_conditions.append((condition, value))
         return new_qs
         
     def order_by(self, *fields) -> 'QuerySet':
@@ -494,8 +492,8 @@ class QuerySet:
         new_qs._values_fields = self._values_fields.copy() if self._values_fields else None
         return new_qs
         
-    def _build_lookup_condition(self, field_name: str, lookup: str, value: Any) -> tuple[str, Any]:
-        """Build SQL condition and normalized value for field lookups"""
+    def _build_lookup_condition(self, field_name: str, lookup: str, value: Any) -> str:
+        """Build SQL condition for field lookups"""
         op_map = {
             'gt': '>',
             'gte': '>=',
@@ -504,28 +502,36 @@ class QuerySet:
             'ne': '!=',
         }
         if lookup in op_map:
-            return f"{field_name} {op_map[lookup]} ?", value
+            return f"{field_name} {op_map[lookup]} ?"
         if lookup == 'contains':
-            v = str(value)
-            return f"{field_name} LIKE ?", (v if ('%' in v) else f"%{v}%")
+            return f"{field_name} LIKE ?"
         if lookup == 'icontains':
-            v = str(value)
-            return f"LOWER({field_name}) LIKE LOWER(?)", (v if ('%' in v) else f"%{v}%")
+            return f"LOWER({field_name}) LIKE LOWER(?)"
         if lookup == 'startswith':
-            v = str(value)
-            return f"{field_name} LIKE ?", (v if v.endswith('%') else f"{v}%")
+            return f"{field_name} LIKE ?"
         if lookup == 'endswith':
-            v = str(value)
-            return f"{field_name} LIKE ?", (v if v.startswith('%') else f"%{v}")
+            return f"{field_name} LIKE ?"
         if lookup == 'in':
             placeholders = ','.join(['?' for _ in value])
-            return f"{field_name} IN ({placeholders})", value
+            return f"{field_name} IN ({placeholders})"
         raise ValueError(f"Unsupported lookup: {lookup}")
             
     def _build_where_clause(self) -> tuple[str, List[Any]]:
-        """Build WHERE clause and parameters"""
+        """Build WHERE clause and parameters with LIKE value normalization"""
         if not self._where_conditions:
             return "", []
+
+        def _normalize_like_value(cond: str, val: Any) -> Any:
+            if 'LIKE' not in cond:
+                return val
+            s = str(val)
+            if 'startswith' in cond or cond.endswith('LIKE ?'):
+                return s if s.endswith('%') else f"{s}%"
+            if 'endswith' in cond:
+                return s if s.startswith('%') else f"%{s}"
+            if 'contains' in cond or 'icontains' in cond:
+                return s if (s.startswith('%') or s.endswith('%')) else f"%{s}%"
+            return val
 
         conditions: List[str] = []
         params: List[Any] = []
@@ -535,7 +541,7 @@ class QuerySet:
             if isinstance(value, (list, tuple)) and 'IN' in condition:
                 params.extend(value)
             else:
-                params.append(value)
+                params.append(_normalize_like_value(condition, value))
 
         return " AND ".join(conditions), params
         
