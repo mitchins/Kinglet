@@ -10,7 +10,7 @@ Critical for alpha testing of Kinglet 1.6.0 with D1 database.
 import pytest
 import sys
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -102,108 +102,96 @@ class TestNullHandlingModelOperations:
     @pytest.mark.asyncio
     async def test_create_with_null_values(self):
         """Test creating model instance with NULL values"""
-        with patch('kinglet.orm.d1_unwrap', d1_unwrap), \
-             patch('kinglet.orm.d1_unwrap_results', d1_unwrap_results):
-            
-            # Create table first
-            await NullTestModel.create_table(self.mock_db)
-            
-            # Create instance with NULL values for optional fields
-            instance = await self.manager.create(
-                self.mock_db,
-                required_field="required_value",
-                optional_string=None,
-                optional_int=None,
-                optional_bool=None,
-                optional_datetime=None
-            )
-            
-            assert instance.required_field == "required_value"
-            assert instance.optional_string is None
-            assert instance.optional_int is None
-            assert instance.optional_bool is None
-            assert instance.optional_datetime is None
-            assert instance.id is not None
+        # Create table first
+        await NullTestModel.create_table(self.mock_db)
+        
+        # Create instance with NULL values for optional fields
+        instance = await self.manager.create(
+            self.mock_db,
+            required_field="required_value",
+            optional_string=None,
+            optional_int=None,
+            optional_bool=None,
+            optional_datetime=None
+        )
+        
+        assert instance.required_field == "required_value"
+        assert instance.optional_string is None
+        assert instance.optional_int is None
+        assert instance.optional_bool is None
+        assert instance.optional_datetime is None
+        assert instance.id is not None
             
     @pytest.mark.asyncio
     async def test_save_with_null_values_insert(self):
         """Test saving new instance with NULL values (INSERT operation)"""
-        with patch('kinglet.orm.d1_unwrap', d1_unwrap), \
-             patch('kinglet.orm.d1_unwrap_results', d1_unwrap_results):
-            
-            # Create table first
-            await NullTestModel.create_table(self.mock_db)
-            
-            # Create instance and save (INSERT)
-            instance = NullTestModel(
-                required_field="test_value",
-                optional_string=None,
-                optional_int=None,
-                optional_bool=None
-            )
-            
-            await instance.save(self.mock_db)
-            
-            assert instance.id is not None
-            assert instance._state['saved'] is True
-            
+        # Create table first
+        await NullTestModel.create_table(self.mock_db)
+        
+        # Create instance and save (INSERT)
+        instance = NullTestModel(
+            required_field="test_value",
+            optional_string=None,
+            optional_int=None,
+            optional_bool=None
+        )
+        
+        await instance.save(self.mock_db)
+        
+        assert instance.id is not None
+        assert instance._state['saved'] is True
+        
     @pytest.mark.asyncio
     async def test_save_with_null_values_update(self):
         """Test saving existing instance with NULL values (UPDATE operation)"""
-        with patch('kinglet.orm.d1_unwrap', d1_unwrap), \
-             patch('kinglet.orm.d1_unwrap_results', d1_unwrap_results):
-            
-            # Create table and initial instance
-            await NullTestModel.create_table(self.mock_db)
-            
-            instance = await self.manager.create(
-                self.mock_db,
-                required_field="original_value",
-                optional_string="original_string",
-                optional_int=42
-            )
-            
-            # Update with NULL values (UPDATE operation)
-            instance.optional_string = None
-            instance.optional_int = None
-            instance.optional_bool = None
-            
-            await instance.save(self.mock_db)
-            
-            # Verify update worked
-            retrieved = await self.manager.get(self.mock_db, id=instance.id)
-            assert retrieved.optional_string is None
-            assert retrieved.optional_int is None
-            assert retrieved.optional_bool is None
-            
+        # Create table and initial instance
+        await NullTestModel.create_table(self.mock_db)
+        
+        instance = await self.manager.create(
+            self.mock_db,
+            required_field="original_value",
+            optional_string="original_string",
+            optional_int=42
+        )
+        
+        # Update with NULL values (UPDATE operation)
+        instance.optional_string = None
+        instance.optional_int = None
+        instance.optional_bool = None
+        
+        await instance.save(self.mock_db)
+        
+        # Verify update worked
+        retrieved = await self.manager.get(self.mock_db, id=instance.id)
+        assert retrieved.optional_string is None
+        assert retrieved.optional_int is None
+        assert retrieved.optional_bool is None
+        
     @pytest.mark.asyncio
     async def test_bulk_create_with_null_values(self):
         """Test bulk create operations with NULL values"""
-        with patch('kinglet.orm.d1_unwrap', d1_unwrap), \
-             patch('kinglet.orm.d1_unwrap_results', d1_unwrap_results):
-            
-            # Create table first
-            await NullTestModel.create_table(self.mock_db)
-            
-            # Create instances with NULL values for bulk create
-            instances = [
-                NullTestModel(
-                    required_field=f"bulk_test_{i}",
-                    optional_string=None if i % 2 == 0 else f"value_{i}",
-                    optional_int=None if i % 3 == 0 else i * 10,
-                    optional_bool=None if i % 4 == 0 else True
-                )
-                for i in range(3)
-            ]
-            
-            # Bulk create
-            created_instances = await self.manager.bulk_create(self.mock_db, instances)
-            
-            assert len(created_instances) == 3
-            # Verify NULL values are preserved
-            assert created_instances[0].optional_string is None  # i=0, i%2==0
-            assert created_instances[1].optional_string == "value_1"  # i=1, i%2!=0
-            assert created_instances[0].optional_int is None  # i=0, i%3==0
+        # Create table first
+        await NullTestModel.create_table(self.mock_db)
+        
+        # Create instances with NULL values for bulk create
+        instances = [
+            NullTestModel(
+                required_field=f"bulk_test_{i}",
+                optional_string=None if i % 2 == 0 else f"value_{i}",
+                optional_int=None if i % 3 == 0 else i * 10,
+                optional_bool=None if i % 4 == 0 else True
+            )
+            for i in range(3)
+        ]
+        
+        # Bulk create
+        created_instances = await self.manager.bulk_create(self.mock_db, instances)
+        
+        assert len(created_instances) == 3
+        # Verify NULL values are preserved
+        assert created_instances[0].optional_string is None  # i=0, i%2==0
+        assert created_instances[1].optional_string == "value_1"  # i=1, i%2!=0
+        assert created_instances[0].optional_int is None  # i=0, i%3==0
 
 
 class TestNullHandlingSQLGeneration:

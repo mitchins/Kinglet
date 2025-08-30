@@ -38,38 +38,34 @@ async def test_d1_user_creation_with_nullable_fields():
     and would catch JavaScript undefined values being passed to D1.
     """
     from .mock_d1 import MockD1Database, d1_unwrap, d1_unwrap_results
-    from unittest.mock import patch
     
     mock_db = MockD1Database()
     
-    with patch('kinglet.orm.d1_unwrap', d1_unwrap), \
-         patch('kinglet.orm.d1_unwrap_results', d1_unwrap_results):
-        
-        # Create table first
-        await D1UserModel.create_table(mock_db)
-        
-        # Test creating user with None values for nullable fields
-        user = await D1UserModel.objects.create(
-            mock_db,
-            email="integration@test.com",
-            username="integration_user",
-            password_hash="test_hash",
-            is_publisher=False,
-            totp_secret=None,  # This should not cause D1_TYPE_ERROR
-            totp_enabled=False
-        )
-        
-        # Verify creation succeeded
-        assert user.email == "integration@test.com"
-        assert user.username == "integration_user"
-        assert user.totp_secret is None
-        assert user.is_publisher is False
-        assert user.id is not None
-        
-        # Verify we can retrieve the user
-        retrieved_user = await D1UserModel.objects.get(mock_db, id=user.id)
-        assert retrieved_user.totp_secret is None
-        assert retrieved_user.email == "integration@test.com"
+    # Create table first
+    await D1UserModel.create_table(mock_db)
+    
+    # Test creating user with None values for nullable fields
+    user = await D1UserModel.objects.create(
+        mock_db,
+        email="integration@test.com",
+        username="integration_user",
+        password_hash="test_hash",
+        is_publisher=False,
+        totp_secret=None,  # This should not cause D1_TYPE_ERROR
+        totp_enabled=False
+    )
+    
+    # Verify creation succeeded
+    assert user.email == "integration@test.com"
+    assert user.username == "integration_user"
+    assert user.totp_secret is None
+    assert user.is_publisher is False
+    assert user.id is not None
+    
+    # Verify we can retrieve the user
+    retrieved_user = await D1UserModel.objects.get(mock_db, id=user.id)
+    assert retrieved_user.totp_secret is None
+    assert retrieved_user.email == "integration@test.com"
 
 
 def test_field_conversion_edge_cases():

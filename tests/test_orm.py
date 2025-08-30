@@ -10,7 +10,7 @@ Tests the compute-optimized ORM functionality including:
 
 import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from kinglet.orm import (
     Model, Field, StringField, IntegerField, BooleanField, FloatField,
@@ -125,9 +125,9 @@ class TestModelInstance:
     
     def test_model_creation(self):
         game = SampleGame(
-            title="Test Game",
-            description="A test game",
-            score=100
+        title="Test Game",
+        description="A test game",
+        score=100
         )
         
         assert game.title == "Test Game"
@@ -145,9 +145,9 @@ class TestModelInstance:
         
     def test_model_to_dict(self):
         game = SampleGame(
-            title="Test Game",
-            score=100,
-            metadata={"key": "value"}
+        title="Test Game",
+        score=100,
+        metadata={"key": "value"}
         )
         
         result = game.to_dict()
@@ -157,12 +157,12 @@ class TestModelInstance:
         
     def test_model_from_db(self):
         row_data = {
-            "id": 1,
-            "title": "Test Game",
-            "score": 100,
-            "is_published": 1,  # Database boolean as integer
-            "created_at": 1640995200,
-            "metadata": '{"key": "value"}'
+        "id": 1,
+        "title": "Test Game",
+        "score": 100,
+        "is_published": 1,  # Database boolean as integer
+        "created_at": 1640995200,
+        "metadata": '{"key": "value"}'
         }
         
         game = SampleGame._from_db(row_data)
@@ -284,165 +284,152 @@ class TestManagerOperations:
     @pytest.mark.asyncio
     async def test_create_and_get_integration(self):
         """Test full create and get cycle with mock database"""
-        # Patch the d1_unwrap functions to use our mock versions
-        with patch('kinglet.orm.d1_unwrap', d1_unwrap), \
-             patch('kinglet.orm.d1_unwrap_results', d1_unwrap_results):
-            
-            # Create table first
-            await SampleGame.create_table(self.mock_db)
-            
-            # Create a game
-            game = await self.manager.create(
-                self.mock_db,
-                title="Test Game",
-                description="A test game",
-                score=100
-            )
-            
-            assert isinstance(game, SampleGame)
-            assert game.title == "Test Game"
-            assert game.description == "A test game"
-            assert game.score == 100
-            assert game.id is not None  # Should have auto-generated ID
-            
-            # Get the same game back
-            retrieved_game = await self.manager.get(self.mock_db, id=game.id)
-            
-            assert retrieved_game is not None
-            assert isinstance(retrieved_game, SampleGame)
-            assert retrieved_game.id == game.id
-            assert retrieved_game.title == "Test Game"
-            assert retrieved_game.score == 100
+        # Create table first
+        await SampleGame.create_table(self.mock_db)
+        
+        # Create a game
+        game = await self.manager.create(
+            self.mock_db,
+            title="Test Game",
+            description="A test game",
+            score=100
+        )
+        
+        assert isinstance(game, SampleGame)
+        assert game.title == "Test Game"
+        assert game.description == "A test game"
+        assert game.score == 100
+        assert game.id is not None  # Should have auto-generated ID
+        
+        # Get the same game back
+        retrieved_game = await self.manager.get(self.mock_db, id=game.id)
+        
+        assert retrieved_game is not None
+        assert isinstance(retrieved_game, SampleGame)
+        assert retrieved_game.id == game.id
+        assert retrieved_game.title == "Test Game"
+        assert retrieved_game.score == 100
             
     @pytest.mark.asyncio
     async def test_queryset_operations(self):
         """Test QuerySet operations with mock database"""
-        with patch('kinglet.orm.d1_unwrap', d1_unwrap), \
-             patch('kinglet.orm.d1_unwrap_results', d1_unwrap_results):
+        # Create table and sample data
+        await SampleGame.create_table(self.mock_db)
+        
+        # Create multiple games
+        games_data = [
+            {"title": "Adventure Game", "score": 95, "is_published": True},
+            {"title": "Puzzle Game", "score": 88, "is_published": True},
+            {"title": "Racing Game", "score": 92, "is_published": False},
+            {"title": "Strategy Game", "score": 90, "is_published": True},
+        ]
+        
+        created_games = []
+        for game_data in games_data:
+            game = await self.manager.create(self.mock_db, **game_data)
+            created_games.append(game)
             
-            # Create table and sample data
-            await SampleGame.create_table(self.mock_db)
-            
-            # Create multiple games
-            games_data = [
-                {"title": "Adventure Game", "score": 95, "is_published": True},
-                {"title": "Puzzle Game", "score": 88, "is_published": True},
-                {"title": "Racing Game", "score": 92, "is_published": False},
-                {"title": "Strategy Game", "score": 90, "is_published": True},
-            ]
-            
-            created_games = []
-            for game_data in games_data:
-                game = await self.manager.create(self.mock_db, **game_data)
-                created_games.append(game)
-                
-            # Test filtering
-            published_games = await self.manager.filter(
-                self.mock_db, is_published=True
-            ).all()
-            assert len(published_games) == 3
-            
-            # Test count
-            total_count = await self.manager.all(self.mock_db).count()
-            assert total_count == 4
-            
-            published_count = await self.manager.filter(
-                self.mock_db, is_published=True
-            ).count()
-            assert published_count == 3
-            
-            # Test ordering
-            high_score_games = await self.manager.all(self.mock_db).order_by("-score").limit(2).all()
-            assert len(high_score_games) == 2
-            assert high_score_games[0].score >= high_score_games[1].score
-            
-            # Test lookups
-            high_scoring = await self.manager.filter(
-                self.mock_db, score__gte=90
-            ).all()
-            assert len(high_scoring) == 3
-            
-            # Test search - skip icontains for now as SQLite LIKE is case-sensitive by default
-            # This would need COLLATE NOCASE or LOWER() in the query
-            # adventure_games = await self.manager.filter(
-            #     self.mock_db, title__icontains="adventure"
-            # ).all()
-            # assert len(adventure_games) == 1
-            
-            # Test contains instead (case-sensitive)
-            adventure_games = await self.manager.filter(
-                self.mock_db, title__contains="Adventure"
-            ).all()
-            assert len(adventure_games) == 1
-            assert adventure_games[0].title == "Adventure Game"
-            
+        # Test filtering
+        published_games = await self.manager.filter(
+            self.mock_db, is_published=True
+        ).all()
+        assert len(published_games) == 3
+        
+        # Test count
+        total_count = await self.manager.all(self.mock_db).count()
+        assert total_count == 4
+        
+        published_count = await self.manager.filter(
+            self.mock_db, is_published=True
+        ).count()
+        assert published_count == 3
+        
+        # Test ordering
+        high_score_games = await self.manager.all(self.mock_db).order_by("-score").limit(2).all()
+        assert len(high_score_games) == 2
+        assert high_score_games[0].score >= high_score_games[1].score
+        
+        # Test lookups
+        high_scoring = await self.manager.filter(
+            self.mock_db, score__gte=90
+        ).all()
+        assert len(high_scoring) == 3
+        
+        # Test search - skip icontains for now as SQLite LIKE is case-sensitive by default
+        # This would need COLLATE NOCASE or LOWER() in the query
+        # adventure_games = await self.manager.filter(
+        #     self.mock_db, title__icontains="adventure"
+        # ).all()
+        # assert len(adventure_games) == 1
+        
+        # Test contains instead (case-sensitive)
+        adventure_games = await self.manager.filter(
+            self.mock_db, title__contains="Adventure"
+        ).all()
+        assert len(adventure_games) == 1
+        assert adventure_games[0].title == "Adventure Game"
+        
     @pytest.mark.asyncio
     async def test_bulk_operations(self):
         """Test bulk create operations"""
-        with patch('kinglet.orm.d1_unwrap', d1_unwrap), \
-             patch('kinglet.orm.d1_unwrap_results', d1_unwrap_results):
+        # Create table
+        await SampleGame.create_table(self.mock_db)
+        
+        # Create multiple game instances
+        game_instances = [
+            SampleGame(title=f"Bulk Game {i}", score=80 + i, is_published=i % 2 == 0)
+            for i in range(5)
+        ]
+        
+        # Bulk create
+        created_games = await self.manager.bulk_create(self.mock_db, game_instances)
+        
+        assert len(created_games) == 5
+        for i, game in enumerate(created_games):
+            assert game.title == f"Bulk Game {i}"
+            assert game.score == 80 + i
+            assert game.id is not None
             
-            # Create table
-            await SampleGame.create_table(self.mock_db)
-            
-            # Create multiple game instances
-            game_instances = [
-                SampleGame(title=f"Bulk Game {i}", score=80 + i, is_published=i % 2 == 0)
-                for i in range(5)
-            ]
-            
-            # Bulk create
-            created_games = await self.manager.bulk_create(self.mock_db, game_instances)
-            
-            assert len(created_games) == 5
-            for i, game in enumerate(created_games):
-                assert game.title == f"Bulk Game {i}"
-                assert game.score == 80 + i
-                assert game.id is not None
-                
-            # Verify they were actually saved
-            total_count = await self.manager.all(self.mock_db).count()
-            assert total_count == 5
-            
+        # Verify they were actually saved
+        total_count = await self.manager.all(self.mock_db).count()
+        assert total_count == 5
+        
     @pytest.mark.asyncio
     async def test_update_and_delete(self):
         """Test model update and delete operations"""
-        with patch('kinglet.orm.d1_unwrap', d1_unwrap), \
-             patch('kinglet.orm.d1_unwrap_results', d1_unwrap_results):
-            
-            # Create table and game
-            await SampleGame.create_table(self.mock_db)
-            
-            game = await self.manager.create(
-                self.mock_db,
-                title="Test Game",
-                score=75,
-                is_published=False
-            )
-            
-            original_id = game.id
-            
-            # Update the game
-            game.score = 95
-            game.is_published = True
-            await game.save(self.mock_db)
-            
-            # Verify update
-            updated_game = await self.manager.get(self.mock_db, id=original_id)
-            assert updated_game.score == 95
-            assert updated_game.is_published is True
-            
-            # Delete the game
-            await game.delete(self.mock_db)
-            
-            # Verify deletion
-            try:
-                deleted_game = await self.manager.get(self.mock_db, id=original_id)
-                assert False, "Expected DoesNotExist exception after deletion"
-            except DoesNotExistError:
-                # Expected - object was deleted
-                pass
-            
+        # Create table and game
+        await SampleGame.create_table(self.mock_db)
+        
+        game = await self.manager.create(
+            self.mock_db,
+            title="Test Game",
+            score=75,
+            is_published=False
+        )
+        
+        original_id = game.id
+        
+        # Update the game
+        game.score = 95
+        game.is_published = True
+        await game.save(self.mock_db)
+        
+        # Verify update
+        updated_game = await self.manager.get(self.mock_db, id=original_id)
+        assert updated_game.score == 95
+        assert updated_game.is_published is True
+        
+        # Delete the game
+        await game.delete(self.mock_db)
+        
+        # Verify deletion
+        try:
+            deleted_game = await self.manager.get(self.mock_db, id=original_id)
+            assert False, "Expected DoesNotExist exception after deletion"
+        except DoesNotExistError:
+            # Expected - object was deleted
+            pass
+        
     def teardown_method(self):
         """Clean up after each test"""
         self.mock_db.close()
@@ -650,11 +637,11 @@ class TestFloatFieldIntegration:
         """Test CRUD operations with FloatField"""
         # Create
         product = await self.manager.create(
-            self.mock_db,
-            name="Test Product",
-            price=29.99,
-            discount_rate=0.15,
-            rating=4.5
+        self.mock_db,
+        name="Test Product",
+        price=29.99,
+        discount_rate=0.15,
+        rating=4.5
         )
         
         assert product.price == 29.99

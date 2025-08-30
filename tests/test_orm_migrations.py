@@ -130,6 +130,7 @@ class TestMigrationTracker:
         
     @pytest.mark.asyncio
     async def test_get_applied_migrations(self):
+        from unittest.mock import patch
         with patch('kinglet.orm_migrations.d1_unwrap_results') as mock_unwrap:
             db = MockD1Database()
             await MigrationTracker.ensure_migrations_table(db)
@@ -204,6 +205,7 @@ class TestMigrationTracker:
         
     @pytest.mark.asyncio
     async def test_get_schema_version(self):
+        from unittest.mock import patch
         with patch('kinglet.orm_migrations.d1_unwrap') as mock_unwrap:
             db = MockD1Database()
             await MigrationTracker.ensure_migrations_table(db)
@@ -434,9 +436,9 @@ class TestEndToEndMigration:
     @pytest.mark.asyncio
     async def test_full_migration_workflow(self):
         """Test the complete migration lifecycle"""
+        from unittest.mock import patch
         with patch('kinglet.orm_migrations.d1_unwrap') as mock_unwrap, \
              patch('kinglet.orm_migrations.d1_unwrap_results') as mock_unwrap_results:
-                
             db = MockD1Database()
             
             # 1. Initial schema creation
