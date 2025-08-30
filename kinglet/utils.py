@@ -240,7 +240,7 @@ def _build_asset_path(uid: str, asset_type: str) -> str:
     else:
         return f"/{asset_type}/{uid}"
 
-def _get_cdn_url(request: Request, path: str, asset_type: str) -> str:
+def _get_cdn_url(request: Request, path: str, asset_type: str) -> Optional[str]:
     """Get CDN URL if available for media assets"""
     if asset_type == "media" and hasattr(request.env, 'CDN_BASE_URL'):
         cdn_base = request.env.CDN_BASE_URL.rstrip('/')
@@ -249,9 +249,8 @@ def _get_cdn_url(request: Request, path: str, asset_type: str) -> str:
 
 def _detect_protocol(request: Request) -> str:
     """Detect if we're running on HTTPS"""
-    if request.header('x-forwarded-proto') == 'https':
-        return "https"
-    elif hasattr(request, '_parsed_url') and request._parsed_url.scheme == 'https':
+    if (request.header('x-forwarded-proto') == 'https' or
+        (hasattr(request, '_parsed_url') and request._parsed_url.scheme == 'https')):
         return "https"
     return "http"
 
