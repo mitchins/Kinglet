@@ -94,7 +94,11 @@ class StringField(Field):
 
 
 class IntegerField(Field):
-    """Integer field"""
+    """Integer field with optional index"""
+
+    def __init__(self, index: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self.index = index  # Explicit indexing control
 
     def to_python(self, value: Any) -> Optional[int]:
         if value is None:
@@ -153,10 +157,11 @@ class FloatField(Field):
 class DateTimeField(Field):
     """DateTime field stored as INTEGER timestamp"""
 
-    def __init__(self, auto_now=False, auto_now_add=False, **kwargs):
+    def __init__(self, auto_now=False, auto_now_add=False, index=False, **kwargs):
         super().__init__(**kwargs)
         self.auto_now = auto_now
         self.auto_now_add = auto_now_add
+        self.index = index  # Explicit indexing control
 
     def to_python(self, value: Any) -> Optional[datetime]:
         if value is None:

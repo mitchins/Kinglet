@@ -112,9 +112,7 @@ def _append_indexes(
                 parts.append(
                     f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
                 )
-            elif field_name.endswith("_at") or (
-                hasattr(field, "index") and field.index and not field.primary_key
-            ):
+            elif hasattr(field, "index") and field.index and not field.primary_key:
                 parts.append(
                     f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
                 )
