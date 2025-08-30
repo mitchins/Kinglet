@@ -19,7 +19,7 @@ class Game(Model):
     is_published = BooleanField(default=False)
     created_at = DateTimeField(auto_now_add=True)
     metadata = JSONField(default=dict)
-    
+
     class Meta:
         table_name = "games"
 
@@ -29,7 +29,7 @@ class User(Model):
     is_active = BooleanField(default=True)
     joined_at = DateTimeField(auto_now_add=True)
     profile = JSONField(default=dict)
-    
+
     class Meta:
         table_name = "users"
 EOF

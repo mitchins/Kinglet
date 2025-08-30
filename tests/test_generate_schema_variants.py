@@ -7,7 +7,7 @@ from kinglet.orm_deploy import generate_schema
 def _install_models(mod_name: str):
     mod = types.ModuleType(mod_name)
     sys.modules[mod_name] = mod
-    from kinglet.orm import Model, StringField, DateTimeField
+    from kinglet.orm import DateTimeField, Model, StringField
 
     class A(Model):
         name = StringField(index=True)  # Explicit index for performance-critical field
@@ -22,8 +22,8 @@ def _install_models(mod_name: str):
         class Meta:
             table_name = "dups"  # duplicate to exercise warning path
 
-    setattr(mod, "A", A)
-    setattr(mod, "B", B)
+    mod.A = A
+    mod.B = B
     return mod
 
 
@@ -38,4 +38,3 @@ def test_generate_schema_cleanslate_and_indexes():
     assert "CREATE TABLE" in sql
     # Indexes
     assert "CREATE INDEX" in sql or "CREATE UNIQUE INDEX" in sql
-

@@ -1,6 +1,7 @@
 """
 Tests for CacheService and cache_aside decorator
 """
+
 import json
 import time
 from unittest.mock import AsyncMock, Mock
@@ -20,6 +21,7 @@ from kinglet import (
 
 class MockStorage:
     """Mock R2 storage for testing"""
+
     def __init__(self):
         self.data = {}
 
@@ -113,7 +115,9 @@ def test_media_url_generation():
 
     # Test without CDN (development mode)
     client_dev = TestClient(app)
-    status, headers, body = client_dev.request("GET", "/media", headers={"host": "localhost:8787"})
+    status, headers, body = client_dev.request(
+        "GET", "/media", headers={"host": "localhost:8787"}
+    )
     data = json.loads(body)
     assert "localhost:8787" in data["url"]
     assert "test-uid-123" in data["url"]
@@ -155,17 +159,23 @@ def test_require_field():
     client = TestClient(app)
 
     # Valid data
-    status, headers, body = client.request("POST", "/require", json={"email": "test@example.com", "age": 25})
+    status, headers, body = client.request(
+        "POST", "/require", json={"email": "test@example.com", "age": 25}
+    )
     assert status == 200
 
     # Missing field
-    status, headers, body = client.request("POST", "/require", json={"email": "test@example.com"})
+    status, headers, body = client.request(
+        "POST", "/require", json={"email": "test@example.com"}
+    )
     assert status == 400
     data = json.loads(body)
     assert "age" in data["error"]
 
     # Wrong type
-    status, headers, body = client.request("POST", "/require", json={"email": "test@example.com", "age": "25"})
+    status, headers, body = client.request(
+        "POST", "/require", json={"email": "test@example.com", "age": "25"}
+    )
     assert status == 400
     data = json.loads(body)
     assert "int" in data["error"]
@@ -180,7 +190,11 @@ def test_dynamic_path_caching():
     @cache_aside(cache_type="game_detail", ttl=60)
     async def game_detail(request):
         slug = request.path_param("slug")
-        return {"game": slug, "details": f"Details for {slug}", "timestamp": time.time()}
+        return {
+            "game": slug,
+            "details": f"Details for {slug}",
+            "timestamp": time.time(),
+        }
 
     client = TestClient(app, env={"STORAGE": storage, "ENVIRONMENT": "production"})
 
@@ -236,14 +250,17 @@ def test_combined_decorators():
 
 if __name__ == "__main__":
     # Add a simple async runner to TestClient if it doesn't exist
-    if not hasattr(TestClient, '_run_async'):
+    if not hasattr(TestClient, "_run_async"):
         import asyncio
+
         TestClient._run_async = lambda coro: asyncio.run(coro)
 
     # Run tests manually if pytest not available
     import sys
+
     try:
         import pytest
+
         pytest.main([__file__, "-v"])
     except ImportError:
         print("Running tests manually (install pytest for better output)")
@@ -256,7 +273,7 @@ if __name__ == "__main__":
             test_validate_json_body,
             test_require_field,
             test_dynamic_path_caching,
-            test_combined_decorators
+            test_combined_decorators,
         ]
 
         passed = 0

@@ -1,5 +1,6 @@
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from kinglet.utils import cache_aside_d1
 
@@ -48,4 +49,3 @@ async def test_cache_aside_d1_hits_cache(monkeypatch):
     out = await handler(RequestWrapper())
     assert out.get("_cache_hit") is True
     assert out.get("ok") is True
-

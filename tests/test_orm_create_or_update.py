@@ -1,7 +1,8 @@
+from datetime import datetime
+
 import pytest
 
-from datetime import datetime
-from kinglet.orm import Model, StringField, DateTimeField
+from kinglet.orm import DateTimeField, Model, StringField
 
 
 class User(Model):
@@ -47,7 +48,9 @@ async def test_create_or_update_builds_sql_and_returns_instance():
     db = _DB()
     mgr = User.objects
     # Have a unique field in kwargs to pass validation
-    inst, created = await mgr.create_or_update(db, defaults={"name": None}, email="u@example.com")
+    inst, created = await mgr.create_or_update(
+        db, defaults={"name": None}, email="u@example.com"
+    )
     assert inst.email == "u@example.com"
     # created flag true (no pk provided)
     assert created is True

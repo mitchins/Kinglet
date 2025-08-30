@@ -9,38 +9,38 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:
         enable-cache: true
         cache-dependency-glob: "uv.lock"
-    
+
     - name: Set up Python 3.12 (matches CloudFlare Workers Pyodide)
       run: uv python install 3.12
-    
+
     - name: Install dependencies
       run: |
         uv sync --all-extras --dev
-    
+
     - name: Lint with ruff (strict on production code)
       run: |
         uv run ruff check kinglet/ --select=E9,F63,F7,F82,F811,F821,E722
         uv run ruff check . --select=E9,F63,F7,F82,F811,F821 || true
         uv run ruff format --check . || true
-    
+
     - name: Type check with mypy
       run: |
         uv run mypy kinglet/ || true  # Allow mypy failures for now
-    
+
     - name: Run tests
       run: |
         uv run pytest --cov=kinglet --cov-branch --cov-report=xml --cov-report=term-missing
-    
+
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
       with:
@@ -50,27 +50,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: test
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:
         enable-cache: true
         cache-dependency-glob: "uv.lock"
-    
+
     - name: Set up Python
       run: uv python install 3.12
-    
+
     - name: Install dependencies
       run: uv sync
-    
+
     - name: Build package
       run: |
         uv build
-    
+
     - name: Verify build artifacts
       run: |
         ls -la dist/
@@ -78,30 +78,30 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Shallow clones should be disabled for better analysis
-    
+
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:
         enable-cache: true
         cache-dependency-glob: "uv.lock"
-    
+
     - name: Set up Python
       run: uv python install 3.12
-    
+
     - name: Install dependencies
       run: uv sync --dev
-    
+
     - name: Run security checks with bandit
       run: |
         uv run bandit -r kinglet/ -f json -o bandit-report.json || true
         uv run bandit -r kinglet/ || true  # Also show human-readable output
-    
+
     - name: Check for known vulnerabilities in dependencies
       run: |
         uv run safety check || true  # Allow safety failures for now
@@ -110,38 +110,38 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test, security]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Shallow clones should be disabled for better analysis
-    
+
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:
         enable-cache: true
         cache-dependency-glob: "uv.lock"
-    
+
     - name: Set up Python
       run: uv python install 3.12
-    
+
     - name: Install dependencies
       run: uv sync --all-extras --dev
-    
+
     - name: Run tests with coverage for SonarQube
       run: |
         uv run pytest --cov=kinglet --cov-branch --cov-report=xml --junitxml=test-results.xml
-    
+
     - name: Run security analysis
       run: |
         uv run bandit -r kinglet/ -f json -o bandit-report.json || true
-    
+
     - name: SonarQube Scan
       uses: SonarSource/sonarqube-scan-action@v5
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-    
+
     - name: SonarQube Quality Gate check
       uses: SonarSource/sonarqube-quality-gate-action@v1
       timeout-minutes: 5

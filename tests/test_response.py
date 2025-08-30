@@ -59,7 +59,6 @@ class TestResponse:
         assert "Access-Control-Allow-Methods" in response.headers
         assert "Access-Control-Allow-Headers" in response.headers
 
-
     def test_to_workers_response_import_error(self):
         """Test that to_workers_response handles ImportError gracefully"""
         data = {"message": "test"}
@@ -94,10 +93,7 @@ class TestConvenienceFunctions:
         message = "Something went wrong"
         response = error_response(message, status=500)
 
-        expected_content = {
-            "error": message,
-            "status_code": 500
-        }
+        expected_content = {"error": message, "status_code": 500}
 
         assert response.content == expected_content
         assert response.status == 500

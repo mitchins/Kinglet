@@ -34,18 +34,22 @@ class TestJWTVerification:
         payload = {
             "sub": "user-123",
             "exp": int(time.time()) + 3600,  # 1 hour from now
-            "iat": int(time.time())
+            "iat": int(time.time()),
         }
         secret = "test-secret"
 
         # Encode header and payload
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+        header_b64 = (
+            base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
+        )
+        payload_b64 = (
+            base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        )
 
         # Create signature
         signing_input = f"{header_b64}.{payload_b64}".encode()
         signature = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
-        signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip('=')
+        signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip("=")
 
         token = f"{header_b64}.{payload_b64}.{signature_b64}"
 
@@ -62,16 +66,20 @@ class TestJWTVerification:
         payload = {
             "sub": "user-123",
             "exp": int(time.time()) - 3600,  # 1 hour ago (expired)
-            "iat": int(time.time()) - 7200   # 2 hours ago
+            "iat": int(time.time()) - 7200,  # 2 hours ago
         }
         secret = "test-secret"
 
         # Create token (same process as above)
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+        header_b64 = (
+            base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
+        )
+        payload_b64 = (
+            base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        )
         signing_input = f"{header_b64}.{payload_b64}".encode()
         signature = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
-        signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip('=')
+        signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip("=")
         token = f"{header_b64}.{payload_b64}.{signature_b64}"
 
         result = verify_jwt_hs256(token, secret)
@@ -97,13 +105,19 @@ class TestGetUser:
         """Test extracting user from Bearer token"""
         # Mock request with valid Bearer token
         mock_request = MagicMock()
-        mock_request.header = MagicMock(return_value="Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.test-signature")
+        mock_request.header = MagicMock(
+            return_value="Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.test-signature"
+        )
         mock_request.env.JWT_SECRET = "test-secret"
 
         # Mock successful JWT verification
         import kinglet.authz
+
         original_verify = kinglet.authz.verify_jwt_hs256
-        kinglet.authz.verify_jwt_hs256 = lambda token, secret: {"sub": "user-123", "email": "test@example.com"}
+        kinglet.authz.verify_jwt_hs256 = lambda token, secret: {
+            "sub": "user-123",
+            "email": "test@example.com",
+        }
 
         try:
             result = await get_user(mock_request)
@@ -126,10 +140,12 @@ class TestGetUser:
     async def test_get_user_cf_access_header(self):
         """Test extracting user from Cloudflare Access JWT"""
         mock_request = MagicMock()
-        mock_request.header = MagicMock(side_effect=lambda header, default="": {
-            "authorization": "",
-            "cf-access-jwt-assertion": "header.eyJzdWIiOiJ1c2VyLWNmLTEyMyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSJ9.signature"
-        }.get(header.lower(), default))
+        mock_request.header = MagicMock(
+            side_effect=lambda header, default="": {
+                "authorization": "",
+                "cf-access-jwt-assertion": "header.eyJzdWIiOiJ1c2VyLWNmLTEyMyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSJ9.signature",
+            }.get(header.lower(), default)
+        )
 
         result = await get_user(mock_request)
         assert result is not None
@@ -145,10 +161,9 @@ class TestD1Resolver:
         # Mock D1 database
         mock_d1 = AsyncMock()
         mock_result = AsyncMock()
-        mock_result.first = AsyncMock(return_value={
-            "owner_id": "user-owner-123",
-            "public": 1
-        })
+        mock_result.first = AsyncMock(
+            return_value={"owner_id": "user-owner-123", "public": 1}
+        )
         mock_d1.prepare = MagicMock(return_value=mock_result)
         mock_result.bind = MagicMock(return_value=mock_result)
 
@@ -159,7 +174,9 @@ class TestD1Resolver:
         assert result["public"] is True
 
         # Verify correct SQL was called
-        mock_d1.prepare.assert_called_once_with('SELECT owner_id, public FROM "listings" WHERE id=? LIMIT 1')
+        mock_d1.prepare.assert_called_once_with(
+            'SELECT owner_id, public FROM "listings" WHERE id=? LIMIT 1'
+        )
         mock_result.bind.assert_called_once_with("listing-123")
 
     @pytest.mark.asyncio
@@ -216,6 +233,7 @@ class TestRequireAuthDecorator:
     @pytest.mark.asyncio
     async def test_require_auth_success(self):
         """Test successful authentication"""
+
         @require_auth
         async def protected_handler(req):
             return {"message": f"Hello {req.state.user['id']}"}
@@ -225,8 +243,11 @@ class TestRequireAuthDecorator:
 
         # Mock get_user to return authenticated user
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
-        kinglet.authz.get_user = AsyncMock(return_value={"id": "user-123", "claims": {}})
+        kinglet.authz.get_user = AsyncMock(
+            return_value={"id": "user-123", "claims": {}}
+        )
 
         try:
             result = await protected_handler(mock_request)
@@ -239,6 +260,7 @@ class TestRequireAuthDecorator:
     @pytest.mark.asyncio
     async def test_require_auth_unauthorized(self):
         """Test unauthorized request"""
+
         @require_auth
         async def protected_handler(req):
             return {"message": "Should not reach here"}
@@ -247,6 +269,7 @@ class TestRequireAuthDecorator:
 
         # Mock get_user to return None (no auth)
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
         kinglet.authz.get_user = AsyncMock(return_value=None)
 
@@ -265,6 +288,7 @@ class TestAllowPublicOrOwnerDecorator:
     @pytest.mark.asyncio
     async def test_public_resource_access(self):
         """Test accessing public resource without authentication"""
+
         async def load_resource(req, rid):
             return {"owner_id": "owner-123", "public": True}
 
@@ -277,6 +301,7 @@ class TestAllowPublicOrOwnerDecorator:
 
         # Mock get_user to return None (no auth)
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
         kinglet.authz.get_user = AsyncMock(return_value=None)
 
@@ -290,6 +315,7 @@ class TestAllowPublicOrOwnerDecorator:
     @pytest.mark.asyncio
     async def test_private_resource_owner_access(self):
         """Test accessing private resource as owner"""
+
         async def load_resource(req, rid):
             return {"owner_id": "owner-123", "public": False}
 
@@ -302,8 +328,11 @@ class TestAllowPublicOrOwnerDecorator:
 
         # Mock get_user to return owner
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
-        kinglet.authz.get_user = AsyncMock(return_value={"id": "owner-123", "claims": {}})
+        kinglet.authz.get_user = AsyncMock(
+            return_value={"id": "owner-123", "claims": {}}
+        )
 
         try:
             result = await handler(mock_request)
@@ -316,6 +345,7 @@ class TestAllowPublicOrOwnerDecorator:
     @pytest.mark.asyncio
     async def test_private_resource_forbidden(self):
         """Test accessing private resource as non-owner"""
+
         async def load_resource(req, rid):
             return {"owner_id": "owner-123", "public": False}
 
@@ -328,8 +358,11 @@ class TestAllowPublicOrOwnerDecorator:
 
         # Mock get_user to return different user
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
-        kinglet.authz.get_user = AsyncMock(return_value={"id": "other-user", "claims": {}})
+        kinglet.authz.get_user = AsyncMock(
+            return_value={"id": "other-user", "claims": {}}
+        )
 
         try:
             result = await handler(mock_request)
@@ -345,6 +378,7 @@ class TestRequireOwnerDecorator:
     @pytest.mark.asyncio
     async def test_owner_access(self):
         """Test successful owner access"""
+
         async def load_resource(req, rid):
             return {"owner_id": "owner-123"}
 
@@ -357,8 +391,11 @@ class TestRequireOwnerDecorator:
 
         # Mock get_user to return owner
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
-        kinglet.authz.get_user = AsyncMock(return_value={"id": "owner-123", "claims": {}})
+        kinglet.authz.get_user = AsyncMock(
+            return_value={"id": "owner-123", "claims": {}}
+        )
 
         try:
             result = await handler(mock_request)
@@ -370,6 +407,7 @@ class TestRequireOwnerDecorator:
     @pytest.mark.asyncio
     async def test_admin_override(self):
         """Test admin override for owner-only resource"""
+
         async def load_resource(req, rid):
             return {"owner_id": "owner-123"}
 
@@ -383,6 +421,7 @@ class TestRequireOwnerDecorator:
 
         # Mock get_user to return admin user
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
         kinglet.authz.get_user = AsyncMock(return_value={"id": "admin-2", "claims": {}})
 
@@ -399,6 +438,7 @@ class TestRequireParticipantDecorator:
     @pytest.mark.asyncio
     async def test_participant_access(self):
         """Test successful participant access"""
+
         async def load_participants(req, _conversation_id):
             return {"user-1", "user-2", "user-3"}
 
@@ -411,6 +451,7 @@ class TestRequireParticipantDecorator:
 
         # Mock get_user to return participant
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
         kinglet.authz.get_user = AsyncMock(return_value={"id": "user-2", "claims": {}})
 
@@ -424,6 +465,7 @@ class TestRequireParticipantDecorator:
     @pytest.mark.asyncio
     async def test_non_participant_forbidden(self):
         """Test non-participant access denied"""
+
         async def load_participants(req, _conversation_id):
             return {"user-1", "user-2", "user-3"}
 
@@ -437,8 +479,11 @@ class TestRequireParticipantDecorator:
 
         # Mock get_user to return non-participant
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
-        kinglet.authz.get_user = AsyncMock(return_value={"id": "outsider-user", "claims": {}})
+        kinglet.authz.get_user = AsyncMock(
+            return_value={"id": "outsider-user", "claims": {}}
+        )
 
         try:
             result = await handler(mock_request)
@@ -470,7 +515,7 @@ class TestFGAIntegration:
                 "id": req.path_param("listing_id"),
                 "owner_id": obj["owner_id"],
                 "public": obj["public"],
-                "viewer": getattr(req.state, "user", {}).get("id", "anonymous")
+                "viewer": getattr(req.state, "user", {}).get("id", "anonymous"),
             }
 
         # Test 1: Anonymous user accessing public listing
@@ -480,6 +525,7 @@ class TestFGAIntegration:
         mock_request.state.user = {}  # Empty dict for anonymous
 
         import kinglet.authz
+
         original_get_user = kinglet.authz.get_user
         kinglet.authz.get_user = AsyncMock(return_value=None)
 
@@ -491,7 +537,9 @@ class TestFGAIntegration:
 
             # Test 2: Owner accessing private listing
             mock_request.path_param = MagicMock(return_value="private-listing")
-            kinglet.authz.get_user = AsyncMock(return_value={"id": "owner-2", "claims": {}})
+            kinglet.authz.get_user = AsyncMock(
+                return_value={"id": "owner-2", "claims": {}}
+            )
 
             result = await get_listing(mock_request)
             assert result["id"] == "private-listing"
@@ -499,7 +547,9 @@ class TestFGAIntegration:
             assert result["viewer"] == "owner-2"
 
             # Test 3: Non-owner trying to access private listing
-            kinglet.authz.get_user = AsyncMock(return_value={"id": "other-user", "claims": {}})
+            kinglet.authz.get_user = AsyncMock(
+                return_value={"id": "other-user", "claims": {}}
+            )
 
             result = await get_listing(mock_request)
             assert isinstance(result, Response)

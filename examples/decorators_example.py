@@ -3,10 +3,11 @@
 Kinglet Decorators Example
 Demonstrates exception wrapping, dev-only endpoints, and geo-restrictions
 """
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from kinglet import Kinglet, TestClient, geo_restrict, require_dev, wrap_exceptions
 
@@ -15,6 +16,7 @@ app = Kinglet(debug=True, auto_wrap_exceptions=True)
 
 # === GLOBAL EXCEPTION WRAPPING ===
 # All endpoints automatically get exception wrapping when auto_wrap_exceptions=True
+
 
 @app.get("/api/games")
 async def get_games(request):
@@ -26,15 +28,17 @@ async def get_games(request):
     return {
         "games": [
             {"id": 1, "title": "Epic Adventure", "price": 9.99},
-            {"id": 2, "title": "Puzzle Master", "price": 4.99}
+            {"id": 2, "title": "Puzzle Master", "price": 4.99},
         ],
-        "auto_wrapped": True
+        "auto_wrapped": True,
     }
+
 
 # === MANUAL EXCEPTION WRAPPING ===
 # For apps with auto_wrap_exceptions=False, you can manually wrap specific endpoints
 
 app_manual = Kinglet(auto_wrap_exceptions=False)
+
 
 @app_manual.get("/api/manual")
 @wrap_exceptions(step="manual_endpoint", expose_details=True)
@@ -45,7 +49,9 @@ async def manual_wrapped(request):
 
     return {"message": "Manual wrapping works", "step": "manual_endpoint"}
 
+
 # === DEV-ONLY ENDPOINTS ===
+
 
 @app.get("/admin/debug")
 @require_dev()
@@ -56,8 +62,9 @@ async def debug_info(request):
         "environment": request.env.ENVIRONMENT,
         "request_id": request.request_id,
         "headers": dict(request._headers),
-        "note": "This endpoint only works in development mode"
+        "note": "This endpoint only works in development mode",
     }
+
 
 @app.get("/admin/clear-cache")
 @require_dev()
@@ -67,10 +74,12 @@ async def clear_cache(request):
     return {
         "message": "Cache cleared",
         "timestamp": "2025-08-09T12:00:00Z",
-        "note": "This would be dangerous in production!"
+        "note": "This would be dangerous in production!",
     }
 
+
 # === GEO-RESTRICTED ENDPOINTS ===
+
 
 @app.get("/api/games-us")
 @geo_restrict(allowed=["US"])
@@ -79,8 +88,9 @@ async def us_only_games(request):
     return {
         "games": ["US Exclusive Game 1", "US Exclusive Game 2"],
         "region": "US",
-        "note": "These games are only available in the United States"
+        "note": "These games are only available in the United States",
     }
+
 
 @app.get("/api/games-global")
 @geo_restrict(blocked=["CN", "RU"])
@@ -89,10 +99,12 @@ async def global_games_with_restrictions(request):
     return {
         "games": ["Global Game 1", "Global Game 2"],
         "restrictions": "Not available in CN, RU",
-        "note": "Available worldwide except blocked countries"
+        "note": "Available worldwide except blocked countries",
     }
 
+
 # === COMBINING DECORATORS ===
+
 
 @app.get("/admin/restricted-debug")
 @require_dev()
@@ -116,20 +128,22 @@ async def super_restricted_debug(request):
         "environment": request.env.ENVIRONMENT,
         "country": country,
         "restrictions": ["dev-only", "US/CA only"],
-        "step": "admin_debug"
+        "step": "admin_debug",
     }
 
+
 # === DEMO FUNCTION ===
+
 
 def demo():
     """Demonstrate the decorator features"""
     print("🎭 Kinglet Decorators Demo\n")
 
     # Test client for development environment
-    dev_client = TestClient(app, env={'ENVIRONMENT': 'development'})
+    dev_client = TestClient(app, env={"ENVIRONMENT": "development"})
 
     # Test client for production environment
-    prod_client = TestClient(app, env={'ENVIRONMENT': 'production'})
+    prod_client = TestClient(app, env={"ENVIRONMENT": "production"})
 
     print("1. Global Exception Wrapping:")
     status, headers, body = dev_client.request("GET", "/api/games?simulate_error=true")
@@ -143,25 +157,30 @@ def demo():
     print(f"   Prod environment: {status} - Access denied")
 
     print("\n3. Geo-Restricted Endpoints:")
-    status, headers, body = dev_client.request("GET", "/api/games-us",
-                                              headers={"cf-ipcountry": "US"})
+    status, headers, body = dev_client.request(
+        "GET", "/api/games-us", headers={"cf-ipcountry": "US"}
+    )
     print(f"   US request: {status} - Access granted")
 
-    status, headers, body = dev_client.request("GET", "/api/games-us",
-                                              headers={"cf-ipcountry": "DE"})
+    status, headers, body = dev_client.request(
+        "GET", "/api/games-us", headers={"cf-ipcountry": "DE"}
+    )
     print(f"   DE request: {status} - Access denied")
 
     print("\n4. Combined Restrictions:")
-    status, headers, body = dev_client.request("GET", "/admin/restricted-debug",
-                                              headers={"cf-ipcountry": "US"})
+    status, headers, body = dev_client.request(
+        "GET", "/admin/restricted-debug", headers={"cf-ipcountry": "US"}
+    )
     print(f"   Dev + US: {status} - Access granted")
 
-    status, headers, body = prod_client.request("GET", "/admin/restricted-debug",
-                                               headers={"cf-ipcountry": "US"})
+    status, headers, body = prod_client.request(
+        "GET", "/admin/restricted-debug", headers={"cf-ipcountry": "US"}
+    )
     print(f"   Prod + US: {status} - Blocked by dev restriction")
 
-    status, headers, body = dev_client.request("GET", "/admin/restricted-debug",
-                                              headers={"cf-ipcountry": "CN"})
+    status, headers, body = dev_client.request(
+        "GET", "/admin/restricted-debug", headers={"cf-ipcountry": "CN"}
+    )
     print(f"   Dev + CN: {status} - Blocked by geo restriction")
 
     print("\n5. Manual Exception Wrapping:")
@@ -170,6 +189,7 @@ def demo():
     print(f"   Manual wrap: {status} - {body[:80]}...")
 
     print("\n✅ Demo complete! All decorator features working.")
+
 
 if __name__ == "__main__":
     demo()

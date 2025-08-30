@@ -1,6 +1,7 @@
 """
 Test the TestClient for unit testing Kinglet apps
 """
+
 import os
 import sys
 
@@ -34,7 +35,7 @@ def test_testclient_with_json_request():
     @app.post("/api/auth/verify-age")
     async def verify_age(request):
         data = await request.json()
-        birth_year = data.get('birth_year')
+        birth_year = data.get("birth_year")
 
         if not birth_year:
             return Response({"error": "Birth year required"}, status=400)
@@ -42,16 +43,14 @@ def test_testclient_with_json_request():
         age = 2025 - birth_year
         is_adult = age >= 18
 
-        return {
-            "success": True,
-            "is_adult": is_adult,
-            "age": age
-        }
+        return {"success": True, "is_adult": is_adult, "age": age}
 
     client = TestClient(app)
 
     # Test valid request
-    status, headers, body = client.request("POST", "/api/auth/verify-age", json={"birth_year": 1990})
+    status, headers, body = client.request(
+        "POST", "/api/auth/verify-age", json={"birth_year": 1990}
+    )
     assert status == 200
 
     # Test invalid request
@@ -104,7 +103,7 @@ def test_testclient_environment_injection():
     async def env_handler(request):
         return {
             "environment": request.env.ENVIRONMENT,
-            "custom": getattr(request.env, 'CUSTOM_VAR', 'not_set')
+            "custom": getattr(request.env, "CUSTOM_VAR", "not_set"),
         }
 
     client = TestClient(app, env={"CUSTOM_VAR": "test_value"})
