@@ -21,7 +21,7 @@ import importlib
 from typing import List, Type, Optional
 from datetime import datetime
 from .constants import SCHEMA_LOCK_FILE, MIGRATIONS_FILE, PYTHON_MODULE_HELP
-from .orm import Model, SchemaManager
+from .orm import Model, SchemaManager, StringField
 from .orm_migrations import Migration, MigrationTracker, SchemaLock, MigrationGenerator
 
 
@@ -93,17 +93,32 @@ def generate_schema(module_path: str, include_indexes: bool = True, cleanslate: 
         if not include_indexes:
             return
         parts.append("-- Performance Indexes")
+        seen_tables: set[str] = set()
         for model in models:
             table = model._meta.table_name
+            if table in seen_tables:
+                continue
+            any_index = False
             for field_name, field in model._fields.items():
                 if field.unique and not field.primary_key:
                     parts.append(
                         f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
                     )
+                    any_index = True
                 elif field_name.endswith('_at'):
                     parts.append(
                         f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
                     )
+                    any_index = True
+                # Sensible default: index common text lookup fields
+                elif isinstance(field, StringField) and not field.primary_key:
+                    parts.append(
+                        f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
+                    )
+                    any_index = True
+            # Ensure at least one index block exists per table
+            # (even if models have only non-indexable fields, emit none silently)
+            seen_tables.add(table)
         parts.append("")
 
     if cleanslate:

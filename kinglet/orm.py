@@ -808,7 +808,7 @@ class Manager:
                 instance = await self.create(db, **create_kwargs)
                 return instance, True
         
-    async def create_or_update(self, db, defaults=None, **kwargs) -> tuple['Model', bool]:
+    def create_or_update(self, db, defaults=None, **kwargs) -> 'typing.Coroutine[Any, Any, tuple["Model", bool]]':
         """
         Create or update using ON CONFLICT DO UPDATE (upsert)
         
@@ -864,28 +864,32 @@ class Manager:
             """
             return sql, bind_vals
 
+        # Perform synchronous validation so callers can catch without awaiting
         unique_fields = _collect_unique_fields()
         if not unique_fields:
             raise ValueError("create_or_update requires at least one unique field in kwargs")
 
-        create_data = kwargs.copy()
-        if defaults:
-            create_data.update(defaults)
+        async def _inner():
+            create_data = kwargs.copy()
+            if defaults:
+                create_data.update(defaults)
 
-        validated_data = _prepare_validated_data(create_data)
-        sql, bind_values = _build_upsert_sql(validated_data)
+            validated_data = _prepare_validated_data(create_data)
+            sql, bind_values = _build_upsert_sql(validated_data)
 
-        try:
-            result = await (db.prepare(sql).bind(*bind_values) if bind_values else db.prepare(sql)).first()
-            if not result:
-                raise ValueError("INSERT OR REPLACE with RETURNING returned no rows")
-            row_data = d1_unwrap(result)
-            instance = self.model_class._from_db(row_data)
-            pk_field = self.model_class._get_pk_field_static()
-            created = pk_field.name not in kwargs or kwargs.get(pk_field.name) is None
-            return instance, created
-        except Exception as e:
-            raise D1ErrorClassifier.classify_error(e) from e
+            try:
+                result = await (db.prepare(sql).bind(*bind_values) if bind_values else db.prepare(sql)).first()
+                if not result:
+                    raise ValueError("INSERT OR REPLACE with RETURNING returned no rows")
+                row_data = d1_unwrap(result)
+                instance = self.model_class._from_db(row_data)
+                pk_field = self.model_class._get_pk_field_static()
+                created = pk_field.name not in kwargs or kwargs.get(pk_field.name) is None
+                return instance, created
+            except Exception as e:
+                raise D1ErrorClassifier.classify_error(e) from e
+
+        return _inner()
         
     async def upsert(self, db, **kwargs) -> 'Model':
         """

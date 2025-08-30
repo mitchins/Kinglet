@@ -424,14 +424,9 @@ class D1ErrorClassifier:
         error_msg = str(error)
         error_msg_lower = error_msg.lower()
         
-        # Step 1: Try to extract constraint name from error message
-        constraint_info = cls._extract_constraint_info(error_msg, registry)
-        if constraint_info:
-            result = cls._classify_constraint_error(constraint_info, error)
-            if result:
-                return result
-                
-        # Step 2: Fall back to pattern matching for backward compatibility
+        # Step 1: Prefer explicit message patterns when present
+        # This ensures "NOT NULL"/"UNIQUE" in the message take precedence
+        # even if the registry has other constraints on the same field.
         result = cls._check_unique_patterns(error_msg_lower, error)
         if result:
             return result
@@ -440,6 +435,13 @@ class D1ErrorClassifier:
         if result:
             return result
             
+        # Step 2: Registry-based classification (more precise when patternless)
+        constraint_info = cls._extract_constraint_info(error_msg, registry)
+        if constraint_info:
+            result = cls._classify_constraint_error(constraint_info, error)
+            if result:
+                return result
+
         result = cls._check_other_patterns(error_msg_lower, error)
         if result:
             return result
@@ -704,4 +706,3 @@ def orm_problem_response(
         headers["Retry-After"] = str(int(error.retry_after))
         
     return problem, status, headers
-
