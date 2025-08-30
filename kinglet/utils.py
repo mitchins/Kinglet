@@ -185,38 +185,22 @@ def cache_aside(
     def decorator(func: Callable):
         @functools.wraps(func)
         async def wrapped(*args, **kwargs):
-            # Get request object to access env
-            request = None
-            for arg in args:
-                if hasattr(arg, 'env'):
-                    request = arg
-                    break
-
-            if not request:
-                # No request context, just call function
+            request = next((arg for arg in args if hasattr(arg, 'env')), None)
+            if not request or not cache_policy.should_cache(request):
                 return await func(*args, **kwargs)
 
-            # Check cache policy to determine if caching should be enabled
-            if not cache_policy.should_cache(request):
-                return await func(*args, **kwargs)
-
-            # Generate cache key from function name, arguments, and path params
             path_params = getattr(request, 'path_params', {})
             cache_key = _generate_cache_key(func.__name__, cache_type, args, kwargs, path_params)
 
-            # Get storage from environment
             storage = getattr(request.env, storage_binding, None)
             if not storage:
-                # No storage available, just call function
                 return await func(*args, **kwargs)
 
             cache = CacheService(storage, ttl)
 
-            # Define generator function for cache.get_or_generate
             async def generator():
                 return await func(*args, **kwargs)
 
-            # Use get_or_generate to handle caching with metadata
             return await cache.get_or_generate(cache_key, generator)
 
         return wrapped
@@ -381,38 +365,28 @@ def cache_aside_d1(
     def decorator(func: Callable):
         @functools.wraps(func)
         async def wrapped(*args, **kwargs):
-            def _find_request():
-                for arg in args:
-                    if hasattr(arg, 'env'):
-                        return arg
-                return None
-
-            request = _find_request()
-            if not request:
+            request = next((arg for arg in args if hasattr(arg, 'env')), None)
+            if not request or not cache_policy.should_cache(request):
                 return await func(*args, **kwargs)
 
-            if not cache_policy.should_cache(request):
+            db = getattr(request.env, db_binding, None)
+            if not db:
                 return await func(*args, **kwargs)
 
             cache_key = _generate_d1_cache_key(request, cache_type)
 
-            def _build_service(db):
+            try:
                 from .cache_d1 import D1CacheService
-                return D1CacheService(db, ttl, track_hits=track_hits)
+                cache_service = D1CacheService(db, ttl, track_hits=track_hits)
 
-            db = getattr(request.env, db_binding, None)
-            if db:
-                try:
-                    cache_service = _build_service(db)
+                async def generator():
+                    return await func(*args, **kwargs)
 
-                    async def generator():
-                        return await func(*args, **kwargs)
-
-                    return await cache_service.get_or_generate(cache_key, generator)
-                except ImportError:
-                    print("D1 cache service not available")
-                except Exception as e:
-                    print(f"D1 cache error: {e}")
+                return await cache_service.get_or_generate(cache_key, generator)
+            except ImportError:
+                print("D1 cache service not available")
+            except Exception as e:
+                print(f"D1 cache error: {e}")
 
             return await func(*args, **kwargs)
 

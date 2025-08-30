@@ -40,6 +40,70 @@ def import_models(module_path: str) -> List[Type[Model]]:
     return models
 
 
+def _collect_tables(models: List[Type[Model]]) -> set[str]:
+    return {m._meta.table_name for m in models}
+
+
+def _append_cleanslate(parts: list[str], models: List[Type[Model]]) -> None:
+    parts.append("-- Clean Slate: Drop all tables first")
+    tables = _collect_tables(models)
+    dependent_tables = [
+        'game_media', 'game_reviews', 'game_tags', 'store_collaborators',
+        'publisher_profiles', 'terms_acceptances', 'sessions',
+        'transactions', 'game_listings', 'store_settings', 'terms_documents',
+    ]
+    for table in dependent_tables:
+        parts.append(f"DROP TABLE IF EXISTS {table};")
+    for table in sorted(tables):
+        parts.append(f"DROP TABLE IF EXISTS {table};")
+    parts.append("")
+
+
+def _append_create_tables(parts: list[str], models: List[Type[Model]], cleanslate: bool) -> None:
+    seen: set[str] = set()
+    for model in models:
+        table_name = model._meta.table_name
+        if table_name in seen:
+            print(
+                f"Warning: Skipping duplicate table '{table_name}' from model {model.__name__}",
+                file=sys.stderr,
+            )
+            continue
+        parts.append(f"-- Model: {model.__name__}")
+        create_sql = model.get_create_sql()
+        if cleanslate:
+            create_sql = create_sql.replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE")
+        parts.append(create_sql)
+        parts.append("")
+        seen.add(table_name)
+
+
+def _append_indexes(parts: list[str], models: List[Type[Model]], include_indexes: bool) -> None:
+    if not include_indexes:
+        return
+    parts.append("-- Performance Indexes")
+    seen_tables: set[str] = set()
+    for model in models:
+        table = model._meta.table_name
+        if table in seen_tables:
+            continue
+        for field_name, field in model._fields.items():
+            if field.unique and not field.primary_key:
+                parts.append(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
+                )
+            elif field_name.endswith('_at'):
+                parts.append(
+                    f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
+                )
+            elif isinstance(field, StringField) and not field.primary_key:
+                parts.append(
+                    f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
+                )
+        seen_tables.add(table)
+    parts.append("")
+
+
 def generate_schema(module_path: str, include_indexes: bool = True, cleanslate: bool = False) -> str:
     """Generate SQL schema from models"""
     models = import_models(module_path)
@@ -54,77 +118,10 @@ def generate_schema(module_path: str, include_indexes: bool = True, cleanslate: 
         "-- Run with: npx wrangler d1 execute DB --file=schema.sql\n",
     ]
 
-    def _collect_tables() -> set[str]:
-        return {m._meta.table_name for m in models}
-
-    def _append_cleanslate(parts: list[str]) -> None:
-        parts.append("-- Clean Slate: Drop all tables first")
-        tables = _collect_tables()
-        dependent_tables = [
-            'game_media', 'game_reviews', 'game_tags', 'store_collaborators',
-            'publisher_profiles', 'terms_acceptances', 'sessions',
-            'transactions', 'game_listings', 'store_settings', 'terms_documents',
-        ]
-        for table in dependent_tables:
-            parts.append(f"DROP TABLE IF EXISTS {table};")
-        for table in sorted(tables):
-            parts.append(f"DROP TABLE IF EXISTS {table};")
-        parts.append("")
-
-    def _append_create_tables(parts: list[str]) -> None:
-        seen: set[str] = set()
-        for model in models:
-            table_name = model._meta.table_name
-            if table_name in seen:
-                print(
-                    f"Warning: Skipping duplicate table '{table_name}' from model {model.__name__}",
-                    file=sys.stderr,
-                )
-                continue
-            parts.append(f"-- Model: {model.__name__}")
-            create_sql = model.get_create_sql()
-            if cleanslate:
-                create_sql = create_sql.replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE")
-            parts.append(create_sql)
-            parts.append("")
-            seen.add(table_name)
-
-    def _append_indexes(parts: list[str]) -> None:
-        if not include_indexes:
-            return
-        parts.append("-- Performance Indexes")
-        seen_tables: set[str] = set()
-        for model in models:
-            table = model._meta.table_name
-            if table in seen_tables:
-                continue
-            any_index = False
-            for field_name, field in model._fields.items():
-                if field.unique and not field.primary_key:
-                    parts.append(
-                        f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
-                    )
-                    any_index = True
-                elif field_name.endswith('_at'):
-                    parts.append(
-                        f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
-                    )
-                    any_index = True
-                # Sensible default: index common text lookup fields
-                elif isinstance(field, StringField) and not field.primary_key:
-                    parts.append(
-                        f"CREATE INDEX IF NOT EXISTS idx_{table}_{field_name} ON {table}({field_name});"
-                    )
-                    any_index = True
-            # Ensure at least one index block exists per table
-            # (even if models have only non-indexable fields, emit none silently)
-            seen_tables.add(table)
-        parts.append("")
-
     if cleanslate:
-        _append_cleanslate(sql_parts)
-    _append_create_tables(sql_parts)
-    _append_indexes(sql_parts)
+        _append_cleanslate(sql_parts, models)
+    _append_create_tables(sql_parts, models, cleanslate)
+    _append_indexes(sql_parts, models, include_indexes)
 
     return "\n".join(sql_parts)
 

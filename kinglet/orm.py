@@ -612,6 +612,22 @@ class QuerySet:
         result = await self.db.prepare(sql).bind(*params).run()
         return getattr(result, 'changes', 0)
         
+    def _build_update_set(self, kwargs: Dict[str, Any]) -> tuple[list[str], list[Any]]:
+        """Validate fields and build SET clauses and params for UPDATE"""
+        set_clauses: list[str] = []
+        set_params: list[Any] = []
+        for field_name, value in kwargs.items():
+            if field_name not in self._field_names:
+                raise ValueError(f"Field '{field_name}' does not exist on {self.model_class.__name__}")
+            field = self.model_class._fields[field_name]
+            if field.primary_key:
+                raise ValueError(f"Cannot update primary key field '{field_name}'")
+            validated_value = field.validate(value)
+            db_value = field.to_db(validated_value)
+            set_clauses.append(f"{field_name} = ?")
+            set_params.append(db_value)
+        return set_clauses, set_params
+
     async def update(self, **kwargs) -> int:
         """
         Update all matching records
@@ -624,24 +640,7 @@ class QuerySet:
             return 0
             
         # Validate fields and prepare values
-        set_clauses = []
-        set_params = []
-        
-        for field_name, value in kwargs.items():
-            if field_name not in self._field_names:
-                raise ValueError(f"Field '{field_name}' does not exist on {self.model_class.__name__}")
-                
-            field = self.model_class._fields[field_name]
-            # Don't allow updating primary keys
-            if field.primary_key:
-                raise ValueError(f"Cannot update primary key field '{field_name}'")
-                
-            # Validate and convert value
-            validated_value = field.validate(value)
-            db_value = field.to_db(validated_value)
-            
-            set_clauses.append(f"{field_name} = ?")
-            set_params.append(db_value)
+        set_clauses, set_params = self._build_update_set(kwargs)
             
         # Build complete query
         base_sql = f"UPDATE {self.model_class._meta.table_name} SET {', '.join(set_clauses)}"
@@ -808,6 +807,57 @@ class Manager:
                 instance = await self.create(db, **create_kwargs)
                 return instance, True
         
+    def _collect_unique_fields_from_kwargs(self, kwargs: Dict[str, Any]) -> list[str]:
+        uniques: list[str] = []
+        for fname, f in self.model_class._fields.items():
+            if (f.unique or f.primary_key) and fname in kwargs:
+                uniques.append(fname)
+        return uniques
+
+    def _prepare_validated_data_for_create(self, create_data: dict) -> dict:
+        validated: dict = {}
+        for fname, f in self.model_class._fields.items():
+            if fname in create_data:
+                val = create_data[fname]
+                if isinstance(f, DateTimeField) and f.auto_now_add and val is None:
+                    val = datetime.now()
+                v = f.validate(val)
+                validated[fname] = f.to_db(v)
+        # Skip auto id when not provided
+        pk = self.model_class._get_pk_field_static()
+        if pk.name == 'id' and pk.name not in create_data:
+            validated.pop('id', None)
+        return validated
+
+    def _build_upsert_sql(self, data: dict) -> tuple[str, list]:
+        cols = list(data.keys())
+        vals = list(data.values())
+        value_exprs: list[str] = []
+        bind_vals: list = []
+        for v in vals:
+            if v is None:
+                value_exprs.append("NULL")
+            else:
+                value_exprs.append("?")
+                bind_vals.append(v)
+        returning_fields = list(self.model_class._fields.keys())
+        sql = f"""
+            INSERT OR REPLACE INTO {self.model_class._meta.table_name}
+            ({', '.join(cols)}) VALUES ({', '.join(value_exprs)})
+            RETURNING {', '.join(returning_fields)}
+        """
+        return sql, bind_vals
+
+    async def _run_upsert_returning(self, db, sql: str, bind_values: list, kwargs: Dict[str, Any]) -> tuple['Model', bool]:
+        result = await (db.prepare(sql).bind(*bind_values) if bind_values else db.prepare(sql)).first()
+        if not result:
+            raise ValueError("INSERT OR REPLACE with RETURNING returned no rows")
+        row_data = d1_unwrap(result)
+        instance = self.model_class._from_db(row_data)
+        pk_field = self.model_class._get_pk_field_static()
+        created = pk_field.name not in kwargs or kwargs.get(pk_field.name) is None
+        return instance, created
+
     def create_or_update(self, db, defaults=None, **kwargs) -> Coroutine[Any, Any, tuple['Model', bool]]:
         """
         Create or update using ON CONFLICT DO UPDATE (upsert)
@@ -823,49 +873,8 @@ class Manager:
         Returns:
             (instance, created) where created=True if new record
         """
-        def _collect_unique_fields() -> list[str]:
-            uniques: list[str] = []
-            for fname, f in self.model_class._fields.items():
-                if (f.unique or f.primary_key) and fname in kwargs:
-                    uniques.append(fname)
-            return uniques
-
-        def _prepare_validated_data(create_data: dict) -> dict:
-            validated: dict = {}
-            for fname, f in self.model_class._fields.items():
-                if fname in create_data:
-                    val = create_data[fname]
-                    if isinstance(f, DateTimeField) and f.auto_now_add and val is None:
-                        val = datetime.now()
-                    v = f.validate(val)
-                    validated[fname] = f.to_db(v)
-            # Skip auto id when not provided
-            pk = self.model_class._get_pk_field_static()
-            if pk.name == 'id' and pk.name not in kwargs:
-                validated.pop('id', None)
-            return validated
-
-        def _build_upsert_sql(data: dict) -> tuple[str, list]:
-            cols = list(data.keys())
-            vals = list(data.values())
-            value_exprs: list[str] = []
-            bind_vals: list = []
-            for v in vals:
-                if v is None:
-                    value_exprs.append("NULL")
-                else:
-                    value_exprs.append("?")
-                    bind_vals.append(v)
-            returning_fields = list(self.model_class._fields.keys())
-            sql = f"""
-                INSERT OR REPLACE INTO {self.model_class._meta.table_name}
-                ({', '.join(cols)}) VALUES ({', '.join(value_exprs)})
-                RETURNING {', '.join(returning_fields)}
-            """
-            return sql, bind_vals
-
         # Perform synchronous validation so callers can catch without awaiting
-        unique_fields = _collect_unique_fields()
+        unique_fields = self._collect_unique_fields_from_kwargs(kwargs)
         if not unique_fields:
             raise ValueError("create_or_update requires at least one unique field in kwargs")
 
@@ -874,18 +883,11 @@ class Manager:
             if defaults:
                 create_data.update(defaults)
 
-            validated_data = _prepare_validated_data(create_data)
-            sql, bind_values = _build_upsert_sql(validated_data)
+            validated_data = self._prepare_validated_data_for_create(create_data)
+            sql, bind_values = self._build_upsert_sql(validated_data)
 
             try:
-                result = await (db.prepare(sql).bind(*bind_values) if bind_values else db.prepare(sql)).first()
-                if not result:
-                    raise ValueError("INSERT OR REPLACE with RETURNING returned no rows")
-                row_data = d1_unwrap(result)
-                instance = self.model_class._from_db(row_data)
-                pk_field = self.model_class._get_pk_field_static()
-                created = pk_field.name not in kwargs or kwargs.get(pk_field.name) is None
-                return instance, created
+                return await self._run_upsert_returning(db, sql, bind_values, kwargs)
             except Exception as e:
                 raise D1ErrorClassifier.classify_error(e) from e
 
