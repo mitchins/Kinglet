@@ -522,28 +522,29 @@ class QuerySet:
         """Build WHERE clause and parameters"""
         if not self._where_conditions:
             return "", []
-            
-        conditions = []
-        params = []
-        
+
+        def _normalize_like_value(cond: str, val: Any) -> Any:
+            if 'LIKE' not in cond:
+                return val
+            s = str(val)
+            if 'startswith' in cond or cond.endswith('LIKE ?'):
+                return s if s.endswith('%') else f"{s}%"
+            if 'endswith' in cond:
+                return s if s.startswith('%') else f"%{s}"
+            if 'contains' in cond or 'icontains' in cond:
+                return s if (s.startswith('%') or s.endswith('%')) else f"%{s}%"
+            return val
+
+        conditions: List[str] = []
+        params: List[Any] = []
+
         for condition, value in self._where_conditions:
             conditions.append(condition)
             if isinstance(value, (list, tuple)) and 'IN' in condition:
                 params.extend(value)
             else:
-                # Handle special LIKE patterns
-                if 'LIKE' in condition:
-                    if 'startswith' in condition or condition.endswith('LIKE ?'):
-                        if not value.endswith('%'):
-                            value = f"{value}%"
-                    elif 'endswith' in condition:
-                        if not value.startswith('%'):
-                            value = f"%{value}"
-                    elif 'contains' in condition or 'icontains' in condition:
-                        if not value.startswith('%') and not value.endswith('%'):
-                            value = f"%{value}%"
-                params.append(value)
-                
+                params.append(_normalize_like_value(condition, value))
+
         return " AND ".join(conditions), params
         
     def _build_sql(self) -> tuple[str, List[Any]]:
@@ -822,87 +823,67 @@ class Manager:
         Returns:
             (instance, created) where created=True if new record
         """
-        # Validate we have a unique field to conflict on
-        unique_fields = []
-        for field_name, field in self.model_class._fields.items():
-            if (field.unique or field.primary_key) and field_name in kwargs:
-                unique_fields.append(field_name)
-                    
+        def _collect_unique_fields() -> list[str]:
+            uniques: list[str] = []
+            for fname, f in self.model_class._fields.items():
+                if (f.unique or f.primary_key) and fname in kwargs:
+                    uniques.append(fname)
+            return uniques
+
+        def _prepare_validated_data(create_data: dict) -> dict:
+            validated: dict = {}
+            for fname, f in self.model_class._fields.items():
+                if fname in create_data:
+                    val = create_data[fname]
+                    if isinstance(f, DateTimeField) and f.auto_now_add and val is None:
+                        val = datetime.now()
+                    v = f.validate(val)
+                    validated[fname] = f.to_db(v)
+            # Skip auto id when not provided
+            pk = self.model_class._get_pk_field_static()
+            if pk.name == 'id' and pk.name not in kwargs:
+                validated.pop('id', None)
+            return validated
+
+        def _build_upsert_sql(data: dict) -> tuple[str, list]:
+            cols = list(data.keys())
+            vals = list(data.values())
+            value_exprs: list[str] = []
+            bind_vals: list = []
+            for v in vals:
+                if v is None:
+                    value_exprs.append("NULL")
+                else:
+                    value_exprs.append("?")
+                    bind_vals.append(v)
+            returning_fields = list(self.model_class._fields.keys())
+            sql = f"""
+                INSERT OR REPLACE INTO {self.model_class._meta.table_name}
+                ({', '.join(cols)}) VALUES ({', '.join(value_exprs)})
+                RETURNING {', '.join(returning_fields)}
+            """
+            return sql, bind_vals
+
+        unique_fields = _collect_unique_fields()
         if not unique_fields:
             raise ValueError("create_or_update requires at least one unique field in kwargs")
-        
-        # Prepare data
+
         create_data = kwargs.copy()
         if defaults:
             create_data.update(defaults)
-            
-        # Build INSERT OR REPLACE / ON CONFLICT statement
-        validated_data = {}
-        for field_name, field in self.model_class._fields.items():
-            if field_name in create_data:
-                value = create_data[field_name]
-                # Handle auto fields for creation only
-                if isinstance(field, DateTimeField) and field.auto_now_add and value is None:
-                    value = datetime.now()
-                validated_value = field.validate(value)
-                db_value = field.to_db(validated_value)
-                validated_data[field_name] = db_value
-                
-        # Skip auto-increment ID for upserts
-        pk_field = self.model_class._get_pk_field_static()
-        if pk_field.name == 'id' and pk_field.name not in kwargs:
-            validated_data.pop('id', None)
-            
-        columns = list(validated_data.keys())
-        values = list(validated_data.values())
-        
-        # Build SQL with explicit NULL for None values to avoid JavaScript undefined conversion
-        value_expressions = []
-        bind_values = []
-        
-        for value in values:
-            if value is None:
-                value_expressions.append("NULL")
-            else:
-                value_expressions.append("?")
-                bind_values.append(value)
-        
-        # Use INSERT OR REPLACE with RETURNING for D1 cost optimization
-        # This eliminates the need for post-check SELECT queries
-        returning_fields = list(self.model_class._fields.keys())
-        
-        sql = f"""
-            INSERT OR REPLACE INTO {self.model_class._meta.table_name} 
-            ({', '.join(columns)}) VALUES ({', '.join(value_expressions)})
-            RETURNING {', '.join(returning_fields)}
-        """
-        
+
+        validated_data = _prepare_validated_data(create_data)
+        sql, bind_values = _build_upsert_sql(validated_data)
+
         try:
-            if bind_values:
-                result = await db.prepare(sql).bind(*bind_values).first()
-            else:
-                result = await db.prepare(sql).first()
-            
+            result = await (db.prepare(sql).bind(*bind_values) if bind_values else db.prepare(sql)).first()
             if not result:
                 raise ValueError("INSERT OR REPLACE with RETURNING returned no rows")
-                
-            # Hydrate instance directly from RETURNING clause (no extra SELECT needed)
             row_data = d1_unwrap(result)
             instance = self.model_class._from_db(row_data)
-            
-            # Determine if this was a create or update based on changes_count
-            # For INSERT OR REPLACE, we can't reliably detect this from D1 metadata
-            # But we don't need to - the important thing is we got the final state
-            # We'll assume created=True for new IDs, created=False for existing logic
             pk_field = self.model_class._get_pk_field_static()
-            pk_value = getattr(instance, pk_field.name)
-            
-            # If we had the primary key in our input, it was likely an update
-            # If not, it was likely a create (new auto-generated ID)
             created = pk_field.name not in kwargs or kwargs.get(pk_field.name) is None
-            
             return instance, created
-            
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
         

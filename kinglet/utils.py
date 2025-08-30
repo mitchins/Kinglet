@@ -381,44 +381,41 @@ def cache_aside_d1(
     def decorator(func: Callable):
         @functools.wraps(func)
         async def wrapped(*args, **kwargs):
-            # Get request object
-            request = None
-            for arg in args:
-                if hasattr(arg, 'env'):
-                    request = arg
-                    break
-            
+            def _find_request():
+                for arg in args:
+                    if hasattr(arg, 'env'):
+                        return arg
+                return None
+
+            request = _find_request()
             if not request:
                 return await func(*args, **kwargs)
-            
-            # Check cache policy
+
             if not cache_policy.should_cache(request):
                 return await func(*args, **kwargs)
-            
-            # Generate cache key from URL path and query params
+
             cache_key = _generate_d1_cache_key(request, cache_type)
-            
-            # Try D1 cache first
+
+            def _build_service(db):
+                from .cache_d1 import D1CacheService
+                return D1CacheService(db, ttl, track_hits=track_hits)
+
             db = getattr(request.env, db_binding, None)
             if db:
                 try:
-                    from .cache_d1 import D1CacheService
-                    cache_service = D1CacheService(db, ttl, track_hits=track_hits)
-                    
-                    # Get or generate with D1 cache
+                    cache_service = _build_service(db)
+
                     async def generator():
                         return await func(*args, **kwargs)
-                    
+
                     return await cache_service.get_or_generate(cache_key, generator)
-                    
                 except ImportError:
                     print("D1 cache service not available")
                 except Exception as e:
                     print(f"D1 cache error: {e}")
-            
-            # No D1 cache available, execute directly
+
             return await func(*args, **kwargs)
-        
+
         return wrapped
     return decorator
 

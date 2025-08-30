@@ -579,41 +579,57 @@ def to_problem_json(
     # Add error code
     problem["code"] = error.__class__.__name__
     
-    # Add contextual fields based on error type (only in dev mode if redacting)
-    if not (redact_in_prod and is_prod):
-        if isinstance(error, ValidationError):
-            problem.update({
-                "field": error.field_name,
-                "value": error.value,
-                "validation_type": "field_validation"
-            })
-        
-        elif isinstance(error, UniqueViolationError):
-            if error.field_name:
-                problem["field"] = error.field_name
-            problem["constraint_type"] = "unique"
-        
-        elif isinstance(error, NotNullViolationError):
-            if error.field_name:
-                problem["field"] = error.field_name
-            problem["constraint_type"] = "not_null"
-            
-        elif isinstance(error, ForeignKeyViolationError):
-            if error.field_name:
-                problem["field"] = error.field_name
-            problem["constraint_type"] = "foreign_key"
-        
-        elif isinstance(error, DoesNotExistError):
-            problem.update({
-                "model": error.model_name,
-                "lookup": error.lookup_kwargs
-            })
-            
-        elif isinstance(error, MultipleObjectsReturnedError):
-            problem.update({
-                "model": error.model_name,
-                "count": error.count
-            })
+    def _augment_for_env(update_fn):
+        if not (redact_in_prod and is_prod):
+            update_fn()
+
+    def _update_validation():
+        problem.update({
+            "field": getattr(error, 'field_name', None),
+            "value": getattr(error, 'value', None),
+            "validation_type": "field_validation",
+        })
+
+    def _update_unique():
+        if getattr(error, 'field_name', None):
+            problem["field"] = error.field_name
+        problem["constraint_type"] = "unique"
+
+    def _update_not_null():
+        if getattr(error, 'field_name', None):
+            problem["field"] = error.field_name
+        problem["constraint_type"] = "not_null"
+
+    def _update_fk():
+        if getattr(error, 'field_name', None):
+            problem["field"] = error.field_name
+        problem["constraint_type"] = "foreign_key"
+
+    def _update_dne():
+        problem.update({
+            "model": getattr(error, 'model_name', None),
+            "lookup": getattr(error, 'lookup_kwargs', None),
+        })
+
+    def _update_multi():
+        problem.update({
+            "model": getattr(error, 'model_name', None),
+            "count": getattr(error, 'count', None),
+        })
+
+    update_map = {
+        ValidationError: _update_validation,
+        UniqueViolationError: _update_unique,
+        NotNullViolationError: _update_not_null,
+        ForeignKeyViolationError: _update_fk,
+        DoesNotExistError: _update_dne,
+        MultipleObjectsReturnedError: _update_multi,
+    }
+
+    for cls, fn in update_map.items():
+        if isinstance(error, cls):
+            _augment_for_env(fn)
+            break
     
     # Add extra fields
     if extra:
@@ -688,5 +704,4 @@ def orm_problem_response(
         headers["Retry-After"] = str(int(error.retry_after))
         
     return problem, status, headers
-
 
