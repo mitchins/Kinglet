@@ -17,3 +17,25 @@ def test_deploy_schema_rejects_invalid_database_name(monkeypatch):
     assert rc == 1
     assert called["run"] is False
 
+
+def test_deploy_schema_valid_invokes_wranger_locally(monkeypatch):
+    # Provide minimal schema content
+    monkeypatch.setattr(orm_deploy, "generate_schema", lambda _m: "CREATE TABLE x(id INTEGER);")
+
+    captured = {"cmd": None}
+
+    class _Result:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(cmd, capture_output=True, text=True):
+        captured["cmd"] = cmd
+        return _Result()
+
+    monkeypatch.setattr(orm_deploy.subprocess, "run", fake_run)
+
+    rc = orm_deploy.deploy_schema("tmp_models_mod_ok", database="DBTEST", env="local")
+    assert rc == 0
+    assert captured["cmd"][0:4] == ["npx", "wrangler", "d1", "execute"]
+    assert "--local" in captured["cmd"]
+    assert any(arg.startswith("--file=") for arg in captured["cmd"])
