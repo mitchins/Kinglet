@@ -15,7 +15,8 @@ Usage:
 import sys
 import os
 import json
-import subprocess
+# Used only for Cloudflare Wrangler CLI deployment with controlled parameters
+import subprocess  # nosec B404
 import argparse
 import importlib
 from typing import List, Type
@@ -151,7 +152,10 @@ def deploy_schema(module_path: str, database: str = "DB", env: str = "production
             cmd.append("--local")
         
         print(f"Executing: {' '.join(cmd)}", file=sys.stderr)
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Fixed command structure, no shell=True, controlled parameters
+        result = subprocess.run(  # nosec B603
+            cmd, capture_output=True, text=True
+        )
         
         if result.returncode != 0:
             print(f"Error: {result.stderr}", file=sys.stderr)
