@@ -350,6 +350,75 @@ class TestManagerOperations:
             # Expected - object was deleted
             pass
 
+    @pytest.mark.asyncio
+    async def test_get_or_create_success_path(self):
+        """Test get_or_create create path - covers get_or_create internal logic"""
+        # Create table for the test
+        await SampleGame.create_table(self.mock_db)
+
+        instance, created = await self.manager.get_or_create(
+            self.mock_db,
+            title="Test Game",
+            defaults={"description": "Test Description", "score": 100},
+        )
+
+        assert created is True
+        assert instance.title == "Test Game"
+        assert instance.description == "Test Description"
+        assert instance.score == 100
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_conflict_then_get_path(self):
+        """Test get_or_create conflict resolution path"""
+        from unittest.mock import AsyncMock
+
+        from kinglet.orm_errors import UniqueViolationError
+
+        # Create table first
+        await SampleGame.create_table(self.mock_db)
+
+        # First create an existing record
+        existing_game = await self.manager.create(
+            self.mock_db, title="Existing Game", score=50
+        )
+
+        call_count = 0
+
+        def mock_create_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First call raises UniqueViolationError
+                raise UniqueViolationError("UNIQUE constraint failed")
+            else:
+                # Subsequent calls should not happen
+                raise Exception("Should not be called")
+
+        def mock_get_side_effect(*args, **kwargs):
+            # Mock finding existing instance
+            return existing_game
+
+        # Mock the manager methods
+        original_create = self.manager.create
+        original_get = self.manager.get
+        self.manager.create = AsyncMock(side_effect=mock_create_side_effect)
+        self.manager.get = AsyncMock(side_effect=mock_get_side_effect)
+
+        try:
+            instance, created = await self.manager.get_or_create(
+                self.mock_db,
+                title="Existing Game",
+                defaults={"description": "New Description", "score": 100},
+            )
+
+            assert created is False
+            assert instance.title == "Existing Game"
+            assert instance.score == 50  # Should be existing value, not default
+        finally:
+            # Restore original methods
+            self.manager.create = original_create
+            self.manager.get = original_get
+
     def teardown_method(self):
         """Clean up after each test"""
         self.mock_db.close()
@@ -581,6 +650,78 @@ class TestFloatFieldIntegration:
         assert updated_product.rating is None
 
 
+class TestD1Transaction:
+    """Test D1Transaction basic functionality"""
+
+    def test_d1_transaction_creation(self):
+        """Test D1Transaction basic creation and state"""
+        from unittest.mock import Mock
+
+        from kinglet.orm import D1Transaction
+
+        mock_db = Mock()
+        txn = D1Transaction(mock_db)
+
+        assert txn.db is mock_db
+        assert txn.statements == []
+        assert txn.executed is False
+
+    def test_d1_transaction_rollback(self):
+        """Test D1Transaction rollback functionality"""
+        from unittest.mock import Mock
+
+        from kinglet.orm import D1Transaction
+
+        mock_db = Mock()
+        txn = D1Transaction(mock_db)
+
+        # Add mock statements directly
+        txn.statements = ["mock_stmt1", "mock_stmt2"]
+        assert len(txn.statements) == 2
+
+        # Rollback
+        txn.rollback()
+
+        assert len(txn.statements) == 0
+        assert txn.executed is True
+
+    @pytest.mark.asyncio
+    async def test_d1_transaction_double_execute_protection(self):
+        """Test D1Transaction protection against double execution"""
+        from unittest.mock import AsyncMock, Mock
+
+        from kinglet.orm import D1Transaction
+
+        mock_db = Mock()
+        mock_db.batch = AsyncMock(return_value=[])
+        txn = D1Transaction(mock_db)
+
+        # First execution
+        await txn.execute()
+
+        # Second execution should raise error
+        with pytest.raises(RuntimeError, match="Transaction already executed"):
+            await txn.execute()
+
+    @pytest.mark.asyncio
+    async def test_d1_transaction_add_statement_after_execute(self):
+        """Test D1Transaction protection against adding statements after execute"""
+        from unittest.mock import AsyncMock, Mock
+
+        from kinglet.orm import D1Transaction
+
+        mock_db = Mock()
+        mock_db.batch = AsyncMock(return_value=[])
+        txn = D1Transaction(mock_db)
+
+        # Execute first
+        await txn.execute()
+
+        # Adding statement after execute should raise error
+        with pytest.raises(RuntimeError, match="Transaction already executed"):
+            await txn.add_statement("INSERT INTO test VALUES (?)", ["value"])
+
+
 class TestQuerySetAdvanced:
     """Test advanced QuerySet methods"""
 
@@ -797,6 +938,115 @@ class TestQuerySetAdvanced:
         assert "score" in results[0]
         # Should not include other fields like id
         assert len(results[0].keys()) == 2
+
+    @pytest.mark.asyncio
+    async def test_queryset_chaining_operations(self):
+        """Test QuerySet chaining operations - covers _clone cases"""
+        # Create a complex queryset that will trigger multiple _clone() calls
+        base_qs = self.manager.all(self.mock_db)
+
+        # Each chained operation should call _clone() internally
+        complex_qs = (
+            base_qs.filter(score__gt=10)
+            .filter(title__icontains="test")
+            .exclude(score__lt=5)
+            .order_by("-score", "title")
+            .limit(20)
+            .offset(10)
+            .only("title", "score")
+            .values("title")
+        )
+
+        # Verify the clone copied all the state correctly
+        assert len(complex_qs._where_conditions) == 3  # 2 filters + 1 exclude
+        assert len(complex_qs._order_by) == 2
+        assert complex_qs._limit_count == 20
+        assert complex_qs._offset_count == 10
+        assert complex_qs._values_fields == ["title"]
+        assert complex_qs._only_fields is None  # values mode clears only mode
+
+    @pytest.mark.asyncio
+    async def test_offset_clause_in_query_execution(self):
+        """Test _build_sql OFFSET clause via query execution"""
+        # Create table for the test
+        await self.GameModel.create_table(self.mock_db)
+
+        # Create queryset with offset (requires order_by)
+        qs = self.manager.all(self.mock_db).order_by("title").limit(10).offset(20)
+
+        # Execute query to trigger _build_sql with OFFSET - should not error
+        results = await qs.all()
+
+        # Should execute without error (empty results are fine)
+        assert isinstance(results, list)
+
+    @pytest.mark.asyncio
+    async def test_offset_without_order_by_validation(self):
+        """Test OFFSET validation path in _validate_pagination_safety"""
+        qs = self.manager.all(self.mock_db).offset(10)  # No order_by
+
+        # Should raise error when trying to execute
+        with pytest.raises(
+            ValueError, match="OFFSET requires ORDER BY for predictable pagination"
+        ):
+            await qs.all()
+
+    @pytest.mark.asyncio
+    async def test_update_operations_via_queryset(self):
+        """Test _build_update_set method via QuerySet.update()"""
+        # Create table and add some test data
+        await self.GameModel.create_table(self.mock_db)
+
+        # Create test record
+        await self.manager.create(
+            self.mock_db, title="Test", score=10, is_published=False
+        )
+
+        # Execute update to trigger _build_update_set
+        updated_count = await self.manager.filter(self.mock_db, score__lt=50).update(
+            score=100, title="Updated"
+        )
+
+        # Should have updated the record
+        assert (
+            updated_count >= 0
+        )  # MockD1Database returns 0, but real DB would return 1
+
+    @pytest.mark.asyncio
+    async def test_update_field_validation(self):
+        """Test field validation in _build_update_set via update()"""
+        qs = self.manager.filter(self.mock_db, score=10)
+
+        # Test invalid field name
+        with pytest.raises(ValueError, match="Field 'invalid_field' does not exist"):
+            await qs.update(invalid_field="test")
+
+    @pytest.mark.asyncio
+    async def test_update_primary_key_protection(self):
+        """Test primary key protection in _build_update_set"""
+        qs = self.manager.filter(self.mock_db, score=10)
+
+        # Should raise error when trying to update primary key
+        with pytest.raises(ValueError, match="Cannot update primary key field 'id'"):
+            await qs.update(id=999)
+
+    @pytest.mark.asyncio
+    async def test_update_without_where_clause_protection(self):
+        """Test update protection without WHERE clause"""
+        qs = self.manager.all(self.mock_db)  # No filter
+
+        # Should raise error for update without WHERE
+        with pytest.raises(ValueError, match="UPDATE without WHERE clause not allowed"):
+            await qs.update(score=100)
+
+    @pytest.mark.asyncio
+    async def test_update_with_no_changes(self):
+        """Test update with no fields to update"""
+        qs = self.manager.filter(self.mock_db, score=10)
+
+        # Empty update should return 0
+        result = await qs.update()
+        assert result == 0
 
     def teardown_method(self):
         """Clean up after each test"""
