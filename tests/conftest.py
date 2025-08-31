@@ -267,7 +267,7 @@ async def miniflare():
     # Check if wrangler is available - FAIL if not
     try:
         result = subprocess.run(
-            ["npx", "wrangler", "--version"], capture_output=True, text=True, timeout=10
+            ["npx", "wrangler", "--version"], capture_output=True, text=True, timeout=30
         )
         if result.returncode != 0:
             pytest.fail(
