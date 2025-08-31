@@ -28,23 +28,23 @@ class TestImportModelsErrorHandling:
     def test_import_module_with_no_models(self):
         """Test importing module with no Model classes returns empty list"""
         with patch("importlib.import_module") as mock_import:
-            # Mock a module with no Model subclasses
+            # Create a simpler mock module without mocking builtins
             mock_module = Mock()
-            # Mock dir() to return the attributes
-            with patch("builtins.dir", return_value=["some_function", "CONSTANT"]):
-                # Mock getattr to return non-Model objects
-                def mock_getattr(obj, name):
-                    if name == "some_function":
-                        return lambda: None
-                    elif name == "CONSTANT":
-                        return 42
-                    return Mock()
 
-                with patch("builtins.getattr", side_effect=mock_getattr):
-                    mock_import.return_value = mock_module
+            # Set attributes directly on the mock module
+            mock_module.some_function = lambda: None
+            mock_module.CONSTANT = 42
+            mock_module.NotAModel = Mock()  # Not a Model subclass
 
-                    models = import_models("empty.module")
-                    assert models == []
+            # Configure the mock to return these attributes when dir() is called
+            mock_module.__dir__ = Mock(
+                return_value=["some_function", "CONSTANT", "NotAModel"]
+            )
+
+            mock_import.return_value = mock_module
+
+            models = import_models("empty.module")
+            assert models == []
 
 
 class TestGenerateSchemaErrorHandling:
