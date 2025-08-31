@@ -410,15 +410,13 @@ class MigrationGenerator:
         """Generate multi-step migration for NOT NULL columns without defaults"""
         # Step 1: Add column as nullable
         sql = f"-- Adding NOT NULL column {field_name} requires multi-step migration\n"
-        # nosec B608: identifiers validated via _safe_ident(); no user input in query
-        sql += f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type};\n"
+        sql += f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type};\n"  # nosec B608
 
         # Step 2: Get appropriate default value for backfill
         default_value = MigrationGenerator._get_field_default_value(field)
 
         sql += "-- Backfill with appropriate values\n"
-        # nosec B608: identifiers validated via _safe_ident(); default_value is controlled
-        sql += f"UPDATE {table} SET {field_name} = {default_value} WHERE {field_name} IS NULL;\n"
+        sql += f"UPDATE {table} SET {field_name} = {default_value} WHERE {field_name} IS NULL;\n"  # nosec B608
 
         # Step 3: Add NOT NULL constraint note
         sql += "-- Note: In SQLite/D1, you may need to recreate the table to add NOT NULL constraint"
@@ -430,8 +428,7 @@ class MigrationGenerator:
         table: str, field_name: str, sql_type: str, field
     ) -> str:
         """Generate simple ADD COLUMN migration for nullable or columns with defaults"""
-        # nosec B608: identifiers validated via _safe_ident(); no user input in query
-        sql = f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type}"
+        sql = f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type}"  # nosec B608
 
         if field.default is not None:
             default_val = MigrationGenerator._get_default_sql_value(
