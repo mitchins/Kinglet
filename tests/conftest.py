@@ -260,10 +260,28 @@ export default {
                     pass
 
 
-# Miniflare integration - no fallbacks, no hedging
+# Miniflare integration - REQUIRED for complete test suite
 @pytest.fixture(scope="session")
 async def miniflare():
-    """Session-scoped Miniflare instance - REQUIRES wrangler"""
+    """Session-scoped Miniflare instance - FAILS if wrangler unavailable"""
+    # Check if wrangler is available - FAIL if not
+    try:
+        result = subprocess.run(
+            ["npx", "wrangler", "--version"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            pytest.fail(
+                "Miniflare integration tests require wrangler but it failed to run.\n"
+                "Install with: npm install -g wrangler\n"
+                "Or exclude with: pytest -m 'not miniflare'"
+            )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        pytest.fail(
+            f"Miniflare integration tests require wrangler but it's not available: {e}\n"
+            "Install with: npm install -g wrangler\n"
+            "Or exclude with: pytest -m 'not miniflare'"
+        )
+
     manager = MiniflareManager()
     try:
         await manager.start()
