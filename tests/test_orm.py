@@ -111,6 +111,10 @@ class TestFieldValidation:
         # To DB
         assert field.to_db({"key": "value"}) == '{"key": "value"}'
 
+        # Test None handling - covers missing paths
+        assert field.to_python(None) is None
+        assert field.to_db(None) is None
+
 
 class TestModelDefinition:
     """Test model metaclass and definition"""
@@ -760,6 +764,39 @@ class TestQuerySetAdvanced:
             (ForeignKeyViolationError, ORMError)
         ):  # Should raise classified error
             await qs.count()
+
+    def test_exclude_field_validation(self):
+        """Test field validation in exclude method - covers missing path"""
+        qs = self.manager.all(self.mock_db)
+
+        # Test invalid field in exclude method
+        with pytest.raises(ValueError, match="Field 'nonexistent' does not exist"):
+            qs.exclude(nonexistent="value")
+
+        # Test invalid field with lookup in exclude method
+        with pytest.raises(ValueError, match="Field 'invalid' does not exist"):
+            qs.exclude(invalid__gt=10)
+
+    @pytest.mark.asyncio
+    async def test_values_mode_in_all(self):
+        """Test all() method with values_fields - covers missing path"""
+        await self.GameModel.create_table(self.mock_db)
+
+        # Create some test data
+        await self.manager.create(self.mock_db, title="Game 1", score=100)
+        await self.manager.create(self.mock_db, title="Game 2", score=200)
+
+        # Query with values mode
+        qs = self.manager.all(self.mock_db).values("title", "score")
+        results = await qs.all()
+
+        # Should return dictionaries with only the requested fields
+        assert len(results) >= 2
+        assert isinstance(results[0], dict)
+        assert "title" in results[0]
+        assert "score" in results[0]
+        # Should not include other fields like id
+        assert len(results[0].keys()) == 2
 
     def teardown_method(self):
         """Clean up after each test"""

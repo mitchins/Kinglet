@@ -154,6 +154,49 @@ class TestGetUser:
         assert result is not None
         assert result["id"] == "user-cf-123"
 
+    @pytest.mark.asyncio
+    async def test_get_user_missing_jwt_secret(self):
+        """Test Bearer token extraction with missing JWT_SECRET - covers _extract_bearer_user path"""
+        mock_request = MagicMock()
+        mock_request.header = MagicMock(
+            side_effect=lambda header, default="": {
+                "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.signature",
+                "cf-access-jwt-assertion": "",  # No Cloudflare fallback
+                "cf-access-jwt": "",  # No Cloudflare fallback
+            }.get(header.lower(), default)
+        )
+        # Missing JWT_SECRET from env
+        mock_request.env = MagicMock()
+        mock_request.env.JWT_SECRET = None
+
+        result = await get_user(mock_request)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_user_invalid_jwt_claims(self):
+        """Test Bearer token with invalid/missing claims - covers _extract_bearer_user path"""
+        mock_request = MagicMock()
+        mock_request.header = MagicMock(
+            side_effect=lambda header, default="": {
+                "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.signature",
+                "cf-access-jwt-assertion": "",  # No Cloudflare fallback
+                "cf-access-jwt": "",  # No Cloudflare fallback
+            }.get(header.lower(), default)
+        )
+        mock_request.env.JWT_SECRET = "test-secret"
+
+        # Mock JWT verification to return claims without required fields
+        import kinglet.authz
+
+        original_verify = kinglet.authz.verify_jwt_hs256
+        kinglet.authz.verify_jwt_hs256 = lambda token, secret: None  # Invalid claims
+
+        try:
+            result = await get_user(mock_request)
+            assert result is None
+        finally:
+            kinglet.authz.verify_jwt_hs256 = original_verify
+
 
 class TestD1Resolver:
     """Test D1 database owner resolver"""
