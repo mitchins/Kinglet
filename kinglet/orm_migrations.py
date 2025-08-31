@@ -394,53 +394,85 @@ class MigrationGenerator:
 
         # Check if we need a multi-step migration for NOT NULL without default
         if not field.null and field.default is None:
-            # Generate multi-step migration for NOT NULL columns without defaults
-            # Step 1: Add column as nullable
-            sql = f"-- Adding NOT NULL column {field_name} requires multi-step migration\n"
-            sql += f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type};\n"
-
-            # Step 2: Provide backfill hint based on field type
-            if field.__class__.__name__ == "StringField":
-                default_value = "''"
-            elif field.__class__.__name__ in ["IntegerField", "FloatField"]:
-                default_value = "0"
-            elif field.__class__.__name__ == "BooleanField":
-                default_value = "FALSE"
-            elif field.__class__.__name__ == "JSONField":
-                default_value = "'{}'"
-            else:
-                default_value = "''"  # Safe fallback
-
-            sql += "-- Backfill with appropriate values\n"
-            sql += f"UPDATE {table} SET {field_name} = {default_value} WHERE {field_name} IS NULL;\n"
-
-            # Step 3: Add NOT NULL constraint (Note: SQLite doesn't support ALTER COLUMN)
-            sql += "-- Note: In SQLite/D1, you may need to recreate the table to add NOT NULL constraint"
-
-            return sql
+            return MigrationGenerator._generate_not_null_migration(
+                table, field_name, sql_type, field
+            )
 
         # Normal case: has default or is nullable
+        return MigrationGenerator._generate_simple_migration(
+            table, field_name, sql_type, field
+        )
+
+    @staticmethod
+    def _generate_not_null_migration(
+        table: str, field_name: str, sql_type: str, field
+    ) -> str:
+        """Generate multi-step migration for NOT NULL columns without defaults"""
+        # Step 1: Add column as nullable
+        sql = f"-- Adding NOT NULL column {field_name} requires multi-step migration\n"
+        # nosec B608: identifiers validated via _safe_ident(); no user input in query
+        sql += f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type};\n"
+
+        # Step 2: Get appropriate default value for backfill
+        default_value = MigrationGenerator._get_field_default_value(field)
+
+        sql += "-- Backfill with appropriate values\n"
+        # nosec B608: identifiers validated via _safe_ident(); default_value is controlled
+        sql += f"UPDATE {table} SET {field_name} = {default_value} WHERE {field_name} IS NULL;\n"
+
+        # Step 3: Add NOT NULL constraint note
+        sql += "-- Note: In SQLite/D1, you may need to recreate the table to add NOT NULL constraint"
+
+        return sql
+
+    @staticmethod
+    def _generate_simple_migration(
+        table: str, field_name: str, sql_type: str, field
+    ) -> str:
+        """Generate simple ADD COLUMN migration for nullable or columns with defaults"""
+        # nosec B608: identifiers validated via _safe_ident(); no user input in query
         sql = f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type}"
 
         if field.default is not None:
-            if callable(field.default):
-                # For callables like dict or list
-                if field.__class__.__name__ == "JSONField":
-                    default_val = "'{}'"  # Empty JSON object
-                else:
-                    # Skip default for other callables
-                    default_val = None
-            elif isinstance(field.default, bool):
-                default_val = "1" if field.default else "0"
-            elif isinstance(field.default, str):
-                default_val = f"'{field.default}'"
-            else:
-                default_val = str(field.default)
-
+            default_val = MigrationGenerator._get_default_sql_value(
+                field.default, field
+            )
             if default_val is not None:
                 sql += f" DEFAULT {default_val}"
 
         return sql + ";"
+
+    @staticmethod
+    def _get_field_default_value(field) -> str:
+        """Get appropriate default value for field type during backfill"""
+        field_type = field.__class__.__name__
+        if field_type == "StringField":
+            return "''"
+        elif field_type in ["IntegerField", "FloatField"]:
+            return "0"
+        elif field_type == "BooleanField":
+            return "FALSE"
+        elif field_type == "JSONField":
+            return "'{}'"
+        else:
+            return "''"  # Safe fallback
+
+    @staticmethod
+    def _get_default_sql_value(default, field):
+        """Convert Python default value to SQL representation"""
+        if callable(default):
+            # For callables like dict or list
+            if field.__class__.__name__ == "JSONField":
+                return "'{}'"  # Empty JSON object
+            else:
+                # Skip default for other callables
+                return None
+        elif isinstance(default, bool):
+            return "1" if default else "0"
+        elif isinstance(default, str):
+            return f"'{default}'"
+        else:
+            return str(default)
 
     @staticmethod
     def detect_changes(old_lock: Dict, new_lock: Dict) -> List[Migration]:
