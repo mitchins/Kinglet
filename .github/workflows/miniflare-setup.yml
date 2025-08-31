@@ -1,0 +1,63 @@
+# GitHub Actions workflow for Miniflare integration tests
+# NO FALLBACKS - Either wrangler works or tests fail hard
+name: Tests with Miniflare Integration
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-with-miniflare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Set up Node.js (required for wrangler/Miniflare)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements-dev.txt
+
+      - name: Install Wrangler (contains Miniflare)
+        run: npm install -g wrangler
+
+      - name: Verify Wrangler installation
+        run: npx wrangler --version
+
+      - name: Run ALL tests including Miniflare integration
+        run: python -m pytest tests/ --cov=kinglet --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+
+  test-without-miniflare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements-dev.txt
+
+      - name: Run tests EXCLUDING Miniflare integration
+        run: python -m pytest tests/ -m "not miniflare" --cov=kinglet --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
