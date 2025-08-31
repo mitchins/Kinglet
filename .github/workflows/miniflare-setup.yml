@@ -4,7 +4,9 @@ name: Tests with Miniflare Integration
 
 on:
   push:
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
 
 jobs:
   test-with-miniflare:
@@ -23,7 +25,7 @@ jobs:
       - name: Set up Node.js (required for wrangler/Miniflare)
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
       - name: Install Python dependencies
         run: |
