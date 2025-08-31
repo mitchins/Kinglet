@@ -38,7 +38,7 @@ async def get_data(request):
 
 | Feature | Kinglet | FastAPI | Flask |
 |---------|---------|---------|-------|
-| **Bundle Size** | 226KB | 7.8MB | 1.9MB |
+| **Bundle Size** | 272KB | 7.8MB | 1.9MB |
 | **Testing** | No server needed | TestServer required | Test client required |
 | **Workers Ready** | ✅ Built-in | ❌ Complex setup | ❌ Not compatible |
 
