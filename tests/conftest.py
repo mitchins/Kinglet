@@ -166,12 +166,33 @@ export default {
             await self._wait_for_startup()
 
         except Exception as e:
+            # Force capture process output for debugging - kill if needed
+            process_output = ""
+            if self.process:
+                try:
+                    # First try non-blocking read of available output
+                    if self.process.stdout and self.process.stderr:
+                        # Give it a moment to produce output
+                        await asyncio.sleep(0.1)
+                        # Terminate and get output
+                        self.process.terminate()
+                        stdout, stderr = self.process.communicate(timeout=5)
+                        process_output = f"\nSTDOUT: {stdout}\nSTDERR: {stderr}"
+                except (subprocess.TimeoutExpired, OSError):
+                    # Force kill if needed
+                    try:
+                        self.process.kill()
+                        stdout, stderr = self.process.communicate(timeout=2)
+                        process_output = f"\nSTDOUT: {stdout}\nSTDERR: {stderr}"
+                    except (subprocess.TimeoutExpired, OSError):
+                        process_output = "\nFailed to capture process output"
             await self.stop()
-            raise RuntimeError(f"Failed to start Miniflare: {e}") from e
+            raise RuntimeError(f"Failed to start Miniflare: {e}{process_output}") from e
 
-    async def _wait_for_startup(self, timeout=10):
+    async def _wait_for_startup(self, timeout=30):
         """Wait for Miniflare to be ready"""
         start_time = time.time()
+        last_error = None
 
         while time.time() - start_time < timeout:
             try:
@@ -186,11 +207,38 @@ export default {
                     # Fallback without httpx - just wait a bit
                     await asyncio.sleep(2)
                     return
-            except Exception:
+            except Exception as e:
+                last_error = e
                 pass
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
 
-        raise RuntimeError("Miniflare failed to start within timeout")
+        # FORCE capture process output for debugging - terminate if needed
+        process_info = ""
+        if self.process:
+            try:
+                # If process already exited, get output
+                if self.process.poll() is not None:
+                    stdout, stderr = self.process.communicate(timeout=1)
+                    process_info = f"\nProcess exited with code: {self.process.returncode}\nSTDOUT: {stdout}\nSTDERR: {stderr}"
+                else:
+                    # Process still running - terminate it and get output
+                    self.process.terminate()
+                    stdout, stderr = self.process.communicate(timeout=5)
+                    process_info = f"\nProcess was running, terminated. STDOUT: {stdout}\nSTDERR: {stderr}"
+            except (subprocess.TimeoutExpired, OSError):
+                # Force kill and try again
+                try:
+                    self.process.kill()
+                    stdout, stderr = self.process.communicate(timeout=2)
+                    process_info = (
+                        f"\nProcess killed. STDOUT: {stdout}\nSTDERR: {stderr}"
+                    )
+                except (subprocess.TimeoutExpired, OSError):
+                    process_info = f"\nProcess status: {self.process.poll()}, failed to capture output"
+
+        raise RuntimeError(
+            f"Miniflare failed to start within {timeout}s timeout. Last HTTP error: {last_error}{process_info}"
+        )
 
     async def stop(self):
         """Stop Miniflare and cleanup"""
