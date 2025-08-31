@@ -375,3 +375,112 @@ class TestFullWorkflowIntegration:
         # Components should exist
         assert generate_totp_code is not None
         assert verify_totp_code is not None
+
+
+class TestORMComplexOperations:
+    """Test complex ORM operations that require sophisticated database behavior"""
+
+    def setup_method(self):
+        # Use real integration setup instead of mock
+        from .mock_d1 import MockD1Database
+
+        self.mock_db = MockD1Database()
+
+    @pytest.mark.asyncio
+    async def test_queryset_operations(self):
+        """Test complex QuerySet operations - moved from unit tests"""
+        from kinglet.orm import BooleanField, IntegerField, Manager, Model, StringField
+
+        class SampleGame(Model):
+            title = StringField(max_length=100, null=False)
+            description = StringField(max_length=500, null=True)
+            score = IntegerField(default=0)
+            is_published = BooleanField(default=False)
+
+            class Meta:
+                table_name = "sample_games"
+
+        manager = Manager(SampleGame)
+
+        # Create table and sample data
+        await SampleGame.create_table(self.mock_db)
+
+        # Create multiple games
+        games_data = [
+            {"title": "Adventure Game", "score": 95, "is_published": True},
+            {"title": "Puzzle Game", "score": 88, "is_published": True},
+            {"title": "Racing Game", "score": 92, "is_published": False},
+            {"title": "Strategy Game", "score": 90, "is_published": True},
+        ]
+
+        created_games = []
+        for game_data in games_data:
+            game = await manager.create(self.mock_db, **game_data)
+            created_games.append(game)
+
+        # Test filtering
+        published_games = await manager.filter(self.mock_db, is_published=True).all()
+        assert len(published_games) == 3
+
+        # Test count
+        total_count = await manager.all(self.mock_db).count()
+        assert total_count == 4
+
+        published_count = await manager.filter(self.mock_db, is_published=True).count()
+        assert published_count == 3
+
+        # Test ordering
+        high_score_games = (
+            await manager.all(self.mock_db).order_by("-score").limit(2).all()
+        )
+        assert len(high_score_games) == 2
+        assert high_score_games[0].score >= high_score_games[1].score
+
+        # Test lookups
+        high_scoring = await manager.filter(self.mock_db, score__gte=90).all()
+        assert len(high_scoring) == 3
+
+        # Test contains (case-sensitive)
+        adventure_games = await manager.filter(
+            self.mock_db, title__contains="Adventure"
+        ).all()
+        assert len(adventure_games) == 1
+        assert adventure_games[0].title == "Adventure Game"
+
+    @pytest.mark.asyncio
+    async def test_bulk_operations(self):
+        """Test complex bulk create operations - moved from unit tests"""
+        from kinglet.orm import BooleanField, IntegerField, Manager, Model, StringField
+
+        class SampleGame(Model):
+            title = StringField(max_length=100, null=False)
+            description = StringField(max_length=500, null=True)
+            score = IntegerField(default=0)
+            is_published = BooleanField(default=False)
+
+            class Meta:
+                table_name = "sample_games_bulk"
+
+        manager = Manager(SampleGame)
+
+        # Create table
+        await SampleGame.create_table(self.mock_db)
+
+        # Create multiple game instances
+        game_instances = [
+            SampleGame(title=f"Bulk Game {i}", score=80 + i, is_published=i % 2 == 0)
+            for i in range(5)
+        ]
+
+        # Bulk create
+        created_games = await manager.bulk_create(self.mock_db, game_instances)
+
+        assert len(created_games) == 5
+        for i, game in enumerate(created_games):
+            assert game.title == f"Bulk Game {i}"
+            assert game.score == 80 + i
+            assert game.id is not None
+
+        # Verify they were actually saved
+        total_count = await manager.all(self.mock_db).count()
+        assert total_count == 5
