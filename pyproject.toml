@@ -73,7 +73,8 @@ addopts = ["--verbose", "--tb=short", "--strict-markers"]
 markers = [
     "asyncio: marks tests as async",
     "unit: marks tests as unit tests",
-    "integration: marks tests as integration tests"
+    "integration: marks tests as integration tests",
+    "miniflare: marks tests requiring Miniflare/wrangler (will fail if not available)"
 ]
 
 [tool.black]
@@ -133,4 +134,5 @@ dev = [
     "pre-commit>=4.3.0",
     "pytest-cov>=6.2.1",
     "ruff>=0.12.10",
+    "httpx>=0.27.0",
 ]
