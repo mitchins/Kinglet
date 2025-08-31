@@ -13,6 +13,9 @@ import pytest
 
 from kinglet import Response
 from kinglet.authz import (
+    _b64url_decode,
+    _extract_bearer_user,
+    _extract_cloudflare_user,
     allow_public_or_owner,
     d1_load_owner_public,
     get_user,
@@ -557,6 +560,57 @@ class TestFGAIntegration:
 
         finally:
             kinglet.authz.get_user = original_get_user
+
+
+class TestAuthzUtilities:
+    """Test utility functions in authz module"""
+
+    def test_b64url_decode_function(self):
+        """Test _b64url_decode utility function"""
+        # Test normal base64url decoding
+        result = _b64url_decode("SGVsbG8")  # "Hello" in base64url
+        assert result == b"Hello"
+
+        # Test padding addition (missing padding)
+        result = _b64url_decode("SGVsbG8")  # Missing padding
+        assert result == b"Hello"
+
+    def test_verify_jwt_hs256_invalid_token(self):
+        """Test JWT verification with invalid tokens"""
+        # Test malformed token (not 3 parts)
+        result = verify_jwt_hs256("invalid.token", "secret")
+        assert result is None
+
+        # Test invalid base64
+        result = verify_jwt_hs256("invalid.base64!@#.signature", "secret")
+        assert result is None
+
+    def test_extract_bearer_user_no_header(self):
+        """Test _extract_bearer_user with missing Authorization header"""
+        # Mock request with no Authorization header
+        mock_req = MagicMock()
+        mock_req.header.return_value = None
+
+        result = _extract_bearer_user(mock_req, "JWT_SECRET")
+        assert result is None
+
+    def test_extract_bearer_user_non_bearer(self):
+        """Test _extract_bearer_user with non-Bearer token"""
+        # Mock request with Basic auth (not Bearer)
+        mock_req = MagicMock()
+        mock_req.header.return_value = "Basic dXNlcjpwYXNz"
+
+        result = _extract_bearer_user(mock_req, "JWT_SECRET")
+        assert result is None
+
+    def test_extract_cloudflare_user_no_header(self):
+        """Test _extract_cloudflare_user with missing CF header"""
+        # Mock request with no CF-Access-Authenticated-User-Email
+        mock_req = MagicMock()
+        mock_req.header.return_value = None
+
+        result = _extract_cloudflare_user(mock_req)
+        assert result is None
 
 
 if __name__ == "__main__":
