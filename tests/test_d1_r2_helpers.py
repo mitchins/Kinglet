@@ -5,7 +5,7 @@ Tests for Kinglet 1.3.0 D1 and R2 helper functions
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from kinglet import (
     asset_url,
@@ -32,6 +32,7 @@ class TestD1Helpers:
 
     def test_d1_unwrap_mock_proxy(self):
         """Test d1_unwrap with mock D1 proxy object"""
+
         class MockD1Proxy:
             def to_py(self):
                 return {"id": 1, "title": "Game"}
@@ -42,9 +43,11 @@ class TestD1Helpers:
 
     def test_d1_unwrap_object_with_keys(self):
         """Test d1_unwrap with object that has keys() method"""
+
         class MockObject:
             def keys(self):
                 return ["id", "name"]
+
             def __getitem__(self, key):
                 return {"id": 1, "name": "test"}[key]
 
@@ -54,6 +57,7 @@ class TestD1Helpers:
 
     def test_d1_unwrap_to_py_failure_raises(self):
         """Test d1_unwrap raises when .to_py() fails"""
+
         class MockBadProxy:
             def to_py(self):
                 raise RuntimeError("Proxy conversion failed")
@@ -61,7 +65,7 @@ class TestD1Helpers:
         proxy = MockBadProxy()
         try:
             d1_unwrap(proxy)
-            assert False, "Should have raised ValueError"
+            raise AssertionError("Should have raised ValueError")
         except ValueError as e:
             assert "Failed to unwrap D1 object via .to_py()" in str(e)
 
@@ -69,20 +73,20 @@ class TestD1Helpers:
         """Test d1_unwrap raises ValueError for unknown types"""
         try:
             d1_unwrap("some string")
-            assert False, "Should have raised ValueError"
+            raise AssertionError("Should have raised ValueError")
         except ValueError as e:
             assert "Cannot unwrap D1 object of type str" in str(e)
 
     def test_d1_unwrap_results_with_results_array(self):
         """Test d1_unwrap_results generator with D1 .all() format"""
+
         class MockD1Results:
             def __init__(self, results):
                 self.results = results
 
-        mock_results = MockD1Results([
-            {"id": 1, "name": "Game 1"},
-            {"id": 2, "name": "Game 2"}
-        ])
+        mock_results = MockD1Results(
+            [{"id": 1, "name": "Game 1"}, {"id": 2, "name": "Game 2"}]
+        )
 
         # Test as generator
         result_gen = d1_unwrap_results(mock_results)
@@ -92,10 +96,13 @@ class TestD1Helpers:
         assert result_list[1] == {"id": 2, "name": "Game 2"}
 
         # Test list version (manual conversion)
-        result_list = list(d1_unwrap_results(MockD1Results([
-            {"id": 1, "name": "Game 1"},
-            {"id": 2, "name": "Game 2"}
-        ])))
+        result_list = list(
+            d1_unwrap_results(
+                MockD1Results(
+                    [{"id": 1, "name": "Game 1"}, {"id": 2, "name": "Game 2"}]
+                )
+            )
+        )
         assert len(result_list) == 2
         assert result_list[0] == {"id": 1, "name": "Game 1"}
 
@@ -128,6 +135,7 @@ class TestR2Helpers:
 
     def test_r2_get_metadata_mock_r2_object(self):
         """Test r2_get_metadata with mock R2 object"""
+
         class MockR2Object:
             def __init__(self):
                 self.size = 2048
@@ -149,6 +157,7 @@ class TestR2Helpers:
 
     def test_r2_get_content_info(self):
         """Test r2_get_content_info helper"""
+
         class MockR2Object:
             def __init__(self):
                 self.size = 1024
@@ -185,9 +194,11 @@ class TestAssetUrlHelper:
 
     def test_asset_url_media_dev(self):
         """Test asset_url for media in development"""
+
         class MockRequest:
             def __init__(self):
                 self.env = MockEnv()
+
             def header(self, name, default=None):
                 headers = {"host": "localhost:8787"}
                 return headers.get(name, default)
@@ -201,6 +212,7 @@ class TestAssetUrlHelper:
 
     def test_asset_url_media_production(self):
         """Test asset_url for media in production with CDN"""
+
         class MockRequest:
             def __init__(self):
                 self.env = MockEnv()
@@ -214,9 +226,11 @@ class TestAssetUrlHelper:
 
     def test_asset_url_static(self):
         """Test asset_url for static assets"""
+
         class MockRequest:
             def __init__(self):
                 self.env = MockEnv()
+
             def header(self, name, default=None):
                 return {"host": "localhost:8787"}.get(name, default)
 
@@ -229,9 +243,11 @@ class TestAssetUrlHelper:
 
     def test_asset_url_custom_type(self):
         """Test asset_url with custom asset type"""
+
         class MockRequest:
             def __init__(self):
                 self.env = MockEnv()
+
             def header(self, name, default=None):
                 return {"host": "localhost:8787"}.get(name, default)
 
@@ -244,14 +260,13 @@ class TestAssetUrlHelper:
 
     def test_asset_url_https_detection(self):
         """Test asset_url HTTPS detection"""
+
         class MockRequest:
             def __init__(self):
                 self.env = MockEnv()
+
             def header(self, name, default=None):
-                headers = {
-                    "host": "api.example.com",
-                    "x-forwarded-proto": "https"
-                }
+                headers = {"host": "api.example.com", "x-forwarded-proto": "https"}
                 return headers.get(name, default)
 
         class MockEnv:
@@ -264,4 +279,5 @@ class TestAssetUrlHelper:
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__])

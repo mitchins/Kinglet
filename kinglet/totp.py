@@ -29,7 +29,9 @@ class OTPProvider:
         """Verify TOTP code"""
         raise NotImplementedError
 
-    def generate_qr_url(self, secret: str, account_name: str, issuer: str = "Kinglet") -> str:
+    def generate_qr_url(
+        self, secret: str, account_name: str, issuer: str = "Kinglet"
+    ) -> str:
         """Generate QR code URL for authenticator apps"""
         raise NotImplementedError
 
@@ -41,13 +43,21 @@ class ProductionOTPProvider(OTPProvider):
         """Generate a new TOTP secret (base32 encoded)"""
         # Generate 20 random bytes (160 bits) as recommended by RFC 6238
         raw_secret = secrets.token_bytes(20)
-        return base64.b32encode(raw_secret).decode('ascii')
+        return base64.b32encode(raw_secret).decode("ascii")
 
-    def verify_code(self, secret: str, provided_code: str, window: int = 1, algorithm: str = 'sha1') -> bool:
+    def verify_code(
+        self, secret: str, provided_code: str, window: int = 1, algorithm: str = "sha1"
+    ) -> bool:
         """Verify TOTP code with time window tolerance and configurable algorithm"""
         return verify_totp_code(secret, provided_code, window, algorithm)
 
-    def generate_qr_url(self, secret: str, account_name: str, issuer: str = "Kinglet", algorithm: str = 'sha1') -> str:
+    def generate_qr_url(
+        self,
+        secret: str,
+        account_name: str,
+        issuer: str = "Kinglet",
+        algorithm: str = "sha1",
+    ) -> str:
         """Generate TOTP QR code URL with configurable algorithm"""
         return generate_totp_qr_url(secret, account_name, issuer, algorithm)
 
@@ -65,18 +75,31 @@ class DummyOTPProvider(OTPProvider):
             return False
 
         # Remove spaces and validate format
-        provided_code = provided_code.replace(' ', '').replace('-', '')
+        provided_code = provided_code.replace(" ", "").replace("-", "")
         if len(provided_code) != 6 or not provided_code.isdigit():
             return False
 
         # Accept any repeated digit pattern (000000, 111111, etc.) for easy testing
-        if provided_code in ['000000', '111111', '222222', '333333', '444444', '555555', '666666', '777777', '888888', '999999']:
+        if provided_code in [
+            "000000",
+            "111111",
+            "222222",
+            "333333",
+            "444444",
+            "555555",
+            "666666",
+            "777777",
+            "888888",
+            "999999",
+        ]:
             return True
 
         # Also verify against the actual test secret for realistic testing
-        return verify_totp_code(secret, provided_code, window, 'sha1')
+        return verify_totp_code(secret, provided_code, window, "sha1")
 
-    def generate_qr_url(self, secret: str, account_name: str, issuer: str = "Kinglet") -> str:
+    def generate_qr_url(
+        self, secret: str, account_name: str, issuer: str = "Kinglet"
+    ) -> str:
         """Generate QR URL for test secret"""
         return generate_totp_qr_url(secret, account_name, f"{issuer}-TEST")
 
@@ -108,17 +131,19 @@ def verify_code(secret: str, provided_code: str, window: int = 1) -> bool:
 
 def install_test_totp_secret() -> str:
     """Install predictable test TOTP secret for development/testing
-    
+
     Returns the test secret that can be used with authenticator apps.
     In development, this secret generates predictable codes including '000000'.
     """
     return TEST_TOTP_SECRET
 
 
-def generate_totp_code(secret: str, timestamp: Optional[int] = None, algorithm: str = 'sha1') -> str:
+def generate_totp_code(
+    secret: str, timestamp: Optional[int] = None, algorithm: str = "sha1"
+) -> str:
     """
     Generate TOTP code for given secret and timestamp
-    
+
     Args:
         secret: Base32-encoded TOTP secret
         timestamp: Unix timestamp (defaults to current time)
@@ -135,12 +160,12 @@ def generate_totp_code(secret: str, timestamp: Optional[int] = None, algorithm: 
     try:
         # Add correct padding (only if needed)
         padding_needed = (8 - len(secret) % 8) % 8
-        key = base64.b32decode(secret.upper() + '=' * padding_needed)
-    except Exception:
-        raise ValueError("Invalid TOTP secret format")
+        key = base64.b32decode(secret.upper() + "=" * padding_needed)
+    except Exception as e:
+        raise ValueError("Invalid TOTP secret format") from e
 
     # Pack time step as big-endian 64-bit integer
-    time_bytes = struct.pack('>Q', time_step)
+    time_bytes = struct.pack(">Q", time_step)
 
     # TOTP HMAC – interoperability note:
     # - HOTP (RFC 4226) specifies HMAC-SHA1; TOTP (RFC 6238) permits SHA-1/256/512.
@@ -149,18 +174,20 @@ def generate_totp_code(secret: str, timestamp: Optional[int] = None, algorithm: 
     hmac_hash = hmac.new(key, time_bytes, hashlib.sha1).digest()  # NOSONAR
 
     # Dynamic truncation (RFC 4226)
-    offset = hmac_hash[-1] & 0x0f
-    truncated = struct.unpack('>I', hmac_hash[offset:offset + 4])[0] & 0x7fffffff
+    offset = hmac_hash[-1] & 0x0F
+    truncated = struct.unpack(">I", hmac_hash[offset : offset + 4])[0] & 0x7FFFFFFF
 
     # Generate 6-digit code
     code = str(truncated % 1000000).zfill(6)
     return code
 
 
-def verify_totp_code(secret: str, provided_code: str, window: int = 1, algorithm: str = 'sha1') -> bool:
+def verify_totp_code(
+    secret: str, provided_code: str, window: int = 1, algorithm: str = "sha1"
+) -> bool:
     """
     Verify TOTP code with time window tolerance
-    
+
     Args:
         secret: Base32-encoded TOTP secret
         provided_code: 6-digit TOTP code to verify
@@ -171,7 +198,7 @@ def verify_totp_code(secret: str, provided_code: str, window: int = 1, algorithm
         return False
 
     # Remove spaces and validate format
-    provided_code = provided_code.replace(' ', '').replace('-', '')
+    provided_code = provided_code.replace(" ", "").replace("-", "")
     if len(provided_code) != 6 or not provided_code.isdigit():
         return False
 
@@ -187,25 +214,27 @@ def verify_totp_code(secret: str, provided_code: str, window: int = 1, algorithm
     return False
 
 
-def generate_totp_qr_url(secret: str, account_name: str, issuer: str = "Kinglet", algorithm: str = 'sha1') -> str:
+def generate_totp_qr_url(
+    secret: str, account_name: str, issuer: str = "Kinglet", algorithm: str = "sha1"
+) -> str:
     """
     Generate Google Authenticator compatible QR code URL
-    
+
     Args:
         secret: Base32-encoded TOTP secret
         account_name: User account name
-        issuer: Service name  
+        issuer: Service name
         algorithm: Hash algorithm - 'sha1' (default), 'sha256', or 'sha512'
                   Note: Google Authenticator only supports SHA1
     """
     # Format: otpauth://totp/Issuer:AccountName?secret=SECRET&issuer=Issuer
     label = f"{issuer}:{account_name}"
     params = {
-        'secret': secret,
-        'issuer': issuer,
-        'algorithm': algorithm.upper(),
-        'digits': '6',
-        'period': '30'
+        "secret": secret,
+        "issuer": issuer,
+        "algorithm": algorithm.upper(),
+        "digits": "6",
+        "period": "30",
     }
 
     query_string = urllib.parse.urlencode(params)
@@ -214,29 +243,36 @@ def generate_totp_qr_url(secret: str, account_name: str, issuer: str = "Kinglet"
     return f"otpauth://totp/{encoded_label}?{query_string}"
 
 
-def create_elevated_jwt(user_claims: dict, secret: str, elevation_duration: int = 900) -> str:
+def create_elevated_jwt(
+    user_claims: dict, secret: str, elevation_duration: int = 900
+) -> str:
     """Create an elevated session JWT (default 15 minutes)"""
     import json
 
     # Add elevation claims
     elevated_claims = {
         **user_claims,
-        'elevated': True,
-        'elevation_time': int(time.time()),
-        'exp': int(time.time()) + elevation_duration  # Shorter expiry for elevated sessions
+        "elevated": True,
+        "elevation_time": int(time.time()),
+        "exp": int(time.time())
+        + elevation_duration,  # Shorter expiry for elevated sessions
     }
 
     # Create JWT
     header = {"alg": "HS256", "typ": "JWT"}
-    header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
-    payload_b64 = base64.urlsafe_b64encode(json.dumps(elevated_claims).encode()).decode().rstrip('=')
+    header_b64 = (
+        base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
+    )
+    payload_b64 = (
+        base64.urlsafe_b64encode(json.dumps(elevated_claims).encode())
+        .decode()
+        .rstrip("=")
+    )
 
     signature = hmac.new(
-        secret.encode(),
-        f"{header_b64}.{payload_b64}".encode(),
-        hashlib.sha256
+        secret.encode(), f"{header_b64}.{payload_b64}".encode(), hashlib.sha256
     ).digest()
-    signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip('=')
+    signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip("=")
 
     return f"{header_b64}.{payload_b64}.{signature_b64}"
 
@@ -244,10 +280,10 @@ def create_elevated_jwt(user_claims: dict, secret: str, elevation_duration: int 
 def get_totp_encryption_key(env) -> str:
     """Get TOTP encryption key from environment variables"""
     # Primary key for TOTP secret encryption in database
-    totp_key = getattr(env, 'TOTP_ENCRYPTION_KEY', None)
+    totp_key = getattr(env, "TOTP_ENCRYPTION_KEY", None)
     if not totp_key:
         # Fallback to JWT secret if TOTP key not set
-        totp_key = getattr(env, 'JWT_SECRET', 'dev-totp-key-change-in-production')
+        totp_key = getattr(env, "JWT_SECRET", "dev-totp-key-change-in-production")
 
     # In production, this should be a different key from JWT_SECRET
     # for defense in depth
@@ -292,8 +328,8 @@ def decrypt_totp_secret(encrypted_secret: str, encryption_key: str) -> str:
             decrypted_bytes.append(byte ^ key_byte)
 
         return decrypted_bytes.decode()
-    except Exception:
-        raise ValueError("Failed to decrypt TOTP secret")
+    except Exception as e:
+        raise ValueError("Failed to decrypt TOTP secret") from e
 
 
 # Test function to verify TOTP implementation

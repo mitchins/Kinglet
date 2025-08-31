@@ -58,19 +58,19 @@ from kinglet.totp import generate_totp_secret, verify_code, generate_totp_qr_url
 @require_auth
 async def setup_totp(request):
     user_id = request.state.user["id"]
-    
+
     # Generate new TOTP secret
     secret = generate_totp_secret()
-    
+
     # Store encrypted secret in database
     encrypted = encrypt_totp_secret(secret, request.env)
     await request.env.DB.prepare(
         "UPDATE users SET totp_secret = ? WHERE id = ?"
     ).bind(encrypted, user_id).run()
-    
+
     # Generate QR code URL
     qr_url = generate_totp_qr_url(secret, user_email, "MyApp")
-    
+
     return {
         "secret": secret,  # User should save this
         "qr_url": qr_url,  # For scanning with authenticator app
@@ -90,24 +90,24 @@ async def verify_totp(request):
     body = await request.json()
     code = body.get("code", "")
     user_id = request.state.user["id"]
-    
+
     # Retrieve user's TOTP secret
     user = await get_user_with_totp(request.env.DB, user_id)
     if not user["totp_secret"]:
         return Response({"error": "TOTP not configured"}, status=400)
-    
+
     # Decrypt and verify code
     secret = decrypt_totp_secret(user["totp_secret"], request.env)
     if not verify_code(secret, code):
         return Response({"error": "Invalid code"}, status=401)
-    
+
     # Create elevated JWT
     elevated_token = create_elevated_jwt(
         user_id=user_id,
         claims=request.state.user["claims"],
         secret=request.env.JWT_SECRET
     )
-    
+
     return {
         "token": elevated_token,
         "elevated": True,
@@ -163,15 +163,15 @@ from kinglet.totp import OTPProvider, set_otp_provider
 
 class SMSOTPProvider(OTPProvider):
     """Custom SMS-based OTP provider"""
-    
+
     def generate_secret(self) -> str:
         # Generate phone-based identifier
         return f"sms:{generate_random_id()}"
-    
+
     def verify_code(self, secret: str, code: str, window: int = 1) -> bool:
         # Check SMS verification service
         return check_sms_code(secret, code)
-    
+
     def generate_qr_url(self, secret: str, account: str, issuer: str) -> str:
         # SMS doesn't use QR codes
         return ""
@@ -220,7 +220,7 @@ ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT false;
 async def sensitive_operation(request):
     pass
 
-# After  
+# After
 @require_elevated_session
 async def sensitive_operation(request):
     pass

@@ -24,7 +24,7 @@ PYTHON_MODULE_HELP = "Python module containing models"
 ERROR_TYPES = {
     "NOT_FOUND": "not_found",
     "AUTHENTICATION_REQUIRED": "authentication_required",
-    "CONSTRAINT_VIOLATION": "constraint_violation"
+    "CONSTRAINT_VIOLATION": "constraint_violation",
 }
 
 # HTTP status codes (commonly used)
@@ -33,5 +33,5 @@ HTTP_STATUS = {
     "UNAUTHORIZED": 401,
     "FORBIDDEN": 403,
     "NOT_FOUND": 404,
-    "INTERNAL_SERVER_ERROR": 500
+    "INTERNAL_SERVER_ERROR": 500,
 }

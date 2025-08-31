@@ -13,11 +13,11 @@ CREATE TABLE IF NOT EXISTS experience_cache (
 );
 
 -- Index for efficient TTL cleanup
-CREATE INDEX IF NOT EXISTS idx_experience_cache_expires 
+CREATE INDEX IF NOT EXISTS idx_experience_cache_expires
 ON experience_cache(expires_at);
 
 -- Index for monitoring cache usage
-CREATE INDEX IF NOT EXISTS idx_experience_cache_created 
+CREATE INDEX IF NOT EXISTS idx_experience_cache_created
 ON experience_cache(created_at);
 
 -- Cleanup trigger to remove expired entries

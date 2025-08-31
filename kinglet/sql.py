@@ -8,7 +8,6 @@ Notes:
 
 import re
 
-
 _IDENT_RE = re.compile(r"^[A-Za-z_]\w*$")
 
 
@@ -30,4 +29,3 @@ def quote_ident_sqlite(name: str) -> str:
     a strict naming policy; quoting is provided for completeness.
     """
     return '"' + str(name).replace('"', '""') + '"'
-

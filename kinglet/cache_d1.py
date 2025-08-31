@@ -1,29 +1,33 @@
 """
 Kinglet D1-backed Cache Service - Fast, cost-effective caching with CloudFlare D1
 """
+
+import hashlib
 import json
 import time
-import hashlib
-from typing import Any, Optional, Dict
-from .storage import d1_unwrap_results, d1_unwrap
+from typing import Any, Dict, Optional
+
+from .storage import d1_unwrap
 
 
 class D1CacheService:
     """
     D1-backed cache service for CloudFlare Workers
-    
+
     Features:
     - Fast database-backed caching
-    - Automatic TTL expiration  
+    - Automatic TTL expiration
     - Cache hit tracking
     - Size monitoring
     - Batch operations
     """
-    
-    def __init__(self, db, ttl: int = 3600, max_size: int = 1048576, track_hits: bool = False):
+
+    def __init__(
+        self, db, ttl: int = 3600, max_size: int = 1048576, track_hits: bool = False
+    ):
         """
         Initialize D1 cache service
-        
+
         Args:
             db: D1 database binding
             ttl: Time to live in seconds (default: 1 hour)
@@ -39,14 +43,15 @@ class D1CacheService:
     def _safe_table(self) -> str:
         """Validate and return safe table identifier"""
         from .sql import safe_ident
+
         name = self.table_name or "experience_cache"
         return safe_ident(name)
-    
+
     async def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """Get value from cache with optional hit tracking"""
         try:
             current_time = int(time.time())
-            
+
             if self.track_hits:
                 # Get from cache and update hit count atomically
                 tn = self._safe_table()
@@ -58,14 +63,14 @@ class D1CacheService:
                 """  # nosec B608: identifier validated via _safe_table(); values parameterized
                 stmt = await self.db.prepare(sql)
                 result = await stmt.bind(cache_key, current_time).first()
-                
+
                 if result:
                     result_dict = d1_unwrap(result)
                     return {
                         "_cached_at": result_dict.get("created_at"),
                         "_cache_hit": True,
                         "_hit_count": result_dict.get("hit_count"),
-                        **json.loads(result_dict.get("content", "{}"))
+                        **json.loads(result_dict.get("content", "{}")),
                     }
             else:
                 # Read-only cache lookup (no write operations)
@@ -77,50 +82,52 @@ class D1CacheService:
                 """  # nosec B608: identifier validated via _safe_table(); values parameterized
                 stmt = await self.db.prepare(sql)
                 result = await stmt.bind(cache_key, current_time).first()
-                
+
                 if result:
                     result_dict = d1_unwrap(result)
                     return {
                         "_cached_at": result_dict.get("created_at"),
                         "_cache_hit": True,
-                        **json.loads(result_dict.get("content", "{}"))
+                        **json.loads(result_dict.get("content", "{}")),
                     }
-            
+
             return None
-            
+
         except Exception as e:
             # Cache failures should not break the application
             print(f"D1 cache get error: {e}")
             return None
-    
+
     async def set(self, cache_key: str, value: Dict[str, Any]) -> bool:
         """Set value in cache with TTL"""
         try:
             content = json.dumps(value)
-            content_size = len(content.encode('utf-8'))
-            
+            content_size = len(content.encode("utf-8"))
+
             # Check size limit
             if content_size > self.max_size:
                 print(f"Cache entry too large: {content_size} > {self.max_size}")
                 return False
-            
+
             current_time = int(time.time())
             expires_at = current_time + self.ttl
-            
+
             # Upsert cache entry
             stmt = await self.db.prepare(f"""
-                INSERT OR REPLACE INTO {self.table_name} 
+                INSERT OR REPLACE INTO {self.table_name}
                 (cache_key, content, created_at, expires_at, size_bytes)
                 VALUES (?, ?, ?, ?, ?)
             """)
-            
-            await stmt.bind(cache_key, content, current_time, expires_at, content_size).run()
+
+            await stmt.bind(
+                cache_key, content, current_time, expires_at, content_size
+            ).run()
             return True
-            
+
         except Exception as e:
             print(f"D1 cache set error: {e}")
             return False
-    
+
     async def delete(self, cache_key: str) -> bool:
         """Delete specific cache entry"""
         try:
@@ -132,7 +139,7 @@ class D1CacheService:
         except Exception as e:
             print(f"D1 cache delete error: {e}")
             return False
-    
+
     async def clear_expired(self) -> int:
         """Remove expired cache entries and return count removed"""
         try:
@@ -145,7 +152,7 @@ class D1CacheService:
         except Exception as e:
             print(f"D1 cache cleanup error: {e}")
             return 0
-    
+
     async def invalidate_pattern(self, pattern: str) -> int:
         """Invalidate cache entries matching a pattern (e.g., '/api/games/%')"""
         try:
@@ -157,7 +164,7 @@ class D1CacheService:
         except Exception as e:
             print(f"D1 cache invalidate error: {e}")
             return 0
-    
+
     async def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics for monitoring"""
         try:
@@ -172,19 +179,19 @@ class D1CacheService:
                 FROM {tn}
             """  # nosec B608: identifier validated via _safe_table(); value parameterized
             stmt = await self.db.prepare(sql)
-            
+
             current_time = int(time.time())
             result = await stmt.bind(current_time).first()
-            
+
             if result:
                 return d1_unwrap(result)
-            
+
             return {"total_entries": 0, "total_size": 0, "total_hits": 0}
-            
+
         except Exception as e:
             print(f"D1 cache stats error: {e}")
             return {"error": str(e)}
-    
+
     async def get_or_generate(self, cache_key: str, generator_func, **kwargs):
         """Get from cache or generate fresh data (compatible with existing decorator)"""
         try:
@@ -192,55 +199,57 @@ class D1CacheService:
             cached_data = await self.get(cache_key)
             if cached_data:
                 return cached_data
-            
+
             # Generate fresh data
             fresh_data = await generator_func(**kwargs)
-            
+
             # Add cache metadata
-            fresh_data['_cached_at'] = int(time.time())
-            fresh_data['_cache_hit'] = False
-            
+            fresh_data["_cached_at"] = int(time.time())
+            fresh_data["_cache_hit"] = False
+
             # Store in cache (async, don't wait)
             await self.set(cache_key, fresh_data)
-            
+
             return fresh_data
-            
+
         except Exception as e:
             # If cache fails, just return fresh data
             print(f"D1 cache get_or_generate error: {e}")
             return await generator_func(**kwargs)
 
 
-def generate_cache_key(path: str, query_params: Dict[str, Any] = None, extra_params: Dict[str, Any] = None) -> str:
+def generate_cache_key(
+    path: str, query_params: Dict[str, Any] = None, extra_params: Dict[str, Any] = None
+) -> str:
     """
     Generate cache key from URL path and parameters
-    
+
     Args:
         path: URL path (e.g., '/api/games/action')
         query_params: Query parameters dict
         extra_params: Additional parameters (user_id, etc.)
-    
+
     Returns:
         Cache key string
     """
     # Start with clean path
-    key_parts = [path.rstrip('/')]
-    
+    key_parts = [path.rstrip("/")]
+
     # Add sorted query params
     if query_params:
         sorted_params = sorted(query_params.items())
         for key, value in sorted_params:
             key_parts.append(f"{key}={value}")
-    
+
     # Add extra params
     if extra_params:
         sorted_extras = sorted(extra_params.items())
         for key, value in sorted_extras:
             key_parts.append(f"_{key}={value}")
-    
+
     # Create deterministic key
     key_string = "|".join(key_parts)
-    
+
     # Hash for consistent length and avoid special characters
     return f"cache:{hashlib.sha256(key_string.encode()).hexdigest()[:32]}"
 
@@ -249,20 +258,21 @@ async def ensure_cache_table(db) -> bool:
     """Ensure the experience_cache table exists"""
     try:
         # Read the schema file
-        import os
         import asyncio
+        import os
+
         schema_path = os.path.join(os.path.dirname(__file__), "cache_d1.sql")
-        
+
         if os.path.exists(schema_path):
             # Use run_in_executor for async file I/O
             loop = asyncio.get_event_loop()
-            
+
             def read_schema_file():
-                with open(schema_path, 'r') as f:
+                with open(schema_path) as f:
                     return f.read()
-            
+
             schema_sql = await loop.run_in_executor(None, read_schema_file)
-            
+
             # Execute schema (D1 supports multiple statements)
             await db.exec(schema_sql)
             return True
@@ -278,12 +288,12 @@ async def ensure_cache_table(db) -> bool:
                     hit_count INTEGER DEFAULT 0,
                     size_bytes INTEGER DEFAULT 0
                 );
-                
-                CREATE INDEX IF NOT EXISTS idx_experience_cache_expires 
+
+                CREATE INDEX IF NOT EXISTS idx_experience_cache_expires
                 ON experience_cache(expires_at);
             """)
             return True
-            
+
     except Exception as e:
         print(f"Failed to create cache table: {e}")
         return False

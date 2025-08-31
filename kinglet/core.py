@@ -1,6 +1,7 @@
 """
 Kinglet Core - Routing and application framework
 """
+
 import re
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -26,33 +27,33 @@ class Route:
         regex_pattern = path
 
         # Find path parameters like {id}, {slug}, etc.
-        param_pattern = re.compile(r'\{([^}]+)\}')
+        param_pattern = re.compile(r"\{([^}]+)\}")
 
         for match in param_pattern.finditer(path):
             param_name = match.group(1)
             param_names.append(param_name)
 
             # Support type hints like {id:int} or {slug:str}
-            if ':' in param_name:
-                param_name, param_type = param_name.split(':', 1)
+            if ":" in param_name:
+                param_name, param_type = param_name.split(":", 1)
                 param_names[-1] = param_name  # Store clean name
 
-                if param_type == 'int':
-                    replacement = r'(\d+)'
-                elif param_type == 'path':
-                    replacement = r'(.*)'  # Match everything including slashes
+                if param_type == "int":
+                    replacement = r"(\d+)"
+                elif param_type == "path":
+                    replacement = r"(.*)"  # Match everything including slashes
                 else:  # default to string
-                    replacement = r'([^/]+)'
+                    replacement = r"([^/]+)"
             else:
-                replacement = r'([^/]+)'
+                replacement = r"([^/]+)"
 
             regex_pattern = regex_pattern.replace(match.group(0), replacement)
 
         # Ensure exact match
-        if not regex_pattern.endswith('$'):
-            regex_pattern += '$'
-        if not regex_pattern.startswith('^'):
-            regex_pattern = '^' + regex_pattern
+        if not regex_pattern.endswith("$"):
+            regex_pattern += "$"
+        if not regex_pattern.startswith("^"):
+            regex_pattern = "^" + regex_pattern
 
         return re.compile(regex_pattern), param_names
 
@@ -93,6 +94,7 @@ class Router:
         def decorator(handler):
             self.add_route(path, handler, methods)
             return handler
+
         return decorator
 
     def get(self, path: str):
@@ -123,19 +125,21 @@ class Router:
         """Decorator for OPTIONS routes"""
         return self.route(path, ["OPTIONS"])
 
-    def include_router(self, prefix: str, router: 'Router'):
+    def include_router(self, prefix: str, router: "Router"):
         """Include another router with a path prefix"""
         # Normalize prefix: ensure it starts with / and doesn't end with /
-        if not prefix.startswith('/'):
-            prefix = '/' + prefix
-        prefix = prefix.rstrip('/')
+        if not prefix.startswith("/"):
+            prefix = "/" + prefix
+        prefix = prefix.rstrip("/")
 
         for route in router.routes:
             # Combine prefix with route path
             new_path = prefix + route.path
             self.add_route(new_path, route.handler, route.methods)
 
-    def resolve(self, method: str, path: str) -> Tuple[Optional[Callable], Dict[str, str]]:
+    def resolve(
+        self, method: str, path: str
+    ) -> Tuple[Optional[Callable], Dict[str, str]]:
         """Find matching route and return handler with path params"""
         for route in self.routes:
             matches, path_params = route.matches(method, path)
@@ -151,25 +155,30 @@ class Router:
 class Kinglet:
     """Main application class"""
 
-    def __init__(self, test_mode=False, root_path="", debug=False, auto_wrap_exceptions=True):
+    def __init__(
+        self, test_mode=False, root_path="", debug=False, auto_wrap_exceptions=True
+    ):
         self.router = Router()
         self.middleware_stack: List[Middleware] = []
         self.error_handlers: Dict[int, Callable] = {}
         self.test_mode = test_mode
-        self.root_path = root_path.rstrip('/')  # Remove trailing slash
+        self.root_path = root_path.rstrip("/")  # Remove trailing slash
         self.debug = debug
         self.auto_wrap_exceptions = auto_wrap_exceptions
 
     def route(self, path: str, methods: List[str] = None):
         """Add route decorator"""
+
         def decorator(handler):
             # Auto-wrap with exception handling if enabled
             if self.auto_wrap_exceptions:
                 from .decorators import wrap_exceptions
+
                 handler = wrap_exceptions(expose_details=self.debug)(handler)
 
             self.router.add_route(self.root_path + path, handler, methods or ["GET"])
             return handler
+
         return decorator
 
     def get(self, path: str):
@@ -198,9 +207,11 @@ class Kinglet:
 
     def exception_handler(self, status_code: int):
         """Decorator for custom error handlers"""
+
         def decorator(handler):
             self.error_handlers[status_code] = handler
             return handler
+
         return decorator
 
     def middleware(self, middleware_class):
@@ -225,28 +236,31 @@ class Kinglet:
     async def _handle_route(self, request: Request):
         """Handle route resolution and execution"""
         handler, path_params = self.router.resolve(request.method, request.path)
-        
+
         if not handler:
             return Response({"error": "Not found"}, status=404)
-            
+
         # Add path parameters and call handler
         request.path_params = path_params
         response = await handler(request)
-        
+
         # Check if already a Workers Response - pass through directly
         try:
             from workers import Response as WorkersResponse
+
             if isinstance(response, WorkersResponse):
                 return response
         except ImportError:
             pass
-            
+
         # Convert dict/string responses to Response objects
         if not isinstance(response, Response):
             response = Response(response)
         return response
 
-    async def _process_response_middleware(self, request: Request, response: Response) -> Response:
+    async def _process_response_middleware(
+        self, request: Request, response: Response
+    ) -> Response:
         """Process response through middleware stack"""
         for middleware in reversed(self.middleware_stack):
             response = await middleware.process_response(request, response)
@@ -259,33 +273,40 @@ class Kinglet:
         except ImportError:
             return response
 
-    async def _handle_custom_error(self, request: Request, exception: Exception, status_code: int):
+    async def _handle_custom_error(
+        self, request: Request, exception: Exception, status_code: int
+    ):
         """Handle exception with custom error handler if available"""
         if status_code not in self.error_handlers:
             return None
-            
+
         try:
             response = await self.error_handlers[status_code](request, exception)
             if not isinstance(response, Response):
                 response = Response(response)
-            
+
             response = await self._process_response_middleware(request, response)
             return self._convert_to_workers_response(response)
         except Exception:
             return None  # Fall through to default handler
 
-    def _create_default_error_response(self, request: Request, exception: Exception, status_code: int) -> Response:
+    def _create_default_error_response(
+        self, request: Request, exception: Exception, status_code: int
+    ) -> Response:
         """Create default error response"""
         if isinstance(exception, HTTPError):
             error_message = exception.message
         else:
             error_message = str(exception) if self.debug else "Internal server error"
-            
-        return Response({
-            "error": error_message,
-            "status_code": status_code,
-            "request_id": getattr(request, 'request_id', 'unknown')
-        }, status=status_code)
+
+        return Response(
+            {
+                "error": error_message,
+                "status_code": status_code,
+                "request_id": getattr(request, "request_id", "unknown"),
+            },
+            status=status_code,
+        )
 
     async def __call__(self, request, env):
         """ASGI-compatible entry point for Workers"""
@@ -294,7 +315,9 @@ class Kinglet:
             kinglet_request = Request(request, env)
 
             # Process middleware (request phase)
-            middleware_response = await self._process_request_middleware(kinglet_request)
+            middleware_response = await self._process_request_middleware(
+                kinglet_request
+            )
             if middleware_response:
                 response = middleware_response
             else:
@@ -302,18 +325,26 @@ class Kinglet:
                 response = await self._handle_route(kinglet_request)
 
             # Process response middleware and convert to Workers format
-            response = await self._process_response_middleware(kinglet_request, response)
+            response = await self._process_response_middleware(
+                kinglet_request, response
+            )
             return self._convert_to_workers_response(response)
 
         except Exception as e:
-            status_code = getattr(e, 'status_code', 500)
+            status_code = getattr(e, "status_code", 500)
 
             # Try custom error handler first
-            custom_response = await self._handle_custom_error(kinglet_request, e, status_code)
+            custom_response = await self._handle_custom_error(
+                kinglet_request, e, status_code
+            )
             if custom_response:
                 return custom_response
 
             # Default error response
-            error_resp = self._create_default_error_response(kinglet_request, e, status_code)
-            error_resp = await self._process_response_middleware(kinglet_request, error_resp)
+            error_resp = self._create_default_error_response(
+                kinglet_request, e, status_code
+            )
+            error_resp = await self._process_response_middleware(
+                kinglet_request, error_resp
+            )
             return self._convert_to_workers_response(error_resp)

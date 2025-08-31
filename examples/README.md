@@ -7,16 +7,16 @@ Quick start examples for all Kinglet features.
 - **[decorators_example.py](decorators_example.py)** - Error handling, validation decorators
 - **[middleware_example.py](middleware_example.py)** - CORS, timing, custom middleware
 
-### Database & Storage  
+### Database & Storage
 - **[orm_d1_cost_optimization.py](orm_d1_cost_optimization.py)** - D1 cost optimization guide (v1.6.0+)
 - **[orm_error_handling_example.py](orm_error_handling_example.py)** - RFC7807 error handling (v1.6.0+)
-- **[orm_integration_test/](orm_integration_test/)** - Complete ORM demo with D1 
+- **[orm_integration_test/](orm_integration_test/)** - Complete ORM demo with D1
 - **[d1_r2_helpers_example.py](d1_r2_helpers_example.py)** - D1/R2 storage helpers
 - **[caching_example.py](caching_example.py)** - R2-backed caching
 - **[d1_cache_example.py](d1_cache_example.py)** - D1-backed caching
 
 ### Security & Auth
-- **[secure_admin_example.py](secure_admin_example.py)** - JWT, geo-restrictions  
+- **[secure_admin_example.py](secure_admin_example.py)** - JWT, geo-restrictions
 - **[authz_example.py](authz_example.py)** - Fine-grained authorization
 - **[totp_example.py](totp_example.py)** - Two-factor authentication
 
@@ -88,7 +88,7 @@ Shows:
 Shows how to serve binary files from Cloudflare R2 storage with the critical technique:
 
 ```python
-# ✅ Correct: Return R2 stream to WorkersResponse  
+# ✅ Correct: Return R2 stream to WorkersResponse
 return WorkersResponse(obj.body, status=200, headers=headers)
 
 # ❌ Wrong: Converting to bytes causes TypeError

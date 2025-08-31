@@ -1,33 +1,40 @@
 """
 Kinglet Testing Utilities - TestClient and Mock classes
 """
+
 import json
 
 
 class TestClient:
     """Simple sync wrapper for testing Kinglet apps without HTTP/Wrangler overhead"""
+
     __test__ = False  # Tell pytest this is not a test class
 
     def __init__(self, app, base_url="https://testserver", env=None):
         self.app = app
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.env = env or {}
 
         # Enable test mode on the app if it's a Kinglet instance
-        if hasattr(app, 'test_mode'):
+        if hasattr(app, "test_mode"):
             app.test_mode = True
 
-    def request(self, method: str, path: str, json_data=None, data=None, headers=None, **kwargs):
+    def request(
+        self, method: str, path: str, json_data=None, data=None, headers=None, **kwargs
+    ):
         """Make a test request and return (status, headers, body)"""
         import asyncio
-        return asyncio.run(self._async_request(method, path, json_data, data, headers, **kwargs))
+
+        return asyncio.run(
+            self._async_request(method, path, json_data, data, headers, **kwargs)
+        )
 
     def _prepare_request_data(self, json_data, data, headers, kwargs):
         """Prepare request headers and body content"""
         # Handle 'json' keyword argument (common in test APIs)
-        if 'json' in kwargs and json_data is None:
-            json_data = kwargs.pop('json')
-            
+        if "json" in kwargs and json_data is None:
+            json_data = kwargs.pop("json")
+
         # Prepare headers
         test_headers = {"content-type": "application/json"} if json_data else {}
         if headers:
@@ -40,7 +47,7 @@ class TestClient:
             test_headers["content-type"] = "application/json"
         elif data is not None:
             body_content = str(data)
-            
+
         return test_headers, body_content
 
     def _serialize_response_content(self, content):
@@ -51,7 +58,7 @@ class TestClient:
 
     def _handle_kinglet_response(self, response):
         """Handle Kinglet Response objects"""
-        if hasattr(response, 'status') and hasattr(response, 'content'):
+        if hasattr(response, "status") and hasattr(response, "content"):
             status = response.status
             headers = response.headers
             content = response.content
@@ -68,11 +75,15 @@ class TestClient:
         else:
             return 200, {}, str(response)
 
-    async def _async_request(self, method: str, path: str, json_data=None, data=None, headers=None, **kwargs):
+    async def _async_request(
+        self, method: str, path: str, json_data=None, data=None, headers=None, **kwargs
+    ):
         """Internal async request handler"""
-        test_headers, body_content = self._prepare_request_data(json_data, data, headers, kwargs)
+        test_headers, body_content = self._prepare_request_data(
+            json_data, data, headers, kwargs
+        )
         url = f"{self.base_url}{path}"
-        
+
         # Create mock objects
         mock_request = MockRequest(method, url, test_headers, body_content)
         mock_env = MockEnv(self.env)
@@ -84,7 +95,7 @@ class TestClient:
             kinglet_result = self._handle_kinglet_response(response)
             if kinglet_result:
                 return kinglet_result
-                
+
             # Handle as raw response
             return self._handle_raw_response(response)
 
@@ -132,8 +143,8 @@ class MockEnv:
 
     def __init__(self, env_dict):
         # Set defaults for common Cloudflare bindings
-        self.DB = env_dict.get('DB', MockDatabase())
-        self.ENVIRONMENT = env_dict.get('ENVIRONMENT', 'test')
+        self.DB = env_dict.get("DB", MockDatabase())
+        self.ENVIRONMENT = env_dict.get("ENVIRONMENT", "test")
 
         # Add any additional environment variables
         for key, value in env_dict.items():

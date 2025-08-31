@@ -1,4 +1,4 @@
-from kinglet.orm import QuerySet, Model, StringField, IntegerField
+from kinglet.orm import IntegerField, Model, QuerySet, StringField
 
 
 class Dummy(Model):
@@ -39,4 +39,3 @@ def test_where_clause_in_and_like_variants():
     assert params[3].startswith("%") and params[3].endswith("%")
     # IN expands all
     assert params[4:] == [1, 2, 3]
-

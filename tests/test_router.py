@@ -1,6 +1,7 @@
 """
 Tests for Kinglet router functionality
 """
+
 from kinglet import Route, Router
 
 
@@ -9,6 +10,7 @@ class TestRoute:
 
     def test_route_creation(self):
         """Test basic route creation"""
+
         def handler():
             pass
 
@@ -19,6 +21,7 @@ class TestRoute:
 
     def test_route_methods_normalization(self):
         """Test that methods are normalized to uppercase"""
+
         def handler():
             pass
 
@@ -27,6 +30,7 @@ class TestRoute:
 
     def test_simple_path_matching(self):
         """Test matching simple paths"""
+
         def handler():
             pass
 
@@ -49,6 +53,7 @@ class TestRoute:
 
     def test_path_parameters(self):
         """Test path parameter extraction"""
+
         def handler():
             pass
 
@@ -65,6 +70,7 @@ class TestRoute:
 
     def test_multiple_path_parameters(self):
         """Test multiple path parameters"""
+
         def handler():
             pass
 
@@ -76,6 +82,7 @@ class TestRoute:
 
     def test_typed_path_parameters(self):
         """Test typed path parameters"""
+
         def handler():
             pass
 

@@ -3,6 +3,7 @@
 Basic Kinglet API Example
 Shows core features: routing, typed parameters, authentication, testing
 """
+
 import os
 import sys
 
@@ -14,18 +15,21 @@ from kinglet import Kinglet, Response, TestClient
 # Create app with root path for /api endpoints
 app = Kinglet(root_path="/api", debug=True)
 
+
 @app.get("/")
 async def health_check(request):
     """Health check endpoint"""
     import sys
+
     return {
         "status": "healthy",
         "project": "Kinglet-BasicAPI-Example",
         "description": "Basic Kinglet API demonstration",
         "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-        "runtime": "Pyodide" if hasattr(sys, '_emscripten_info') else "CPython",
-        "request_id": request.request_id
+        "runtime": "Pyodide" if hasattr(sys, "_emscripten_info") else "CPython",
+        "request_id": request.request_id,
     }
+
 
 @app.get("/search")
 async def search_users(request):
@@ -36,10 +40,11 @@ async def search_users(request):
     tags = request.query_all("tags")
 
     return {
-        "users": [f"user_{i}" for i in range((page-1)*limit, page*limit)],
+        "users": [f"user_{i}" for i in range((page - 1) * limit, page * limit)],
         "filters": {"active": active_only, "tags": tags},
-        "pagination": {"page": page, "limit": limit}
+        "pagination": {"page": page, "limit": limit},
     }
+
 
 @app.get("/users/{user_id}")
 async def get_user(request):
@@ -50,10 +55,12 @@ async def get_user(request):
     # Check authentication
     token = request.bearer_token()
     if not token:
-        return Response.error("Authentication required", status=401,
-                            request_id=request.request_id)
+        return Response.error(
+            "Authentication required", status=401, request_id=request.request_id
+        )
 
     return {"user_id": user_id, "authenticated": True, "token": token}
+
 
 @app.post("/auth/register")
 async def register(request):
@@ -61,19 +68,23 @@ async def register(request):
     data = await request.json()
 
     if not data.get("email"):
-        return Response.error("Email required", status=400,
-                            detail="Please provide a valid email",
-                            request_id=request.request_id)
+        return Response.error(
+            "Email required",
+            status=400,
+            detail="Please provide a valid email",
+            request_id=request.request_id,
+        )
 
-    return Response.json({
-        "user_id": "123",
-        "email": data["email"],
-        "created": True
-    }, request_id=request.request_id)
+    return Response.json(
+        {"user_id": "123", "email": data["email"], "created": True},
+        request_id=request.request_id,
+    )
+
 
 # Cloudflare Workers entry point
 async def on_fetch(request, env):
     return await app(request, env)
+
 
 # Development testing
 if __name__ == "__main__":
@@ -87,19 +98,21 @@ if __name__ == "__main__":
     print(f"Health: {status} - {body}")
 
     # Test search with typed parameters
-    status, headers, body = client.request("GET", "/api/search?page=2&limit=5&active=true&tags=python")
+    status, headers, body = client.request(
+        "GET", "/api/search?page=2&limit=5&active=true&tags=python"
+    )
     print(f"Search: {status} - {body}")
 
     # Test authenticated user lookup
-    status, headers, body = client.request("GET", "/api/users/42", headers={
-        "Authorization": "Bearer user-token-123"
-    })
+    status, headers, body = client.request(
+        "GET", "/api/users/42", headers={"Authorization": "Bearer user-token-123"}
+    )
     print(f"User: {status} - {body}")
 
     # Test registration
-    status, headers, body = client.request("POST", "/api/auth/register", json={
-        "email": "test@example.com"
-    })
+    status, headers, body = client.request(
+        "POST", "/api/auth/register", json={"email": "test@example.com"}
+    )
     print(f"Register: {status} - {body}")
 
     # Test validation error

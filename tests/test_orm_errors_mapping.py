@@ -1,10 +1,9 @@
 from kinglet.orm_errors import (
-    ValidationError,
-    UniqueViolationError,
-    NotNullViolationError,
     ForeignKeyViolationError,
     MultipleObjectsReturnedError,
-    DoesNotExistError,
+    NotNullViolationError,
+    UniqueViolationError,
+    ValidationError,
     to_problem_json,
 )
 
@@ -34,4 +33,3 @@ def test_to_problem_json_various_errors():
     m = MultipleObjectsReturnedError("Model", 2)
     p = to_problem_json(m, status=409, title="t")
     assert p.get("count") == 2
-

@@ -3,13 +3,17 @@ from kinglet import orm_deploy
 
 def test_deploy_schema_rejects_invalid_database_name(monkeypatch):
     # Ensure generate_schema returns some SQL without needing real models
-    monkeypatch.setattr(orm_deploy, "generate_schema", lambda _m: "CREATE TABLE x(id INTEGER);")
+    monkeypatch.setattr(
+        orm_deploy, "generate_schema", lambda _m: "CREATE TABLE x(id INTEGER);"
+    )
 
     called = {"run": False}
 
     def fake_run(*args, **kwargs):
         called["run"] = True
-        raise AssertionError("subprocess.run should not be called for invalid database name")
+        raise AssertionError(
+            "subprocess.run should not be called for invalid database name"
+        )
 
     monkeypatch.setattr(orm_deploy.subprocess, "run", fake_run)
 
@@ -20,7 +24,9 @@ def test_deploy_schema_rejects_invalid_database_name(monkeypatch):
 
 def test_deploy_schema_valid_invokes_wranger_locally(monkeypatch):
     # Provide minimal schema content
-    monkeypatch.setattr(orm_deploy, "generate_schema", lambda _m: "CREATE TABLE x(id INTEGER);")
+    monkeypatch.setattr(
+        orm_deploy, "generate_schema", lambda _m: "CREATE TABLE x(id INTEGER);"
+    )
 
     captured = {"cmd": None}
 

@@ -1,0 +1,36 @@
+# Pre-commit hooks configuration for Kinglet
+# Run 'uv run pre-commit install' after adding this file
+# Run 'uv run pre-commit run --all-files' to check all files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: debug-statements
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      # Run the linter (exclude demo and example files)
+      - id: ruff
+        args: [--fix]
+        exclude: ^(CloudFlare-Demo/|examples/)
+      # Run the formatter
+      - id: ruff-format
+        exclude: ^(CloudFlare-Demo/|examples/)
+
+  - repo: local
+    hooks:
+      - id: pytest-fast
+        name: pytest-fast
+        entry: uv run pytest --maxfail=1 -x
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        # Only run if test files or source files changed
+        files: ^(tests/.*\.py|kinglet/.*\.py)$

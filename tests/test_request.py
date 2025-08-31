@@ -1,6 +1,7 @@
 """
 Tests for Kinglet Request wrapper
 """
+
 import json
 from unittest.mock import Mock
 
@@ -37,11 +38,11 @@ class MockWorkerRequest:
     async def formData(self):
         # Mock form data parsing
         if self._body:
-            pairs = self._body.split('&')
+            pairs = self._body.split("&")
             form_data = {}
             for pair in pairs:
-                if '=' in pair:
-                    key, value = pair.split('=', 1)
+                if "=" in pair:
+                    key, value = pair.split("=", 1)
                     form_data[key] = value
             return form_data
         return {}
@@ -67,8 +68,7 @@ class TestRequest:
     def test_url_parsing(self, mock_env):
         """Test URL component parsing"""
         raw_request = MockWorkerRequest(
-            "GET",
-            "http://localhost:8080/api/users?page=1&limit=10#section1"
+            "GET", "http://localhost:8080/api/users?page=1&limit=10#section1"
         )
         request = Request(raw_request, mock_env)
 
@@ -79,7 +79,7 @@ class TestRequest:
         """Test query parameter parsing"""
         raw_request = MockWorkerRequest(
             "GET",
-            "http://localhost/search?q=test&category=books&category=movies&limit=10"
+            "http://localhost/search?q=test&category=books&category=movies&limit=10",
         )
         request = Request(raw_request, mock_env)
 
@@ -94,7 +94,7 @@ class TestRequest:
         headers = {
             "Content-Type": "application/json",
             "Authorization": "Bearer token123",
-            "X-Custom-Header": "value"
+            "X-Custom-Header": "value",
         }
 
         raw_request = MockWorkerRequest("POST", "http://localhost/", headers)
@@ -146,7 +146,9 @@ class TestRequest:
         """Test invalid JSON handling"""
         invalid_json = "{ invalid json"
         headers = {"Content-Type": "application/json"}
-        raw_request = MockWorkerRequest("POST", "http://localhost/", headers, invalid_json)
+        raw_request = MockWorkerRequest(
+            "POST", "http://localhost/", headers, invalid_json
+        )
         request = Request(raw_request, mock_env)
 
         parsed_json = await request.json()
@@ -204,9 +206,7 @@ class TestJsProxyConversion:
         def __init__(self, data):
             self._data = data
             # Mock Object.keys functionality
-            self.Object = type('Object', (), {
-                'keys': lambda obj: list(data.keys())
-            })()
+            self.Object = type("Object", (), {"keys": lambda obj: list(data.keys())})()
 
         def __getitem__(self, key):
             return self._data[key]
@@ -217,7 +217,9 @@ class TestJsProxyConversion:
     class MockWorkerRequestWithJsProxy:
         """Mock Workers request with JsProxy response"""
 
-        def __init__(self, method="POST", url="http://localhost/", headers=None, js_proxy=None):
+        def __init__(
+            self, method="POST", url="http://localhost/", headers=None, js_proxy=None
+        ):
             self.method = method
             self.url = url
             self.headers = MockHeaders(headers or {})
@@ -324,6 +326,7 @@ class TestJsProxyConversion:
     @pytest.mark.asyncio
     async def test_none_json_handling(self, mock_env):
         """Test handling of None/empty JSON responses"""
+
         class MockNoneRequest:
             def __init__(self):
                 self.method = "POST"

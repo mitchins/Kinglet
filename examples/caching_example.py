@@ -20,11 +20,12 @@ from kinglet import (
 app = Kinglet(debug=True)
 
 # Configure global cache policy (optional - EnvironmentCachePolicy is default)
-set_default_cache_policy(EnvironmentCachePolicy(
-    disable_in_dev=True,
-    cache_env_var="USE_CACHE",
-    environment_var="ENVIRONMENT"
-))
+set_default_cache_policy(
+    EnvironmentCachePolicy(
+        disable_in_dev=True, cache_env_var="USE_CACHE", environment_var="ENVIRONMENT"
+    )
+)
+
 
 # Example 1: Basic Environment-Aware Caching
 @app.get("/api/basic-data")
@@ -40,15 +41,16 @@ async def get_basic_data(request):
     return {
         "data": "expensive_computation_result",
         "timestamp": time.time(),
-        "environment": "auto-detected"
+        "environment": "auto-detected",
     }
+
 
 # Example 2: Always Cache (Critical Production Data)
 @app.get("/api/critical-data")
 @cache_aside(
     cache_type="critical_data",
     ttl=3600,  # 1 hour
-    policy=AlwaysCachePolicy()
+    policy=AlwaysCachePolicy(),
 )
 async def get_critical_data(request):
     """
@@ -59,15 +61,16 @@ async def get_critical_data(request):
     return {
         "critical_info": "mission_critical_data",
         "computed_at": time.time(),
-        "cache_policy": "always"
+        "cache_policy": "always",
     }
+
 
 # Example 3: Never Cache (Sensitive Data)
 @app.get("/api/sensitive-data")
 @cache_aside(
     cache_type="sensitive_data",
     ttl=300,  # TTL ignored due to policy
-    policy=NeverCachePolicy()
+    policy=NeverCachePolicy(),
 )
 async def get_sensitive_data(request):
     """
@@ -77,8 +80,9 @@ async def get_sensitive_data(request):
     return {
         "user_data": "always_fresh_sensitive_info",
         "generated_at": time.time(),
-        "cache_policy": "never"
+        "cache_policy": "never",
     }
+
 
 # Example 4: Custom Cache Policy
 class BusinessHoursCachePolicy:
@@ -86,15 +90,13 @@ class BusinessHoursCachePolicy:
 
     def should_cache(self, request):
         import datetime
+
         hour = datetime.datetime.now().hour
         return 9 <= hour <= 17
 
+
 @app.get("/api/business-reports")
-@cache_aside(
-    cache_type="business_reports",
-    ttl=1800,
-    policy=BusinessHoursCachePolicy()
-)
+@cache_aside(cache_type="business_reports", ttl=1800, policy=BusinessHoursCachePolicy())
 async def get_business_reports(request):
     """
     Custom caching logic: only cache during business hours.
@@ -103,8 +105,9 @@ async def get_business_reports(request):
     return {
         "report_data": "quarterly_business_metrics",
         "generated_at": time.time(),
-        "cache_policy": "business_hours_only"
+        "cache_policy": "business_hours_only",
     }
+
 
 # Example 5: Feature Flag Cache Policy
 class FeatureFlagCachePolicy:
@@ -112,13 +115,14 @@ class FeatureFlagCachePolicy:
 
     def should_cache(self, request):
         # Check feature flag in environment
-        return getattr(request.env, 'FEATURE_CACHE_ENABLED', True)
+        return getattr(request.env, "FEATURE_CACHE_ENABLED", True)
+
 
 @app.get("/api/feature-data")
 @cache_aside(
     cache_type="feature_data",
     ttl=900,  # 15 minutes
-    policy=FeatureFlagCachePolicy()
+    policy=FeatureFlagCachePolicy(),
 )
 async def get_feature_data(request):
     """
@@ -127,8 +131,9 @@ async def get_feature_data(request):
     return {
         "feature_data": "experimental_feature_result",
         "timestamp": time.time(),
-        "cache_policy": "feature_flag_controlled"
+        "cache_policy": "feature_flag_controlled",
     }
+
 
 # Example 6: Different TTL for Different Data Types
 @app.get("/api/static-config")
@@ -137,11 +142,13 @@ async def get_static_config(request):
     """Long-lived cache for configuration data"""
     return {"config": "rarely_changing_settings", "version": "1.0"}
 
+
 @app.get("/api/live-stats")
 @cache_aside(cache_type="live_stats", ttl=30)  # 30 seconds
 async def get_live_stats(request):
     """Short-lived cache for frequently changing data"""
     return {"stats": "real_time_metrics", "timestamp": time.time()}
+
 
 # Example 7: Cache with Path Parameters
 @app.get("/api/user/{user_id}/profile")
@@ -156,8 +163,9 @@ async def get_user_profile(request):
     return {
         "user_id": user_id,
         "profile": f"profile_data_for_user_{user_id}",
-        "loaded_at": time.time()
+        "loaded_at": time.time(),
     }
+
 
 # Example 8: Cache with Query Parameters
 @app.get("/api/search")
@@ -175,15 +183,16 @@ async def search_data(request):
         "query": query,
         "limit": limit,
         "results": f"search_results_for_{query}",
-        "searched_at": time.time()
+        "searched_at": time.time(),
     }
+
 
 # Example 9: Custom Storage Binding
 @app.get("/api/custom-storage")
 @cache_aside(
     storage_binding="CUSTOM_CACHE",  # Use different KV namespace
     cache_type="custom_data",
-    ttl=1200
+    ttl=1200,
 )
 async def get_custom_storage_data(request):
     """
@@ -193,8 +202,9 @@ async def get_custom_storage_data(request):
     return {
         "data": "stored_in_custom_kv_namespace",
         "storage": "CUSTOM_CACHE",
-        "timestamp": time.time()
+        "timestamp": time.time(),
     }
+
 
 # Example 10: Cache Status Endpoint
 @app.get("/api/cache-status")
@@ -214,10 +224,11 @@ async def cache_status(request):
     return {
         "cache_policy": policy_name,
         "would_cache": would_cache,
-        "environment": getattr(request.env, 'ENVIRONMENT', 'production'),
-        "use_cache_override": getattr(request.env, 'USE_CACHE', None),
-        "timestamp": time.time()
+        "environment": getattr(request.env, "ENVIRONMENT", "production"),
+        "use_cache_override": getattr(request.env, "USE_CACHE", None),
+        "timestamp": time.time(),
     }
+
 
 if __name__ == "__main__":
     print("Environment-Aware Caching Examples Ready!")

@@ -21,9 +21,27 @@ from kinglet import (
 
 # Mock data for demo
 GAMES_DATA = [
-    {"id": 1, "title": "Epic Adventure", "genre": "action", "rating": 4.8, "cover_uid": "abc-123"},
-    {"id": 2, "title": "Puzzle Master", "genre": "puzzle", "rating": 4.6, "cover_uid": "def-456"},
-    {"id": 3, "title": "Space Colony", "genre": "strategy", "rating": 4.9, "cover_uid": "ghi-789"}
+    {
+        "id": 1,
+        "title": "Epic Adventure",
+        "genre": "action",
+        "rating": 4.8,
+        "cover_uid": "abc-123",
+    },
+    {
+        "id": 2,
+        "title": "Puzzle Master",
+        "genre": "puzzle",
+        "rating": 4.6,
+        "cover_uid": "def-456",
+    },
+    {
+        "id": 3,
+        "title": "Space Colony",
+        "genre": "strategy",
+        "rating": 4.9,
+        "cover_uid": "ghi-789",
+    },
 ]
 
 MEDIA_STORAGE = {}  # Mock R2 storage
@@ -34,6 +52,7 @@ app = Kinglet(debug=True, root_path="/api")
 
 
 # === EXPERIENCE API WITH CACHING ===
+
 
 @app.get("/homepage")
 @cache_aside(cache_type="homepage", ttl=3600)  # Cache for 1 hour
@@ -53,7 +72,7 @@ async def get_homepage(request):
         "featured_games": featured_games,
         "latest_games": latest_games,
         "generated_at": time.time(),
-        "source": "kinglet_experience_api"
+        "source": "kinglet_experience_api",
     }
 
 
@@ -81,11 +100,12 @@ async def list_games(request):
         "games": games,
         "filters": {"genre": genre_filter, "limit": limit},
         "total": len(games),
-        "generated_at": time.time()
+        "generated_at": time.time(),
     }
 
 
 # === MEDIA MANAGEMENT ===
+
 
 @app.post("/media")
 async def upload_media(request):
@@ -96,14 +116,14 @@ async def upload_media(request):
     # Store in mock storage
     MEDIA_STORAGE[media_uid] = {
         "uploaded_at": time.time(),
-        "size": 1024 * 50  # 50KB
+        "size": 1024 * 50,  # 50KB
     }
 
     return {
         "success": True,
         "uid": media_uid,
         "url": media_url(request, media_uid),
-        "message": "Upload complete"
+        "message": "Upload complete",
     }
 
 
@@ -117,14 +137,11 @@ async def get_media(request):
 
     media_info = MEDIA_STORAGE[uid]
 
-    return {
-        "uid": uid,
-        "url": media_url(request, uid),
-        "metadata": media_info
-    }
+    return {"uid": uid, "url": media_url(request, uid), "metadata": media_info}
 
 
 # === GAME DETAIL WITH DYNAMIC PATH CACHING ===
+
 
 @app.get("/games/{slug}")
 @cache_aside(cache_type="game_detail", ttl=1800)  # Cache each game separately
@@ -148,18 +165,16 @@ async def get_game_detail(request):
     game["description"] = f"An amazing {game['genre']} game with epic gameplay!"
     game["screenshots"] = [
         media_url(request, f"{game['cover_uid']}-screenshot1"),
-        media_url(request, f"{game['cover_uid']}-screenshot2")
+        media_url(request, f"{game['cover_uid']}-screenshot2"),
     ]
     game["cover_url"] = media_url(request, game["cover_uid"])
     game["generated_at"] = time.time()
 
-    return {
-        "game": game,
-        "source": "kinglet_game_detail_cached"
-    }
+    return {"game": game, "source": "kinglet_game_detail_cached"}
 
 
 # === ADMIN ENDPOINTS WITH VALIDATION ===
+
 
 @app.post("/admin/games")
 @require_dev()  # Only in development
@@ -177,7 +192,7 @@ async def create_game(request):
         "genre": data["genre"],
         "rating": data["rating"],
         "cover_uid": str(uuid.uuid4()),
-        "created_at": time.time()
+        "created_at": time.time(),
     }
 
     # Add media URL
@@ -186,11 +201,7 @@ async def create_game(request):
     # Add to mock data
     GAMES_DATA.append(new_game)
 
-    return {
-        "success": True,
-        "game": new_game,
-        "message": "Game created successfully"
-    }
+    return {"success": True, "game": new_game, "message": "Game created successfully"}
 
 
 @app.put("/admin/games/{game_id}")
@@ -220,14 +231,11 @@ async def update_game(request):
     game["updated_at"] = time.time()
     game["cover_url"] = media_url(request, game["cover_uid"])
 
-    return {
-        "success": True,
-        "game": game,
-        "message": "Game updated successfully"
-    }
+    return {"success": True, "game": game, "message": "Game updated successfully"}
 
 
 # === CACHE MANAGEMENT ===
+
 
 @app.delete("/admin/cache/{cache_type}")
 @require_dev()
@@ -240,7 +248,7 @@ async def clear_cache(request):
         "success": True,
         "cache_type": cache_type,
         "message": f"Cache '{cache_type}' cleared",
-        "timestamp": time.time()
+        "timestamp": time.time(),
     }
 
 
@@ -260,7 +268,7 @@ if __name__ == "__main__":
     test_env = {
         "STORAGE": MockR2(),
         "ENVIRONMENT": "development",
-        "CDN_BASE_URL": None  # Will use auto-detected URLs
+        "CDN_BASE_URL": None,  # Will use auto-detected URLs
     }
 
     client = TestClient(app, env=test_env)
@@ -291,7 +299,7 @@ if __name__ == "__main__":
     print(f"Status: {status}")
     print(f"Games Found: {data.get('total', 0)}")
     print(f"Cache Hit: {data.get('_cache_hit', 'N/A')}")
-    if data.get('games'):
+    if data.get("games"):
         print(f"First Game URL: {data['games'][0].get('cover_url', 'N/A')}")
     print()
 
@@ -306,11 +314,7 @@ if __name__ == "__main__":
 
     # Test game creation with validation
     print("5️⃣ Game Creation (With Validation)")
-    game_data = {
-        "title": "New Racing Game",
-        "genre": "racing",
-        "rating": 4.7
-    }
+    game_data = {"title": "New Racing Game", "genre": "racing", "rating": 4.7}
     status, headers, body = client.request("POST", "/api/admin/games", json=game_data)
     data = json.loads(body)
     print(f"Status: {status}")

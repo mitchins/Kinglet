@@ -21,36 +21,41 @@ admin_router = Router()
 # SECURE ADMIN DECORATOR WITH MULTIPLE LAYERS
 # ============================================================================
 
+
 def require_admin(handler):
     """
     Multi-layer admin security decorator
-    
+
     Security layers:
     1. Authentication required (valid JWT)
     2. Admin role verification (no development bypasses)
     3. User context setup for handler access
     """
+
     async def wrapped(request):
         # Layer 1: Require authentication
         user = await get_user(request)
         if not user:
-            return Response({
-                'error': 'Admin access requires authentication',
-                'hint': 'Include valid JWT token in Authorization header'
-            }, status=401)
+            return Response(
+                {
+                    "error": "Admin access requires authentication",
+                    "hint": "Include valid JWT token in Authorization header",
+                },
+                status=401,
+            )
 
         # Layer 2: Verify admin role (NO development bypasses!)
-        claims = user.get('claims', {})
-        is_admin = (
-            claims.get('role') == 'admin' or
-            claims.get('is_publisher') is True
-        )
+        claims = user.get("claims", {})
+        is_admin = claims.get("role") == "admin" or claims.get("is_publisher") is True
 
         if not is_admin:
-            return Response({
-                'error': 'Admin access denied - insufficient privileges',
-                'required_role': 'admin'
-            }, status=403)
+            return Response(
+                {
+                    "error": "Admin access denied - insufficient privileges",
+                    "required_role": "admin",
+                },
+                status=403,
+            )
 
         # Layer 3: Set user context for handler
         request.state = getattr(request, "state", type("State", (), {})())
@@ -65,19 +70,21 @@ def require_admin(handler):
 # UTILITY FUNCTIONS FOR ROBUST SECURITY
 # ============================================================================
 
+
 def get_header_case_insensitive(request, header_name):
     """
     Get header value checking multiple case variations
-    
+
     HTTP headers are case-insensitive but implementations vary.
     This ensures we catch headers regardless of client casing.
     """
     variations = [
-        header_name.lower(),                    # x-confirm-action
-        header_name.upper(),                    # X-CONFIRM-ACTION
-        header_name.title(),                    # X-Confirm-Action
-        '-'.join(word.capitalize()
-                for word in header_name.split('-'))  # X-Confirm-Action (alt)
+        header_name.lower(),  # x-confirm-action
+        header_name.upper(),  # X-CONFIRM-ACTION
+        header_name.title(),  # X-Confirm-Action
+        "-".join(
+            word.capitalize() for word in header_name.split("-")
+        ),  # X-Confirm-Action (alt)
     ]
 
     for variation in variations:
@@ -91,12 +98,13 @@ def get_header_case_insensitive(request, header_name):
 # SECURE ADMIN ENDPOINTS - CORRECT DECORATOR ORDER
 # ============================================================================
 
+
 @admin_router.get("/tables")
 @require_admin  # ← CORRECT: Router decorator FIRST, then security decorator
 async def get_tables(request):
     """
     Get list of database tables
-    
+
     Security: Admin role required
     """
     try:
@@ -106,12 +114,10 @@ async def get_tables(request):
         return {
             "tables": tables,
             "total": len(tables),
-            "admin_user": request.state.user["id"]
+            "admin_user": request.state.user["id"],
         }
     except Exception as e:
-        return Response({
-            "error": f"Failed to fetch tables: {str(e)}"
-        }, status=500)
+        return Response({"error": f"Failed to fetch tables: {str(e)}"}, status=500)
 
 
 @admin_router.get("/stats")
@@ -119,7 +125,7 @@ async def get_tables(request):
 async def get_database_stats(request):
     """
     Get database statistics
-    
+
     Security: Admin role required
     """
     try:
@@ -128,18 +134,16 @@ async def get_database_stats(request):
             "users": 1250,
             "games": 52,
             "transactions": 891,
-            "total_revenue": 15750.50
+            "total_revenue": 15750.50,
         }
 
         return {
             "table_counts": stats,
             "last_updated": "2024-01-15T10:30:00Z",
-            "admin_user": request.state.user["id"]
+            "admin_user": request.state.user["id"],
         }
     except Exception as e:
-        return Response({
-            "error": f"Failed to get stats: {str(e)}"
-        }, status=500)
+        return Response({"error": f"Failed to get stats: {str(e)}"}, status=500)
 
 
 @admin_router.post("/cache/nuke")
@@ -147,39 +151,44 @@ async def get_database_stats(request):
 async def nuke_cache(request):
     """
     Nuclear cache clear - removes all cached content
-    
+
     Security: Admin role required + confirmation header
     Dangerous operation requires explicit confirmation
     """
 
     # Check confirmation header (case-insensitive)
-    confirm_header = get_header_case_insensitive(request, 'x-confirm-nuke')
+    confirm_header = get_header_case_insensitive(request, "x-confirm-nuke")
 
-    if confirm_header != 'true':
-        return Response({
-            'error': 'Cache nuke confirmation required. Add X-Confirm-Nuke: true header',
-            'example': 'curl -H "X-Confirm-Nuke: true" -X POST /api/admin/cache/nuke'
-        }, status=400)
+    if confirm_header != "true":
+        return Response(
+            {
+                "error": "Cache nuke confirmation required. Add X-Confirm-Nuke: true header",
+                "example": 'curl -H "X-Confirm-Nuke: true" -X POST /api/admin/cache/nuke',
+            },
+            status=400,
+        )
 
     try:
         # Mock cache clearing operation
-        cache_prefixes = ['homepage_', 'games_list_', 'game_detail_']
+        cache_prefixes = ["homepage_", "games_list_", "game_detail_"]
         nuked_count = 127  # Mock cleared objects count
 
-        return Response({
-            'success': True,
-            'message': f'Cache nuked: {nuked_count} objects deleted',
-            'nuked_count': nuked_count,
-            'cache_prefixes_cleared': cache_prefixes,
-            'admin_user': request.state.user["id"],
-            'timestamp': '2024-01-15T10:35:22Z'
-        })
+        return Response(
+            {
+                "success": True,
+                "message": f"Cache nuked: {nuked_count} objects deleted",
+                "nuked_count": nuked_count,
+                "cache_prefixes_cleared": cache_prefixes,
+                "admin_user": request.state.user["id"],
+                "timestamp": "2024-01-15T10:35:22Z",
+            }
+        )
 
     except Exception as e:
-        return Response({
-            'error': f'Cache nuke failed: {str(e)}',
-            'type': type(e).__name__
-        }, status=500)
+        return Response(
+            {"error": f"Cache nuke failed: {str(e)}", "type": type(e).__name__},
+            status=500,
+        )
 
 
 @admin_router.delete("/tables/{table_name}/row/{row_id}")
@@ -187,43 +196,49 @@ async def nuke_cache(request):
 async def delete_row(request):
     """
     Delete a database row
-    
+
     Security: Admin role required + confirmation header
     """
     table_name = request.path_param("table_name")
     row_id = request.path_param("row_id")
 
     # Validate table name (prevent SQL injection)
-    allowed_tables = ['users', 'games', 'transactions', 'sessions']
+    allowed_tables = ["users", "games", "transactions", "sessions"]
     if table_name not in allowed_tables:
-        return Response({
-            'error': 'Table not allowed for deletion',
-            'allowed_tables': allowed_tables
-        }, status=400)
+        return Response(
+            {
+                "error": "Table not allowed for deletion",
+                "allowed_tables": allowed_tables,
+            },
+            status=400,
+        )
 
     # Check confirmation header (case-insensitive)
-    confirm_header = get_header_case_insensitive(request, 'x-confirm-delete')
+    confirm_header = get_header_case_insensitive(request, "x-confirm-delete")
 
-    if confirm_header != 'true':
-        return Response({
-            'error': 'Delete confirmation required. Add X-Confirm-Delete: true header',
-            'warning': f'This will permanently delete row {row_id} from {table_name}'
-        }, status=400)
+    if confirm_header != "true":
+        return Response(
+            {
+                "error": "Delete confirmation required. Add X-Confirm-Delete: true header",
+                "warning": f"This will permanently delete row {row_id} from {table_name}",
+            },
+            status=400,
+        )
 
     try:
         # Mock deletion operation
-        return Response({
-            'success': True,
-            'deleted_table': table_name,
-            'deleted_id': row_id,
-            'admin_user': request.state.user["id"],
-            'timestamp': '2024-01-15T10:40:15Z'
-        })
+        return Response(
+            {
+                "success": True,
+                "deleted_table": table_name,
+                "deleted_id": row_id,
+                "admin_user": request.state.user["id"],
+                "timestamp": "2024-01-15T10:40:15Z",
+            }
+        )
 
     except Exception as e:
-        return Response({
-            'error': f'Failed to delete row: {str(e)}'
-        }, status=500)
+        return Response({"error": f"Failed to delete row: {str(e)}"}, status=500)
 
 
 @admin_router.get("/cache/info")
@@ -231,36 +246,35 @@ async def delete_row(request):
 async def get_cache_info(request):
     """
     Get information about cached objects
-    
+
     Security: Admin role required (read-only, no confirmation needed)
     """
     try:
         # Mock cache information
         cache_info = {
-            'homepage_': {'count': 3, 'size_mb': 1.2},
-            'games_list_': {'count': 15, 'size_mb': 0.8},
-            'game_detail_': {'count': 52, 'size_mb': 4.1}
+            "homepage_": {"count": 3, "size_mb": 1.2},
+            "games_list_": {"count": 15, "size_mb": 0.8},
+            "game_detail_": {"count": 52, "size_mb": 4.1},
         }
 
-        total_objects = sum(info['count'] for info in cache_info.values())
-        total_size = sum(info['size_mb'] for info in cache_info.values())
+        total_objects = sum(info["count"] for info in cache_info.values())
+        total_size = sum(info["size_mb"] for info in cache_info.values())
 
         return {
-            'cache_info': cache_info,
-            'total_cached_objects': total_objects,
-            'total_size_mb': round(total_size, 2),
-            'admin_user': request.state.user["id"]
+            "cache_info": cache_info,
+            "total_cached_objects": total_objects,
+            "total_size_mb": round(total_size, 2),
+            "admin_user": request.state.user["id"],
         }
 
     except Exception as e:
-        return Response({
-            'error': f'Failed to get cache info: {str(e)}'
-        }, status=500)
+        return Response({"error": f"Failed to get cache info: {str(e)}"}, status=500)
 
 
 # ============================================================================
 # PUBLIC ENDPOINTS FOR COMPARISON
 # ============================================================================
+
 
 @app.get("/health")
 async def health_check(request):
@@ -270,7 +284,7 @@ async def health_check(request):
         "project": "Kinglet-SecureAdminExample",
         "description": "Secure admin endpoint demonstration",
         "timestamp": "2024-01-15T10:45:00Z",
-        "version": "1.0.0"
+        "version": "1.0.0",
     }
 
 
@@ -280,9 +294,9 @@ async def list_games(request):
     return {
         "games": [
             {"id": 1, "title": "Space Adventure", "public": True},
-            {"id": 2, "title": "Puzzle Master", "public": True}
+            {"id": 2, "title": "Puzzle Master", "public": True},
         ],
-        "total": 2
+        "total": 2,
     }
 
 
@@ -325,31 +339,42 @@ if __name__ == "__main__":
     from unittest.mock import AsyncMock
 
     import kinglet.authz
+
     original_get_user = kinglet.authz.get_user
-    kinglet.authz.get_user = AsyncMock(return_value={
-        'id': 'admin-123',
-        'claims': {'role': 'admin', 'email': 'admin@test.com'}
-    })
+    kinglet.authz.get_user = AsyncMock(
+        return_value={
+            "id": "admin-123",
+            "claims": {"role": "admin", "email": "admin@test.com"},
+        }
+    )
 
     try:
-        status, _, body = client.request("GET", "/api/admin/tables", headers={
-            "Authorization": f"Bearer {mock_admin_token}"
-        })
+        status, _, body = client.request(
+            "GET",
+            "/api/admin/tables",
+            headers={"Authorization": f"Bearer {mock_admin_token}"},
+        )
         print(f"Status: {status}, Response: {body}")
 
         # Test 4: Dangerous operation without confirmation (should fail)
         print("\n❌ Test 4: Dangerous operation without confirmation")
-        status, _, body = client.request("POST", "/api/admin/cache/nuke", headers={
-            "Authorization": f"Bearer {mock_admin_token}"
-        })
+        status, _, body = client.request(
+            "POST",
+            "/api/admin/cache/nuke",
+            headers={"Authorization": f"Bearer {mock_admin_token}"},
+        )
         print(f"Status: {status}, Response: {body}")
 
         # Test 5: Dangerous operation with confirmation (should work)
         print("\n✅ Test 5: Dangerous operation with confirmation")
-        status, _, body = client.request("POST", "/api/admin/cache/nuke", headers={
-            "Authorization": f"Bearer {mock_admin_token}",
-            "X-Confirm-Nuke": "true"
-        })
+        status, _, body = client.request(
+            "POST",
+            "/api/admin/cache/nuke",
+            headers={
+                "Authorization": f"Bearer {mock_admin_token}",
+                "X-Confirm-Nuke": "true",
+            },
+        )
         print(f"Status: {status}, Response: {body}")
 
     finally:
@@ -372,7 +397,7 @@ Environment Configuration (wrangler.toml):
 [vars]
 JWT_SECRET = "your-production-jwt-secret"
 
-[env.development.vars] 
+[env.development.vars]
 JWT_SECRET = "development-jwt-secret"
 
 Security Notes:

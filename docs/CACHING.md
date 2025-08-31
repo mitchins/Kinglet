@@ -61,8 +61,8 @@ set_default_cache_policy(EnvironmentCachePolicy(
 ```python
 # Force caching for critical production endpoint
 @cache_aside(
-    cache_type="critical_data", 
-    ttl=3600, 
+    cache_type="critical_data",
+    ttl=3600,
     policy=AlwaysCachePolicy()
 )
 async def critical_endpoint(request):
@@ -70,8 +70,8 @@ async def critical_endpoint(request):
 
 # Never cache sensitive data
 @cache_aside(
-    cache_type="sensitive", 
-    ttl=900, 
+    cache_type="sensitive",
+    ttl=900,
     policy=NeverCachePolicy()
 )
 async def sensitive_endpoint(request):
@@ -132,7 +132,7 @@ async def custom_cached_endpoint(request):
 
 Cache keys are automatically generated from:
 - Function name
-- Path parameters  
+- Path parameters
 - Query parameters
 - Cache type
 
@@ -153,7 +153,7 @@ async def get_user_data(request):
 async def static_content(request):
     return await fetch_static_data()
 
-@cache_aside(cache_type="dynamic_data", ttl=300)      # 5 minutes  
+@cache_aside(cache_type="dynamic_data", ttl=300)      # 5 minutes
 async def dynamic_content(request):
     return await fetch_live_data()
 
@@ -238,7 +238,7 @@ from kinglet import set_default_cache_policy, EnvironmentCachePolicy
 # Configure for your deployment
 set_default_cache_policy(EnvironmentCachePolicy(
     disable_in_dev=True,
-    cache_env_var="MY_CACHE_SETTING", 
+    cache_env_var="MY_CACHE_SETTING",
     environment_var="APP_ENVIRONMENT"
 ))
 
@@ -251,7 +251,7 @@ set_default_cache_policy(EnvironmentCachePolicy(
 class MultiEnvironmentCachePolicy:
     def should_cache(self, request):
         env = getattr(request.env, 'ENVIRONMENT', 'production').lower()
-        
+
         if env in ('test', 'unittest'):
             return False  # Never cache in tests
         elif env == 'staging':
@@ -276,11 +276,11 @@ class MultiEnvironmentCachePolicy:
 ### Cache Not Working in Production
 ```bash
 # Check environment variables
-echo $ENVIRONMENT    # Should be 'production' 
+echo $ENVIRONMENT    # Should be 'production'
 echo $USE_CACHE      # Should be unset or 'true'
 ```
 
-### Cache Not Disabled in Development  
+### Cache Not Disabled in Development
 ```bash
 # Set explicit environment
 export ENVIRONMENT=development

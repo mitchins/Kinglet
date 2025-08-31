@@ -1,9 +1,11 @@
 """
 Test Response class behavior in Cloudflare Workers
 """
+
 from kinglet import Kinglet, Response
 
 app = Kinglet()
+
 
 @app.get("/")
 async def home(request):
@@ -15,24 +17,28 @@ async def home(request):
             "/response-obj - Explicit Response object",
             "/custom-headers - Response with custom headers",
             "/error-static - Static error method",
-            "/content-type - Content-type handling"
-        ]
+            "/content-type - Content-type handling",
+        ],
     }
+
 
 @app.get("/text")
 async def handle_text_response(request):
     """Test plain text response - what content-type does it get?"""
     return "This is plain text"
 
+
 @app.get("/dict")
 async def handle_dict_response(request):
     """Test dict response - should auto-convert to JSON"""
     return {"type": "dict", "auto_json": True}
 
+
 @app.get("/response-obj")
 async def handle_response_object(request):
     """Test explicit Response object"""
     return Response("Explicit response content", status=201)
+
 
 @app.get("/custom-headers")
 async def handle_custom_headers(request):
@@ -42,10 +48,12 @@ async def handle_custom_headers(request):
     response.headers["Cache-Control"] = "no-cache"
     return response
 
+
 @app.get("/error-static")
 async def handle_error_static(request):
     """Test Response.error() static method"""
     return Response.error("Something went wrong", 400, request.request_id)
+
 
 @app.get("/content-type")
 async def handle_content_type(request):
@@ -53,6 +61,7 @@ async def handle_content_type(request):
     response = Response("Custom content", status=200)
     response.headers["Content-Type"] = "text/custom"
     return response
+
 
 @app.get("/json-method")
 async def handle_json_method(request):
@@ -62,6 +71,7 @@ async def handle_json_method(request):
         return Response.json({"json_method": True}, status=200)
     except AttributeError:
         return {"error": "Response.json() method not available"}
+
 
 # Cloudflare Workers entry point
 async def on_fetch(request, env):

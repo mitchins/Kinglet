@@ -1,6 +1,6 @@
 import pytest
 
-from kinglet.sql import safe_ident, quote_ident_sqlite
+from kinglet.sql import quote_ident_sqlite, safe_ident
 
 
 def test_safe_ident_accepts_valid_names():
@@ -26,4 +26,3 @@ def test_safe_ident_rejects_invalid_names(bad):
 
 def test_quote_ident_sqlite_escapes_quotes():
     assert quote_ident_sqlite('foo"bar') == '"foo""bar"'
-
