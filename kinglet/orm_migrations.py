@@ -151,10 +151,16 @@ class MigrationTracker:
         # Ensure migrations table exists
         await cls.ensure_migrations_table(db)
 
-        # Get already applied migrations
-        await cls.get_applied_migrations(db)
+        # Get already applied migrations for logging/state
+        applied_migrations = await cls.get_applied_migrations(db)
 
-        results = {"applied": [], "skipped": [], "failed": [], "total": len(migrations)}
+        results = {
+            "applied": [],
+            "skipped": [],
+            "failed": [],
+            "total": len(migrations),
+            "previously_applied": len(applied_migrations),
+        }
 
         for migration in migrations:
             result = await cls.apply_migration(db, migration)
@@ -377,28 +383,62 @@ class MigrationGenerator:
 
     @staticmethod
     def generate_add_column(table: str, field_name: str, field) -> str:
-        """Generate ALTER TABLE ADD COLUMN statement"""
+        """Generate ALTER TABLE ADD COLUMN statement
+
+        For NOT NULL columns without defaults, generates a multi-step migration.
+        """
         sql_type = field.get_sql_type()
 
         table = MigrationGenerator._safe_ident(table)
         field_name = MigrationGenerator._safe_ident(field_name)
+
+        # Check if we need a multi-step migration for NOT NULL without default
+        if not field.null and field.default is None:
+            # Generate multi-step migration for NOT NULL columns without defaults
+            # Step 1: Add column as nullable
+            sql = f"-- Adding NOT NULL column {field_name} requires multi-step migration\n"
+            sql += f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type};\n"
+
+            # Step 2: Provide backfill hint based on field type
+            if field.__class__.__name__ == "StringField":
+                default_value = "''"
+            elif field.__class__.__name__ in ["IntegerField", "FloatField"]:
+                default_value = "0"
+            elif field.__class__.__name__ == "BooleanField":
+                default_value = "FALSE"
+            elif field.__class__.__name__ == "JSONField":
+                default_value = "'{}'"
+            else:
+                default_value = "''"  # Safe fallback
+
+            sql += "-- Backfill with appropriate values\n"
+            sql += f"UPDATE {table} SET {field_name} = {default_value} WHERE {field_name} IS NULL;\n"
+
+            # Step 3: Add NOT NULL constraint (Note: SQLite doesn't support ALTER COLUMN)
+            sql += "-- Note: In SQLite/D1, you may need to recreate the table to add NOT NULL constraint"
+
+            return sql
+
+        # Normal case: has default or is nullable
         sql = f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type}"
 
-        if not field.null:
-            # For NOT NULL columns, we need a default
-            if field.default is not None:
-                if callable(field.default):
-                    # For callables like dict or list
-                    default_val = "NULL"
-                elif isinstance(field.default, bool):
-                    default_val = "1" if field.default else "0"
-                elif isinstance(field.default, str):
-                    default_val = f"'{field.default}'"
+        if field.default is not None:
+            if callable(field.default):
+                # For callables like dict or list
+                if field.__class__.__name__ == "JSONField":
+                    default_val = "'{}'"  # Empty JSON object
                 else:
-                    default_val = str(field.default)
-                sql += f" DEFAULT {default_val}"
+                    # Skip default for other callables
+                    default_val = None
+            elif isinstance(field.default, bool):
+                default_val = "1" if field.default else "0"
+            elif isinstance(field.default, str):
+                default_val = f"'{field.default}'"
             else:
-                sql += " DEFAULT NULL"
+                default_val = str(field.default)
+
+            if default_val is not None:
+                sql += f" DEFAULT {default_val}"
 
         return sql + ";"
 
