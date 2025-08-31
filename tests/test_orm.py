@@ -24,7 +24,11 @@ from kinglet.orm import (
     SchemaManager,
     StringField,
 )
-from kinglet.orm_errors import DoesNotExistError
+from kinglet.orm_errors import (
+    DoesNotExistError,
+    ForeignKeyViolationError,
+    ORMError,
+)
 
 from .mock_d1 import MockD1Database
 
@@ -715,6 +719,47 @@ class TestQuerySetAdvanced:
         condition, value = qs._where_conditions[0]
         assert "NOT (score = ?)" in condition
         assert value == 0
+
+    def test_limit_validation(self):
+        """Test limit method validation - covers missing edge cases"""
+        qs = self.manager.all(self.mock_db)
+
+        # Test zero limit
+        with pytest.raises(ValueError, match="Limit must be positive"):
+            qs.limit(0)
+
+        # Test negative limit
+        with pytest.raises(ValueError, match="Limit must be positive"):
+            qs.limit(-5)
+
+        # Test limit too large
+        with pytest.raises(
+            ValueError, match="Limit cannot exceed 10000 \\(D1 safety limit\\)"
+        ):
+            qs.limit(10001)
+
+    def test_field_validation_coverage(self):
+        """Test field validation in more QuerySet methods"""
+        qs = self.manager.all(self.mock_db)
+
+        # Test invalid field in various methods that aren't covered
+        with pytest.raises(ValueError, match="Field 'invalid' does not exist"):
+            qs.order_by("invalid")
+
+        with pytest.raises(ValueError, match="Field 'invalid' does not exist"):
+            qs.filter(invalid__gt=10)
+
+    @pytest.mark.asyncio
+    async def test_count_exception_handling(self):
+        """Test count method exception handling - should raise classified error"""
+        # Create a queryset but don't create the table to trigger DB error
+        qs = self.manager.all(self.mock_db)
+
+        # This should classify the database error and raise appropriate exception
+        with pytest.raises(
+            (ForeignKeyViolationError, ORMError)
+        ):  # Should raise classified error
+            await qs.count()
 
     def teardown_method(self):
         """Clean up after each test"""

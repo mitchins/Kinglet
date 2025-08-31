@@ -28,6 +28,11 @@ from .storage import d1_unwrap, d1_unwrap_results
 # Safe SQL identifier validation and quoting
 _IDENT = re.compile(r"^[A-Za-z_]\w*$")
 
+# Error message constants for reuse
+_FIELD_NOT_EXIST_MSG = "Field '{field_name}' does not exist on {model_name}"
+_LIMIT_POSITIVE_MSG = "Limit must be positive"
+_LIMIT_EXCEED_MSG = "Limit cannot exceed 10000 (D1 safety limit)"
+
 
 def _qi(name: str) -> str:
     """Quote and validate SQL identifier to prevent injection"""
@@ -247,14 +252,18 @@ class QuerySet:
                 # Validate field exists to prevent SQL errors
                 if field_name not in self._field_names:
                     raise ValueError(
-                        f"Field '{field_name}' does not exist on {self.model_class.__name__}"
+                        _FIELD_NOT_EXIST_MSG.format(
+                            field_name=field_name, model_name=self.model_class.__name__
+                        )
                     )
                 condition = new_qs._build_lookup_condition(field_name, lookup, value)
             else:
                 # Validate field exists
                 if key not in self._field_names:
                     raise ValueError(
-                        f"Field '{key}' does not exist on {self.model_class.__name__}"
+                        _FIELD_NOT_EXIST_MSG.format(
+                            field_name=key, model_name=self.model_class.__name__
+                        )
                     )
                 condition = f"{key} = ?"
             new_qs._where_conditions.append((condition, value))
@@ -269,7 +278,9 @@ class QuerySet:
                 # Validate field exists to prevent SQL errors
                 if field_name not in self._field_names:
                     raise ValueError(
-                        f"Field '{field_name}' does not exist on {self.model_class.__name__}"
+                        _FIELD_NOT_EXIST_MSG.format(
+                            field_name=field_name, model_name=self.model_class.__name__
+                        )
                     )
                 condition = new_qs._build_lookup_condition(field_name, lookup, value)
                 # Wrap in NOT for exclude behavior
@@ -278,7 +289,9 @@ class QuerySet:
                 # Validate field exists
                 if key not in self._field_names:
                     raise ValueError(
-                        f"Field '{key}' does not exist on {self.model_class.__name__}"
+                        _FIELD_NOT_EXIST_MSG.format(
+                            field_name=key, model_name=self.model_class.__name__
+                        )
                     )
                 condition = f"NOT ({key} = ?)"
             new_qs._where_conditions.append((condition, value))
@@ -292,7 +305,9 @@ class QuerySet:
             # Validate field exists
             if field_name not in self._field_names:
                 raise ValueError(
-                    f"Field '{field_name}' does not exist on {self.model_class.__name__}"
+                    _FIELD_NOT_EXIST_MSG.format(
+                        field_name=field_name, model_name=self.model_class.__name__
+                    )
                 )
 
             if field.startswith("-"):
@@ -308,9 +323,9 @@ class QuerySet:
         Enforces maximum limit to prevent expensive queries.
         """
         if count <= 0:
-            raise ValueError("Limit must be positive")
+            raise ValueError(_LIMIT_POSITIVE_MSG)
         if count > 10000:  # D1 safety limit
-            raise ValueError("Limit cannot exceed 10000 (D1 safety limit)")
+            raise ValueError(_LIMIT_EXCEED_MSG)
 
         new_qs = self._clone()
         new_qs._limit_count = count
@@ -349,7 +364,9 @@ class QuerySet:
         for field_name in field_names:
             if field_name not in self._field_names:
                 raise ValueError(
-                    f"Field '{field_name}' does not exist on {self.model_class.__name__}"
+                    _FIELD_NOT_EXIST_MSG.format(
+                        field_name=field_name, model_name=self.model_class.__name__
+                    )
                 )
 
         new_qs = self._clone()
@@ -376,7 +393,9 @@ class QuerySet:
         for field_name in field_names:
             if field_name not in self._field_names:
                 raise ValueError(
-                    f"Field '{field_name}' does not exist on {self.model_class.__name__}"
+                    _FIELD_NOT_EXIST_MSG.format(
+                        field_name=field_name, model_name=self.model_class.__name__
+                    )
                 )
 
         new_qs = self._clone()
@@ -687,7 +706,9 @@ class QuerySet:
         for field_name, value in kwargs.items():
             if field_name not in self._field_names:
                 raise ValueError(
-                    f"Field '{field_name}' does not exist on {self.model_class.__name__}"
+                    _FIELD_NOT_EXIST_MSG.format(
+                        field_name=field_name, model_name=self.model_class.__name__
+                    )
                 )
             field = self.model_class._fields[field_name]
             if field.primary_key:
