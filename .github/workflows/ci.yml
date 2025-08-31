@@ -27,6 +27,14 @@ jobs:
       run: |
         uv sync --all-extras --dev
 
+    - name: Set up Node.js (required for wrangler/miniflare)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install wrangler (required for complete test suite)
+      run: npm install -g wrangler
+
     - name: Lint with ruff (strict on production code)
       run: |
         uv run ruff check kinglet/ --select=E9,F63,F7,F82,F811,F821,E722
@@ -128,6 +136,14 @@ jobs:
 
     - name: Install dependencies
       run: uv sync --all-extras --dev
+
+    - name: Set up Node.js (required for wrangler/miniflare)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install wrangler (required for complete test suite)
+      run: npm install -g wrangler
 
     - name: Run tests with coverage for SonarQube
       run: |
