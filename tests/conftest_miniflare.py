@@ -108,16 +108,16 @@ export default {
             f.write(worker_js)
 
         try:
-            # Start Miniflare
+            # Start wrangler dev (includes Miniflare)
             cmd = [
                 "npx",
-                "miniflare",
+                "wrangler",
+                "dev",
                 "--config",
                 str(config_path),
                 "--port",
                 str(port),
-                "--live-reload",
-                "false",
+                "--local",
                 "--log-level",
                 "error",
             ]
@@ -130,12 +130,21 @@ export default {
             await self._wait_for_startup()
 
         except Exception as e:
+            # Capture process output for debugging
+            process_output = ""
+            if self.process:
+                try:
+                    stdout, stderr = self.process.communicate(timeout=1)
+                    process_output = f"\nSTDOUT: {stdout}\nSTDERR: {stderr}"
+                except subprocess.TimeoutExpired:
+                    pass
             await self.stop()
-            raise RuntimeError(f"Failed to start Miniflare: {e}") from e
+            raise RuntimeError(f"Failed to start Miniflare: {e}{process_output}") from e
 
-    async def _wait_for_startup(self, timeout=10):
+    async def _wait_for_startup(self, timeout=30):
         """Wait for Miniflare to be ready"""
         start_time = time.time()
+        last_error = None
 
         while time.time() - start_time < timeout:
             try:
@@ -143,11 +152,28 @@ export default {
                     response = await client.get(f"{self.base_url}/health", timeout=1)
                     if response.status_code == 200:
                         return
-            except Exception:
+            except Exception as e:
+                last_error = e
                 pass
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
 
-        raise RuntimeError("Miniflare failed to start within timeout")
+        # Get process output for debugging
+        process_info = ""
+        if self.process:
+            if self.process.poll() is not None:
+                try:
+                    stdout, stderr = self.process.communicate(timeout=1)
+                    process_info = f"\nProcess exited with code: {self.process.returncode}\nSTDOUT: {stdout}\nSTDERR: {stderr}"
+                except subprocess.TimeoutExpired:
+                    process_info = (
+                        f"\nProcess exited with code: {self.process.returncode}"
+                    )
+            else:
+                process_info = "\nProcess is still running but not responding"
+
+        raise RuntimeError(
+            f"Miniflare failed to start within {timeout}s timeout. Last HTTP error: {last_error}{process_info}"
+        )
 
     async def stop(self):
         """Stop Miniflare and cleanup"""
