@@ -6,7 +6,6 @@ across the test suite, particularly for D1 database mocking and Miniflare integr
 """
 
 import asyncio
-import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -217,27 +216,6 @@ export default {
 @pytest.fixture(scope="session")
 async def miniflare():
     """Session-scoped Miniflare instance - REQUIRES wrangler"""
-    # Check requirements upfront - fail fast
-    if not shutil.which("npx"):
-        pytest.fail(
-            "Miniflare integration tests require Node.js and npx.\n"
-            "Install Node.js or skip with: pytest -m 'not miniflare'"
-        )
-
-    try:
-        result = subprocess.run(
-            ["npx", "wrangler", "--version"], capture_output=True, text=True, timeout=5
-        )
-        if result.returncode != 0:
-            raise RuntimeError("wrangler not available")
-    except Exception as e:
-        pytest.fail(
-            "Miniflare integration tests require wrangler but it's not available.\n"
-            f"Error: {e}\n"
-            "Install with: npm install -g wrangler\n"
-            "Or skip with: pytest -m 'not miniflare'"
-        )
-
     manager = MiniflareManager()
     try:
         await manager.start()
