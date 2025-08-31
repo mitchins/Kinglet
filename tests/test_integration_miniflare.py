@@ -484,3 +484,77 @@ class TestORMComplexOperations:
         # Verify they were actually saved
         total_count = await manager.all(self.mock_db).count()
         assert total_count == 5
+
+    @pytest.mark.asyncio
+    async def test_queryset_only_method(self):
+        """Test QuerySet.only() method for field selection - covers missing coverage"""
+        from kinglet.orm import BooleanField, IntegerField, Manager, Model, StringField
+
+        class SampleGame(Model):
+            title = StringField(max_length=100, null=False)
+            description = StringField(max_length=500, null=True)
+            score = IntegerField(default=0)
+            is_published = BooleanField(default=False)
+
+            class Meta:
+                table_name = "sample_games_only"
+
+        manager = Manager(SampleGame)
+
+        # Create table
+        await SampleGame.create_table(self.mock_db)
+
+        # Create a game
+        await manager.create(
+            self.mock_db,
+            title="Test Game",
+            description="Test Description",
+            score=95,
+            is_published=True,
+        )
+
+        # Test .only() method - should select only specific fields
+        only_qs = manager.all(self.mock_db).only("title", "score")
+
+        # Verify the queryset has the only_fields set
+        assert only_qs._only_fields == ["title", "score"]
+        assert only_qs._values_fields is None  # Should clear values mode
+
+        # Test that we can retrieve with only specific fields
+        games = await only_qs.all()
+        assert len(games) == 1
+        assert games[0].title == "Test Game"
+        assert games[0].score == 95
+
+        # Test error handling for invalid field names
+        with pytest.raises(ValueError, match="Field 'invalid_field' does not exist"):
+            manager.all(self.mock_db).only("invalid_field")
+
+    @pytest.mark.asyncio
+    async def test_queryset_offset_validation(self):
+        """Test QuerySet.offset() method validation - covers missing coverage"""
+        from kinglet.orm import IntegerField, Manager, Model, StringField
+
+        class SampleGame(Model):
+            title = StringField(max_length=100, null=False)
+            score = IntegerField(default=0)
+
+            class Meta:
+                table_name = "sample_games_offset"
+
+        manager = Manager(SampleGame)
+
+        # Test offset validation errors
+        qs = manager.all(self.mock_db)
+
+        # Test negative offset
+        with pytest.raises(ValueError, match="Offset cannot be negative"):
+            qs.offset(-1)
+
+        # Test offset too large
+        with pytest.raises(ValueError, match="Offset cannot exceed 100000"):
+            qs.offset(100001)
+
+        # Test valid offset
+        valid_qs = qs.offset(10)
+        assert valid_qs._offset_count == 10
