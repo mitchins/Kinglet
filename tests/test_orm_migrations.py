@@ -195,11 +195,18 @@ class TestMigrationTracker:
         assert len(results["skipped"]) == 0
         assert len(results["failed"]) == 0
         assert results["total"] == 3
+        assert "previously_applied" in results
+        assert (
+            results["previously_applied"] == 0
+        )  # No migrations were previously applied
 
         # Apply again - should all be skipped
         results2 = await MigrationTracker.apply_migrations(db, migrations)
         assert len(results2["applied"]) == 0
         assert len(results2["skipped"]) == 3
+        assert (
+            results2["previously_applied"] == 3
+        )  # Now there are 3 previously applied migrations
 
     @pytest.mark.asyncio
     async def test_get_schema_version(self):
@@ -388,6 +395,81 @@ class TestMigrationGenerator:
         assert len(migrations) == 1
         assert "create_orders" in migrations[0].version
         assert migrations[0].description == "Create table orders"
+
+    def test_generate_add_column_not_null_without_default(self):
+        """Test generating ALTER TABLE for NOT NULL column without default"""
+        from kinglet.orm import BooleanField, IntegerField, JSONField, StringField
+        from kinglet.orm_migrations import MigrationGenerator
+
+        # Test StringField NOT NULL without default
+        field = StringField(null=False)
+        sql = MigrationGenerator.generate_add_column("users", "username", field)
+
+        # Should generate multi-step migration
+        assert "multi-step migration" in sql
+        assert "ALTER TABLE users ADD COLUMN username" in sql
+        assert "UPDATE users SET username = ''" in sql
+        assert "SQLite/D1" in sql  # Note about NOT NULL constraint
+
+        # Test IntegerField NOT NULL without default
+        field = IntegerField(null=False)
+        sql = MigrationGenerator.generate_add_column("products", "quantity", field)
+        assert "UPDATE products SET quantity = 0" in sql
+
+        # Test BooleanField NOT NULL without default
+        field = BooleanField(null=False)
+        sql = MigrationGenerator.generate_add_column("settings", "enabled", field)
+        assert "UPDATE settings SET enabled = FALSE" in sql
+
+        # Test JSONField NOT NULL without default
+        field = JSONField(null=False)
+        sql = MigrationGenerator.generate_add_column("configs", "data", field)
+        assert "UPDATE configs SET data = '{}'" in sql
+
+    def test_generate_add_column_with_default(self):
+        """Test generating ALTER TABLE for columns with defaults"""
+        from kinglet.orm import BooleanField, IntegerField, JSONField, StringField
+        from kinglet.orm_migrations import MigrationGenerator
+
+        # Test with string default
+        field = StringField(default="test", null=False)
+        sql = MigrationGenerator.generate_add_column("users", "status", field)
+        assert "DEFAULT 'test'" in sql
+        assert "multi-step migration" not in sql
+
+        # Test with integer default
+        field = IntegerField(default=42)
+        sql = MigrationGenerator.generate_add_column("products", "stock", field)
+        assert "DEFAULT 42" in sql
+
+        # Test with boolean default True
+        field = BooleanField(default=True)
+        sql = MigrationGenerator.generate_add_column("settings", "active", field)
+        assert "DEFAULT 1" in sql
+
+        # Test with boolean default False
+        field = BooleanField(default=False)
+        sql = MigrationGenerator.generate_add_column("settings", "inactive", field)
+        assert "DEFAULT 0" in sql
+
+        # Test with callable default (JSON)
+        field = JSONField(default=dict)
+        field.__class__.__name__ = "JSONField"  # Ensure the class name is set
+        sql = MigrationGenerator.generate_add_column("configs", "settings", field)
+        assert "DEFAULT '{}'" in sql
+
+    def test_generate_add_column_nullable(self):
+        """Test generating ALTER TABLE for nullable columns"""
+        from kinglet.orm import StringField
+        from kinglet.orm_migrations import MigrationGenerator
+
+        # Nullable column should not need multi-step migration
+        field = StringField(null=True)
+        sql = MigrationGenerator.generate_add_column("users", "nickname", field)
+
+        assert "multi-step migration" not in sql
+        assert "ALTER TABLE users ADD COLUMN nickname" in sql
+        assert "UPDATE" not in sql  # No backfill needed
 
     def test_detect_changes_new_field(self):
         # Simulate adding a field
