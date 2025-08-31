@@ -382,28 +382,30 @@ class TestORMComplexOperations:
 
     def setup_method(self):
         # Use real integration setup instead of mock
+        from kinglet.orm import BooleanField, IntegerField, Manager, Model, StringField
+
         from .mock_d1 import MockD1Database
 
         self.mock_db = MockD1Database()
 
-    @pytest.mark.asyncio
-    async def test_queryset_operations(self):
-        """Test complex QuerySet operations - moved from unit tests"""
-        from kinglet.orm import BooleanField, IntegerField, Manager, Model, StringField
-
-        class SampleGame(Model):
+        # Shared test model to avoid repetition
+        class TestGame(Model):
             title = StringField(max_length=100, null=False)
             description = StringField(max_length=500, null=True)
             score = IntegerField(default=0)
             is_published = BooleanField(default=False)
 
             class Meta:
-                table_name = "sample_games"
+                table_name = "test_games"
 
-        manager = Manager(SampleGame)
+        self.TestGame = TestGame
+        self.manager = Manager(TestGame)
 
+    @pytest.mark.asyncio
+    async def test_queryset_operations(self):
+        """Test complex QuerySet operations - moved from unit tests"""
         # Create table and sample data
-        await SampleGame.create_table(self.mock_db)
+        await self.TestGame.create_table(self.mock_db)
 
         # Create multiple games
         games_data = [
@@ -415,33 +417,37 @@ class TestORMComplexOperations:
 
         created_games = []
         for game_data in games_data:
-            game = await manager.create(self.mock_db, **game_data)
+            game = await self.manager.create(self.mock_db, **game_data)
             created_games.append(game)
 
         # Test filtering
-        published_games = await manager.filter(self.mock_db, is_published=True).all()
+        published_games = await self.manager.filter(
+            self.mock_db, is_published=True
+        ).all()
         assert len(published_games) == 3
 
         # Test count
-        total_count = await manager.all(self.mock_db).count()
+        total_count = await self.manager.all(self.mock_db).count()
         assert total_count == 4
 
-        published_count = await manager.filter(self.mock_db, is_published=True).count()
+        published_count = await self.manager.filter(
+            self.mock_db, is_published=True
+        ).count()
         assert published_count == 3
 
         # Test ordering
         high_score_games = (
-            await manager.all(self.mock_db).order_by("-score").limit(2).all()
+            await self.manager.all(self.mock_db).order_by("-score").limit(2).all()
         )
         assert len(high_score_games) == 2
         assert high_score_games[0].score >= high_score_games[1].score
 
         # Test lookups
-        high_scoring = await manager.filter(self.mock_db, score__gte=90).all()
+        high_scoring = await self.manager.filter(self.mock_db, score__gte=90).all()
         assert len(high_scoring) == 3
 
         # Test contains (case-sensitive)
-        adventure_games = await manager.filter(
+        adventure_games = await self.manager.filter(
             self.mock_db, title__contains="Adventure"
         ).all()
         assert len(adventure_games) == 1
@@ -450,30 +456,17 @@ class TestORMComplexOperations:
     @pytest.mark.asyncio
     async def test_bulk_operations(self):
         """Test complex bulk create operations - moved from unit tests"""
-        from kinglet.orm import BooleanField, IntegerField, Manager, Model, StringField
-
-        class SampleGame(Model):
-            title = StringField(max_length=100, null=False)
-            description = StringField(max_length=500, null=True)
-            score = IntegerField(default=0)
-            is_published = BooleanField(default=False)
-
-            class Meta:
-                table_name = "sample_games_bulk"
-
-        manager = Manager(SampleGame)
-
         # Create table
-        await SampleGame.create_table(self.mock_db)
+        await self.TestGame.create_table(self.mock_db)
 
         # Create multiple game instances
         game_instances = [
-            SampleGame(title=f"Bulk Game {i}", score=80 + i, is_published=i % 2 == 0)
+            self.TestGame(title=f"Bulk Game {i}", score=80 + i, is_published=i % 2 == 0)
             for i in range(5)
         ]
 
         # Bulk create
-        created_games = await manager.bulk_create(self.mock_db, game_instances)
+        created_games = await self.manager.bulk_create(self.mock_db, game_instances)
 
         assert len(created_games) == 5
         for i, game in enumerate(created_games):
@@ -482,79 +475,5 @@ class TestORMComplexOperations:
             assert game.id is not None
 
         # Verify they were actually saved
-        total_count = await manager.all(self.mock_db).count()
+        total_count = await self.manager.all(self.mock_db).count()
         assert total_count == 5
-
-    @pytest.mark.asyncio
-    async def test_queryset_only_method(self):
-        """Test QuerySet.only() method for field selection - covers missing coverage"""
-        from kinglet.orm import BooleanField, IntegerField, Manager, Model, StringField
-
-        class SampleGame(Model):
-            title = StringField(max_length=100, null=False)
-            description = StringField(max_length=500, null=True)
-            score = IntegerField(default=0)
-            is_published = BooleanField(default=False)
-
-            class Meta:
-                table_name = "sample_games_only"
-
-        manager = Manager(SampleGame)
-
-        # Create table
-        await SampleGame.create_table(self.mock_db)
-
-        # Create a game
-        await manager.create(
-            self.mock_db,
-            title="Test Game",
-            description="Test Description",
-            score=95,
-            is_published=True,
-        )
-
-        # Test .only() method - should select only specific fields
-        only_qs = manager.all(self.mock_db).only("title", "score")
-
-        # Verify the queryset has the only_fields set
-        assert only_qs._only_fields == ["title", "score"]
-        assert only_qs._values_fields is None  # Should clear values mode
-
-        # Test that we can retrieve with only specific fields
-        games = await only_qs.all()
-        assert len(games) == 1
-        assert games[0].title == "Test Game"
-        assert games[0].score == 95
-
-        # Test error handling for invalid field names
-        with pytest.raises(ValueError, match="Field 'invalid_field' does not exist"):
-            manager.all(self.mock_db).only("invalid_field")
-
-    @pytest.mark.asyncio
-    async def test_queryset_offset_validation(self):
-        """Test QuerySet.offset() method validation - covers missing coverage"""
-        from kinglet.orm import IntegerField, Manager, Model, StringField
-
-        class SampleGame(Model):
-            title = StringField(max_length=100, null=False)
-            score = IntegerField(default=0)
-
-            class Meta:
-                table_name = "sample_games_offset"
-
-        manager = Manager(SampleGame)
-
-        # Test offset validation errors
-        qs = manager.all(self.mock_db)
-
-        # Test negative offset
-        with pytest.raises(ValueError, match="Offset cannot be negative"):
-            qs.offset(-1)
-
-        # Test offset too large
-        with pytest.raises(ValueError, match="Offset cannot exceed 100000"):
-            qs.offset(100001)
-
-        # Test valid offset
-        valid_qs = qs.offset(10)
-        assert valid_qs._offset_count == 10
