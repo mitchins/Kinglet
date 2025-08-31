@@ -27,11 +27,11 @@ app.add_middleware(cors_middleware)
 class TimingMiddleware:
     def __init__(self):
         pass
-    
+
     async def process_request(self, request):
         request.start_time = time.time()
         return request
-    
+
     async def process_response(self, request, response):
         duration = time.time() - request.start_time
         response.header('X-Response-Time', f'{duration:.3f}s')
@@ -59,7 +59,7 @@ class TimingMiddleware:
     async def process_request(self, request):
         request.start_time = time.time()
         return request
-    
+
     async def process_response(self, request, response):
         duration = time.time() - request.start_time
         response.header('X-Response-Time', f'{duration:.3f}s')
@@ -74,7 +74,7 @@ class TimingMiddleware:
 class AuthMiddleware:
     def __init__(self, secret_key):
         self.secret_key = secret_key
-    
+
     async def process_request(self, request):
         # Modify request before handler
         if request.path.startswith('/api/'):
@@ -82,7 +82,7 @@ class AuthMiddleware:
             if not self.validate_token(token):
                 return Response({'error': 'Unauthorized'}, status=401)
         return request
-    
+
     async def process_response(self, request, response):
         # Modify response after handler
         response.header('X-API-Version', '1.0')
@@ -123,7 +123,7 @@ app.add_middleware(AuthMiddleware())      # Last request, first response
 class ConditionalMiddleware:
     def __init__(self, condition_func):
         self.condition_func = condition_func
-    
+
     async def process_request(self, request):
         if self.condition_func(request):
             # Apply middleware logic
@@ -141,11 +141,11 @@ app.add_middleware(ConditionalMiddleware(api_only))
 class DatabaseMiddleware:
     def __init__(self, db_pool):
         self.db_pool = db_pool
-    
+
     async def process_request(self, request):
         request.db = await self.db_pool.acquire()
         return request
-    
+
     async def process_response(self, request, response):
         if hasattr(request, 'db'):
             await self.db_pool.release(request.db)
@@ -184,7 +184,7 @@ class ErrorEnhancementMiddleware:
 
 This middleware will enhance ALL error responses, including:
 - Custom error handlers
-- Default framework error responses  
+- Default framework error responses
 - Exception responses
 
 ## Best Practices

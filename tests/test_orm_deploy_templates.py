@@ -16,7 +16,7 @@ def _install_temp_models_module(mod_name: str):
         class Meta:
             table_name = "temp_models"
 
-    setattr(mod, "TempModel", TempModel)
+    mod.TempModel = TempModel
     return mod
 
 
@@ -36,4 +36,3 @@ def test_generate_status_endpoint_substitutions():
 
     code = generate_status_endpoint(mod_name)
     assert mod_name in code
-

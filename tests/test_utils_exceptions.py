@@ -1,14 +1,16 @@
 from types import SimpleNamespace
 
-import pytest
-
-from kinglet.http import Request
 from kinglet import utils
+from kinglet.http import Request
 
 
 def test_asset_url_falls_back_on_exception(monkeypatch):
     # Force _get_cdn_url to raise to exercise exception path
-    monkeypatch.setattr(utils, "_get_cdn_url", lambda *_args, **_kw: (_ for _ in ()).throw(Exception("boom")))
+    monkeypatch.setattr(
+        utils,
+        "_get_cdn_url",
+        lambda *_args, **_kw: (_ for _ in ()).throw(Exception("boom")),
+    )
 
     class _Raw:
         url = "https://example.com/"
@@ -42,4 +44,3 @@ def test_media_url_falls_back_on_exception():
 
     req = _Req(_Raw(), env=SimpleNamespace())
     assert utils.media_url(req, "abc") == "/api/media/abc"
-

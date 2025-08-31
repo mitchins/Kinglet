@@ -1,6 +1,7 @@
 """
 Tests for Kinglet main application
 """
+
 from unittest.mock import Mock
 
 import pytest
@@ -54,6 +55,7 @@ class TestKingletApp:
 
     def test_route_decorators(self, app):
         """Test route decorators"""
+
         @app.get("/test")
         async def get_handler(request):
             return {"method": "GET"}
@@ -67,6 +69,7 @@ class TestKingletApp:
     @pytest.mark.asyncio
     async def test_simple_request_handling(self, app, mock_env):
         """Test basic request handling"""
+
         @app.get("/hello")
         async def hello_handler(request):
             return {"message": "Hello, World!"}
@@ -80,6 +83,7 @@ class TestKingletApp:
     @pytest.mark.asyncio
     async def test_path_parameters(self, app, mock_env):
         """Test path parameter handling"""
+
         @app.get("/users/{id}")
         async def get_user(request):
             user_id = request.path_param("id")
@@ -102,6 +106,7 @@ class TestKingletApp:
     @pytest.mark.asyncio
     async def test_middleware_processing(self, app, mock_env):
         """Test middleware execution"""
+
         @app.middleware
         class TestMiddleware:
             async def process_request(self, request):
@@ -114,7 +119,7 @@ class TestKingletApp:
 
         @app.get("/test")
         async def test_handler(request):
-            has_flag = hasattr(request, 'test_flag') and request.test_flag
+            has_flag = hasattr(request, "test_flag") and request.test_flag
             return {"middleware_executed": has_flag}
 
         mock_request = MockRequest("GET", "http://localhost/test")
@@ -140,6 +145,7 @@ class TestKingletApp:
 
     def test_error_handler_decorator(self, app):
         """Test error handler registration"""
+
         @app.exception_handler(404)
         async def not_found_handler(request, _exc):
             return {"error": "Custom not found"}
@@ -150,6 +156,7 @@ class TestKingletApp:
     @pytest.mark.asyncio
     async def test_automatic_response_conversion(self, app, mock_env):
         """Test that various return types are converted to Response objects"""
+
         @app.get("/dict")
         async def dict_handler(request):
             return {"key": "value"}

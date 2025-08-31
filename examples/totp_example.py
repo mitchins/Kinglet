@@ -25,6 +25,7 @@ app = Kinglet(debug=True)
 # CONFIGURATION
 # ============================================
 
+
 async def on_fetch(request, env):
     """Cloudflare Workers entry point"""
     # Configure OTP provider based on TOTP_ENABLED environment variable
@@ -37,6 +38,7 @@ async def on_fetch(request, env):
 # ============================================
 # TOTP SETUP ENDPOINTS
 # ============================================
+
 
 @app.post("/auth/totp/setup")
 @require_auth
@@ -55,11 +57,15 @@ async def setup_totp(request):
     encrypted_secret = encrypt_totp_secret(secret, request.env)
 
     # Store in database
-    await request.env.DB.prepare("""
-        UPDATE users 
+    await (
+        request.env.DB.prepare("""
+        UPDATE users
         SET totp_secret = ?, totp_enabled = true, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-    """).bind(encrypted_secret, user_id).run()
+    """)
+        .bind(encrypted_secret, user_id)
+        .run()
+    )
 
     # Generate QR code URL for scanning
     email = user["claims"].get("email", f"user_{user_id}")
@@ -72,8 +78,8 @@ async def setup_totp(request):
         "instructions": [
             "1. Install an authenticator app (Google Authenticator, Authy, etc.)",
             "2. Scan the QR code or manually enter the secret",
-            "3. Enter the 6-digit code to verify setup"
-        ]
+            "3. Enter the 6-digit code to verify setup",
+        ],
     }
 
 
@@ -93,9 +99,11 @@ async def verify_totp_setup(request):
     user_id = request.state.user["id"]
 
     # Get user's encrypted TOTP secret
-    result = await request.env.DB.prepare(
-        "SELECT totp_secret FROM users WHERE id = ?"
-    ).bind(user_id).first()
+    result = (
+        await request.env.DB.prepare("SELECT totp_secret FROM users WHERE id = ?")
+        .bind(user_id)
+        .first()
+    )
 
     if not result or not result["totp_secret"]:
         return Response({"error": "TOTP not configured"}, status=400)
@@ -107,21 +115,23 @@ async def verify_totp_setup(request):
         return Response({"error": "Invalid code"}, status=401)
 
     # Mark TOTP as verified
-    await request.env.DB.prepare("""
-        UPDATE users 
+    await (
+        request.env.DB.prepare("""
+        UPDATE users
         SET totp_verified = true, totp_verified_at = CURRENT_TIMESTAMP
         WHERE id = ?
-    """).bind(user_id).run()
+    """)
+        .bind(user_id)
+        .run()
+    )
 
-    return {
-        "success": True,
-        "message": "TOTP successfully configured and verified"
-    }
+    return {"success": True, "message": "TOTP successfully configured and verified"}
 
 
 # ============================================
 # SESSION ELEVATION ENDPOINTS
 # ============================================
+
 
 @app.post("/auth/totp/step-up")
 @require_auth
@@ -140,58 +150,66 @@ async def step_up_authentication(request):
     user_id = user["id"]
 
     # Get user's TOTP configuration
-    result = await request.env.DB.prepare(
-        "SELECT totp_secret, totp_enabled FROM users WHERE id = ?"
-    ).bind(user_id).first()
+    result = (
+        await request.env.DB.prepare(
+            "SELECT totp_secret, totp_enabled FROM users WHERE id = ?"
+        )
+        .bind(user_id)
+        .first()
+    )
 
     if not result or not result["totp_enabled"]:
-        return Response({
-            "error": "TOTP not enabled",
-            "setup_url": "/auth/totp/setup"
-        }, status=400)
+        return Response(
+            {"error": "TOTP not enabled", "setup_url": "/auth/totp/setup"}, status=400
+        )
 
     # Verify TOTP code
     secret = decrypt_totp_secret(result["totp_secret"], request.env)
 
     if not verify_code(secret, code):
         # Log failed attempt for security monitoring
-        await request.env.DB.prepare("""
+        await (
+            request.env.DB.prepare("""
             INSERT INTO auth_logs (user_id, action, success, ip_address)
             VALUES (?, 'totp_verify', false, ?)
-        """).bind(user_id, request.cf.ip).run()
+        """)
+            .bind(user_id, request.cf.ip)
+            .run()
+        )
 
         return Response({"error": "Invalid code"}, status=401)
 
     # Create elevated JWT with additional claims
     elevated_token = create_elevated_jwt(
         user_id=user_id,
-        claims={
-            **user["claims"],
-            "elevated": True,
-            "elevation_time": int(time.time())
-        },
+        claims={**user["claims"], "elevated": True, "elevation_time": int(time.time())},
         secret=request.env.JWT_SECRET,
-        expires_in=900  # 15 minutes
+        expires_in=900,  # 15 minutes
     )
 
     # Log successful elevation
-    await request.env.DB.prepare("""
+    await (
+        request.env.DB.prepare("""
         INSERT INTO auth_logs (user_id, action, success, ip_address)
         VALUES (?, 'totp_verify', true, ?)
-    """).bind(user_id, request.cf.ip).run()
+    """)
+        .bind(user_id, request.cf.ip)
+        .run()
+    )
 
     return {
         "success": True,
         "token": elevated_token,
         "elevated": True,
         "expires_in": 900,
-        "message": "Session elevated for 15 minutes"
+        "message": "Session elevated for 15 minutes",
     }
 
 
 # ============================================
 # PROTECTED ENDPOINTS REQUIRING ELEVATION
 # ============================================
+
 
 @app.post("/account/delete")
 @require_elevated_session  # Requires TOTP verification
@@ -203,14 +221,15 @@ async def delete_account(request):
     user_id = request.state.user["id"]
 
     # Perform account deletion
-    await request.env.DB.prepare(
-        "UPDATE users SET deleted = true, deleted_at = CURRENT_TIMESTAMP WHERE id = ?"
-    ).bind(user_id).run()
+    await (
+        request.env.DB.prepare(
+            "UPDATE users SET deleted = true, deleted_at = CURRENT_TIMESTAMP WHERE id = ?"
+        )
+        .bind(user_id)
+        .run()
+    )
 
-    return {
-        "success": True,
-        "message": "Account scheduled for deletion"
-    }
+    return {"success": True, "message": "Account scheduled for deletion"}
 
 
 @app.post("/payment/withdraw")
@@ -230,16 +249,16 @@ async def withdraw_funds(request):
     user_id = request.state.user["id"]
 
     # Process withdrawal (simplified)
-    await request.env.DB.prepare("""
+    await (
+        request.env.DB.prepare("""
         INSERT INTO withdrawals (user_id, amount, destination, status)
         VALUES (?, ?, ?, 'pending')
-    """).bind(user_id, amount, destination).run()
+    """)
+        .bind(user_id, amount, destination)
+        .run()
+    )
 
-    return {
-        "success": True,
-        "withdrawal_id": generate_id(),
-        "status": "pending"
-    }
+    return {"success": True, "withdrawal_id": generate_id(), "status": "pending"}
 
 
 @app.put("/publisher/payout-settings")
@@ -247,7 +266,7 @@ async def withdraw_funds(request):
 async def update_payout_settings(request):
     """
     Update publisher payout configuration
-    Requires: 
+    Requires:
     1. Publisher claim in JWT
     2. Elevated session (TOTP verified)
     """
@@ -255,25 +274,23 @@ async def update_payout_settings(request):
     user_id = request.state.user["id"]
 
     # Update payout settings
-    await request.env.DB.prepare("""
-        UPDATE publisher_settings 
+    await (
+        request.env.DB.prepare("""
+        UPDATE publisher_settings
         SET payout_method = ?, payout_details = ?, updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?
-    """).bind(
-        body.get("method"),
-        body.get("details"),
-        user_id
-    ).run()
+    """)
+        .bind(body.get("method"), body.get("details"), user_id)
+        .run()
+    )
 
-    return {
-        "success": True,
-        "message": "Payout settings updated"
-    }
+    return {"success": True, "message": "Payout settings updated"}
 
 
 # ============================================
 # ADMIN ENDPOINTS
 # ============================================
+
 
 @app.post("/admin/disable-totp/{user_id}")
 @require_elevated_claim("admin", True)
@@ -286,27 +303,33 @@ async def admin_disable_totp(request):
     admin_id = request.state.user["id"]
 
     # Disable TOTP for target user
-    await request.env.DB.prepare("""
-        UPDATE users 
+    await (
+        request.env.DB.prepare("""
+        UPDATE users
         SET totp_secret = NULL, totp_enabled = false, totp_verified = false
         WHERE id = ?
-    """).bind(target_user_id).run()
+    """)
+        .bind(target_user_id)
+        .run()
+    )
 
     # Log admin action
-    await request.env.DB.prepare("""
+    await (
+        request.env.DB.prepare("""
         INSERT INTO admin_logs (admin_id, action, target_user_id, details)
         VALUES (?, 'disable_totp', ?, 'Support request')
-    """).bind(admin_id, target_user_id).run()
+    """)
+        .bind(admin_id, target_user_id)
+        .run()
+    )
 
-    return {
-        "success": True,
-        "message": f"TOTP disabled for user {target_user_id}"
-    }
+    return {"success": True, "message": f"TOTP disabled for user {target_user_id}"}
 
 
 # ============================================
 # DEVELOPMENT HELPERS
 # ============================================
+
 
 @app.get("/auth/totp/test-info")
 async def get_test_info(request):
@@ -314,25 +337,31 @@ async def get_test_info(request):
     Development endpoint showing TOTP configuration
     Only available when TOTP_ENABLED=false
     """
-    totp_enabled = getattr(request.env, 'TOTP_ENABLED', 'true').lower() == 'true'
+    totp_enabled = getattr(request.env, "TOTP_ENABLED", "true").lower() == "true"
 
     if totp_enabled:
         return Response({"error": "Not available in production"}, status=403)
 
     return {
-        "environment": getattr(request.env, 'ENVIRONMENT', 'unknown'),
+        "environment": getattr(request.env, "ENVIRONMENT", "unknown"),
         "totp_enabled": totp_enabled,
         "test_codes": [
             "000000",  # Primary test code
-            "111111", "222222", "333333",  # Additional test codes
-            "444444", "555555", "666666",
-            "777777", "888888", "999999"
+            "111111",
+            "222222",
+            "333333",  # Additional test codes
+            "444444",
+            "555555",
+            "666666",
+            "777777",
+            "888888",
+            "999999",
         ],
         "instructions": [
             "1. Login normally to get base JWT",
             "2. Call /auth/totp/step-up with any test code",
-            "3. Use elevated token for protected endpoints"
-        ]
+            "3. Use elevated token for protected endpoints",
+        ],
     }
 
 

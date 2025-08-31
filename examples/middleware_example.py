@@ -17,9 +17,10 @@ cors_middleware = CorsMiddleware(
     allow_methods="GET,POST,PUT,DELETE",
     allow_headers="Content-Type,Authorization",
     allow_credentials=True,
-    max_age=86400
+    max_age=86400,
 )
 app.add_middleware(cors_middleware)
+
 
 # Example 2: Custom Timing Middleware
 class TimingMiddleware:
@@ -31,34 +32,38 @@ class TimingMiddleware:
         return request
 
     async def process_response(self, request, response):
-        if hasattr(request, 'start_time'):
+        if hasattr(request, "start_time"):
             duration = time.time() - request.start_time
-            response.header(self.header_name, f'{duration:.3f}s')
+            response.header(self.header_name, f"{duration:.3f}s")
         return response
+
 
 # Add timing middleware with custom header name
 timing = TimingMiddleware(header_name="X-API-Time")
 app.add_middleware(timing)
+
 
 # Example 3: Error Enhancement Middleware (v1.4.2+ error processing)
 class ErrorEnhancementMiddleware:
     async def process_response(self, request, response):
         if response.status >= 400:
             # Add debugging headers to all error responses
-            response.header('X-Error-Timestamp', str(int(time.time())))
-            response.header('X-Request-Path', request.path)
+            response.header("X-Error-Timestamp", str(int(time.time())))
+            response.header("X-Request-Path", request.path)
 
             # Log errors (would integrate with your logging system)
             print(f"Error {response.status}: {request.method} {request.path}")
 
         return response
 
+
 app.add_middleware(ErrorEnhancementMiddleware())
+
 
 # Example 4: Authentication Middleware
 class AuthMiddleware:
     def __init__(self, exempt_paths=None):
-        self.exempt_paths = exempt_paths or ['/health', '/public']
+        self.exempt_paths = exempt_paths or ["/health", "/public"]
 
     async def process_request(self, request):
         # Skip auth for exempt paths
@@ -66,35 +71,42 @@ class AuthMiddleware:
             return request
 
         # Check for API key
-        api_key = request.header('X-API-Key')
-        if not api_key or api_key != 'demo-key':
+        api_key = request.header("X-API-Key")
+        if not api_key or api_key != "demo-key":
             from kinglet import Response
-            return Response({'error': 'API key required'}, status=401)
+
+            return Response({"error": "API key required"}, status=401)
 
         # Add user info to request
-        request.user = {'id': 'demo-user', 'api_key': api_key}
+        request.user = {"id": "demo-user", "api_key": api_key}
         return request
 
-auth = AuthMiddleware(exempt_paths=['/health', '/public'])
+
+auth = AuthMiddleware(exempt_paths=["/health", "/public"])
 app.add_middleware(auth)
+
 
 # Routes to test middleware
 @app.get("/health")
 async def health_check(request):
     return {"status": "healthy", "middleware": "working"}
 
+
 @app.get("/api/protected")
 async def protected_endpoint(request):
     # This will require X-API-Key header
-    user = getattr(request, 'user', None)
+    user = getattr(request, "user", None)
     return {"message": "Access granted", "user": user}
+
 
 @app.get("/api/data")
 async def api_data(request):
     # Simulate some processing time to see timing middleware
     import asyncio
+
     await asyncio.sleep(0.1)
     return {"data": "example", "processing_time": "~100ms"}
+
 
 # Example 5: Traditional decorator style still works
 @app.middleware
@@ -105,6 +117,7 @@ class LegacyMiddleware:
     async def process_request(self, request):
         request.legacy_processed = True
         return request
+
 
 if __name__ == "__main__":
     # Test with curl:

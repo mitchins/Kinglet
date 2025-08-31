@@ -35,7 +35,7 @@ This demo fixes issues in the [official FastAPI example](https://github.com/clou
 **pyproject.toml**
 ```toml
 [project]
-name = "kinglet-worker" 
+name = "kinglet-worker"
 dependencies = ["kinglet"]
 requires-python = ">=3.12"
 ```

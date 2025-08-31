@@ -2,7 +2,7 @@
   <img src="logo.png" alt="Kinglet Logo" width="200" height="200">
   <h1>Kinglet</h1>
   <p><strong>Lightning-fast Python web framework for Cloudflare Workers</strong></p>
-  
+
   [![CI](https://github.com/mitchins/Kinglet/actions/workflows/ci.yml/badge.svg)](https://github.com/mitchins/Kinglet/actions/workflows/ci.yml)
   [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=mitchins_Kinglet&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=mitchins_Kinglet)
   [![codecov](https://codecov.io/github/mitchins/kinglet/graph/badge.svg?token=VSA89V2XBH)](https://codecov.io/github/mitchins/kinglet)
@@ -45,7 +45,7 @@ async def get_data(request):
 ## Key Features
 
 **Core:** Decorator routing, typed parameters, flexible middleware, auto error handling, serverless testing
-**Cloudflare:** D1/R2/KV helpers, D1-backed caching, environment-aware policies, CDN-aware URLs  
+**Cloudflare:** D1/R2/KV helpers, D1-backed caching, environment-aware policies, CDN-aware URLs
 **Database:** Micro-ORM for D1 with migrations, field validation, bulk operations (v1.6.0+)
 **Security:** JWT validation, TOTP/2FA, geo-restrictions, fine-grained auth decorators
 **Developer:** Full type hints, debug mode, request validation, zero-dependency testing
@@ -113,7 +113,7 @@ def test_api():
 
 ## Documentation
 
-- **[Examples](examples/)** - Quick start examples  
+- **[Examples](examples/)** - Quick start examples
 - **[ORM Guide](docs/ORM.md)** - D1 micro-ORM with migrations (v1.6.0+)
 - **[Middleware Guide](docs/MIDDLEWARE.md)** - Flexible middleware system (v1.4.2+)
 - **[Caching Guide](docs/CACHING.md)** - Environment-aware caching (v1.4.3+)

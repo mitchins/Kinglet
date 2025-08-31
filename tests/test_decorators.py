@@ -1,6 +1,7 @@
 """
 Tests for Kinglet decorators: exception wrapping, dev-only, and geo-restriction
 """
+
 from kinglet import (
     HTTPError,
     Kinglet,
@@ -55,14 +56,14 @@ class TestExceptionWrapping:
             raise ValueError("Sensitive error")
 
         # Test with development environment
-        client = TestClient(app, env={'ENVIRONMENT': 'development'})
+        client = TestClient(app, env={"ENVIRONMENT": "development"})
         status, headers, body = client.request("GET", "/error")
 
         assert status == 500
         assert "Sensitive error" in body  # Details exposed in dev
 
         # Test with production environment
-        client = TestClient(app, env={'ENVIRONMENT': 'production'})
+        client = TestClient(app, env={"ENVIRONMENT": "production"})
         status, headers, body = client.request("GET", "/error")
 
         assert status == 500
@@ -77,7 +78,7 @@ class TestExceptionWrapping:
         async def error_endpoint(request):
             raise RuntimeError("Auto-wrapped error")
 
-        client = TestClient(app, env={'ENVIRONMENT': 'development'})
+        client = TestClient(app, env={"ENVIRONMENT": "development"})
         status, headers, body = client.request("GET", "/error")
 
         assert status == 500
@@ -85,7 +86,9 @@ class TestExceptionWrapping:
 
     def test_global_exception_wrapping_can_be_disabled(self):
         """Test that global exception wrapping can be disabled"""
-        app = Kinglet(auto_wrap_exceptions=False, debug=True)  # Enable debug to see raw errors
+        app = Kinglet(
+            auto_wrap_exceptions=False, debug=True
+        )  # Enable debug to see raw errors
 
         @app.get("/error")
         async def error_endpoint(request):
@@ -112,7 +115,7 @@ class TestDevOnlyDecorator:
         async def debug_endpoint(request):
             return {"debug": "allowed"}
 
-        client = TestClient(app, env={'ENVIRONMENT': 'development'})
+        client = TestClient(app, env={"ENVIRONMENT": "development"})
         status, headers, body = client.request("GET", "/admin/debug")
 
         assert status == 200
@@ -127,7 +130,7 @@ class TestDevOnlyDecorator:
         async def debug_endpoint(request):
             return {"debug": "allowed"}
 
-        client = TestClient(app, env={'ENVIRONMENT': 'test'})
+        client = TestClient(app, env={"ENVIRONMENT": "test"})
         status, headers, body = client.request("GET", "/admin/debug")
 
         assert status == 200
@@ -142,7 +145,7 @@ class TestDevOnlyDecorator:
         async def debug_endpoint(request):
             return {"debug": "should not see this"}
 
-        client = TestClient(app, env={'ENVIRONMENT': 'production'})
+        client = TestClient(app, env={"ENVIRONMENT": "production"})
         status, headers, body = client.request("GET", "/admin/debug")
 
         # Security: In production, dev endpoints should be a blackhole (404 Not Found)
@@ -158,7 +161,7 @@ class TestDevOnlyDecorator:
         async def debug_endpoint(request):
             return {"debug": "should not see this"}
 
-        client = TestClient(app, env={'ENVIRONMENT': 'staging'})
+        client = TestClient(app, env={"ENVIRONMENT": "staging"})
         status, headers, body = client.request("GET", "/admin/debug")
 
         # Security: Unknown environments should also get blackhole treatment (404 Not Found)
@@ -180,8 +183,7 @@ class TestGeoRestriction:
 
         client = TestClient(app)
         status, headers, body = client.request(
-            "GET", "/games",
-            headers={"cf-ipcountry": "US"}
+            "GET", "/games", headers={"cf-ipcountry": "US"}
         )
 
         assert status == 200
@@ -198,8 +200,7 @@ class TestGeoRestriction:
 
         client = TestClient(app)
         status, headers, body = client.request(
-            "GET", "/games",
-            headers={"cf-ipcountry": "CN"}
+            "GET", "/games", headers={"cf-ipcountry": "CN"}
         )
 
         assert status == 451  # HTTP 451 Unavailable For Legal Reasons
@@ -217,8 +218,7 @@ class TestGeoRestriction:
 
         client = TestClient(app)
         status, headers, body = client.request(
-            "GET", "/games",
-            headers={"cf-ipcountry": "CN"}
+            "GET", "/games", headers={"cf-ipcountry": "CN"}
         )
 
         assert status == 451
@@ -251,8 +251,9 @@ class TestGeoRestriction:
 
         client = TestClient(app)
         status, headers, body = client.request(
-            "GET", "/games",
-            headers={"cf-ipcountry": "us"}  # lowercase
+            "GET",
+            "/games",
+            headers={"cf-ipcountry": "us"},  # lowercase
         )
 
         assert status == 200
@@ -273,10 +274,9 @@ class TestDecoratorCombinations:
             return {"debug": "super restricted"}
 
         # Test blocked by geo first (should get 451, not 403)
-        client = TestClient(app, env={'ENVIRONMENT': 'development'})
+        client = TestClient(app, env={"ENVIRONMENT": "development"})
         status, headers, body = client.request(
-            "GET", "/admin/geo-debug",
-            headers={"cf-ipcountry": "CN"}
+            "GET", "/admin/geo-debug", headers={"cf-ipcountry": "CN"}
         )
 
         assert status == 451  # Geo restriction error
@@ -292,7 +292,7 @@ class TestDecoratorCombinations:
             raise ValueError("Error in restricted endpoint")
 
         # Should work in dev environment
-        client = TestClient(app, env={'ENVIRONMENT': 'development'})
+        client = TestClient(app, env={"ENVIRONMENT": "development"})
         status, headers, body = client.request("GET", "/restricted-error")
 
         assert status == 500
@@ -300,7 +300,7 @@ class TestDecoratorCombinations:
         assert "restricted_test" in body
 
         # Should be blocked in production before getting to error
-        client = TestClient(app, env={'ENVIRONMENT': 'production'})
+        client = TestClient(app, env={"ENVIRONMENT": "production"})
         status, headers, body = client.request("GET", "/restricted-error")
 
         assert status == 404  # Dev restriction blackhole, not the ValueError
@@ -311,8 +311,8 @@ class TestValidateJsonBodyErrorCases:
 
     def test_validate_json_body_empty_body_error(self):
         """Test validate_json_body handles empty request bodies"""
-        from kinglet.decorators import validate_json_body
         from kinglet import Kinglet, TestClient
+        from kinglet.decorators import validate_json_body
 
         app = Kinglet()
 
@@ -322,12 +322,10 @@ class TestValidateJsonBodyErrorCases:
             return {"success": True}
 
         client = TestClient(app)
-        
+
         # Send empty JSON object (should trigger line 109)
         status, headers, body = client.request(
-            "POST", "/test",
-            body='{}',
-            headers={"content-type": "application/json"}
+            "POST", "/test", body="{}", headers={"content-type": "application/json"}
         )
 
         assert status == 400
@@ -339,8 +337,8 @@ class TestRequireFieldErrorCases:
 
     def test_require_field_missing_required_field(self):
         """Test require_field validates required fields"""
-        from kinglet.decorators import require_field
         from kinglet import Kinglet, TestClient
+        from kinglet.decorators import require_field
 
         app = Kinglet()
 
@@ -350,12 +348,13 @@ class TestRequireFieldErrorCases:
             return {"success": True}
 
         client = TestClient(app)
-        
+
         # Send JSON without required field
         status, headers, body = client.request(
-            "POST", "/test",
+            "POST",
+            "/test",
             body='{"other": "value"}',
-            headers={"content-type": "application/json"}
+            headers={"content-type": "application/json"},
         )
 
         assert status == 400

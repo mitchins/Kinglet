@@ -1,7 +1,7 @@
 """
 Kinglet 1.3.0 D1 and R2 Helpers Example
 
-Demonstrates the new database and storage helpers that eliminate 
+Demonstrates the new database and storage helpers that eliminate
 common boilerplate when working with Cloudflare D1 and R2.
 """
 
@@ -17,6 +17,7 @@ from kinglet import (
 )
 
 app = Kinglet()
+
 
 @app.get("/api/games")
 async def list_games(request):
@@ -46,7 +47,11 @@ async def get_game(request):
     game_id = request.path_param("game_id")
 
     # Clean D1 result unwrapping
-    result = await request.env.DB.prepare("SELECT * FROM games WHERE id = ?").bind(game_id).first()
+    result = (
+        await request.env.DB.prepare("SELECT * FROM games WHERE id = ?")
+        .bind(game_id)
+        .first()
+    )
 
     if not result:
         return {"error": "Game not found"}, 404
@@ -67,6 +72,7 @@ async def upload_media(request):
 
     # Generate unique filename
     import uuid
+
     file_id = str(uuid.uuid4())
 
     # Before 1.3.0: Manual JS ArrayBuffer conversion
@@ -88,7 +94,7 @@ async def upload_media(request):
         "success": True,
         "file_id": file_id,
         "url": file_url,
-        "size": len(body_bytes)
+        "size": len(body_bytes),
     }
 
 
@@ -122,7 +128,7 @@ async def get_media(request):
         "size": info["size"],
         "etag": info["etag"],
         "last_modified": info["last_modified"],
-        "url": asset_url(request, file_id, "media")
+        "url": asset_url(request, file_id, "media"),
     }
 
 
@@ -148,13 +154,11 @@ async def list_media(request):
 
     # Extract file list (actual implementation depends on R2 list response format)
     files = []
-    if hasattr(result, 'objects'):
+    if hasattr(result, "objects"):
         for obj in result.objects:
-            files.append({
-                "key": obj.key,
-                "size": obj.size,
-                "last_modified": obj.uploaded
-            })
+            files.append(
+                {"key": obj.key, "size": obj.size, "last_modified": obj.uploaded}
+            )
 
     return {"files": files, "prefix": prefix}
 
@@ -172,11 +176,13 @@ async def export_games(request):
     current_batch = []
 
     for game in d1_unwrap_results(result):  # Lazy generator
-        current_batch.append({
-            "id": game.get("id"),
-            "title": game.get("title"),
-            "export_url": asset_url(request, game.get("slug", ""), "game")
-        })
+        current_batch.append(
+            {
+                "id": game.get("id"),
+                "title": game.get("title"),
+                "export_url": asset_url(request, game.get("slug", ""), "game"),
+            }
+        )
 
         # Process in batches
         if len(current_batch) >= batch_size:
@@ -200,7 +206,9 @@ async def get_stats(request):
 
     for table in tables:
         try:
-            result = await request.env.DB.prepare(f"SELECT COUNT(*) as count FROM {table}").first()
+            result = await request.env.DB.prepare(
+                f"SELECT COUNT(*) as count FROM {table}"
+            ).first()
             if result:
                 data = d1_unwrap(result)  # Safe unwrapping
                 stats[table] = data.get("count", 0)
@@ -210,7 +218,7 @@ async def get_stats(request):
     return {
         "database_stats": stats,
         "api_base": asset_url(request, "", "api").rstrip("/"),
-        "media_base": asset_url(request, "", "media").rstrip("/media/")
+        "media_base": asset_url(request, "", "media").rstrip("/media/"),
     }
 
 

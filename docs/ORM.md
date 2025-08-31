@@ -42,7 +42,7 @@ async def migrate(request):
     # Secure with token
     if request.header("X-Migration-Token") != request.env.MIGRATION_TOKEN:
         return {"error": "Unauthorized"}, 401
-    
+
     models = [Game, User]
     results = await SchemaManager.migrate_all(request.env.DB, models)
     return {"migrated": results}
@@ -80,28 +80,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
-      
+
       - name: Install dependencies
         run: |
           pip install kinglet
           npm install wrangler
-      
+
       - name: Generate schema
         run: |
           python -m kinglet.orm_deploy generate app.models > schema.sql
           cat schema.sql  # Log for debugging
-      
+
       - name: Deploy schema to D1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: |
           npx wrangler d1 execute DB --file=schema.sql --remote
-      
+
       - name: Deploy worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
@@ -156,14 +156,14 @@ async def migrate_v2(request):
         ALTER TABLE games ADD COLUMN category TEXT;
         CREATE INDEX idx_games_category ON games(category);
     """)
-    
+
     # Backfill data
     await request.env.DB.prepare("""
-        UPDATE games 
+        UPDATE games
         SET category = json_extract(metadata, '$.genre')
         WHERE metadata IS NOT NULL
     """).run()
-    
+
     return {"status": "migrated to v2"}
 ```
 
@@ -238,7 +238,7 @@ class Game(Model):
     score = IntegerField(default=0)
     is_published = BooleanField(default=False)
     created_at = DateTimeField(auto_now_add=True)
-    
+
     class Meta:
         table_name = "games"
 ```

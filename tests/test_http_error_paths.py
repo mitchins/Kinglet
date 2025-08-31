@@ -18,4 +18,3 @@ def test_request_handles_bad_iterable_headers():
     req = Request(_RawReq())
     # Should not raise; header() should return default when nothing parsed
     assert req.header("x-missing", "default") == "default"
-
