@@ -1,8 +1,8 @@
 """
-Kinglet Middleware Examples (v1.4.2+)
+Kinglet Middleware Examples
 
 Demonstrates flexible middleware configuration with parameters
-and the new add_middleware() method.
+and the add_middleware() method.
 """
 
 import time
@@ -11,7 +11,7 @@ from kinglet import CorsMiddleware, Kinglet
 
 app = Kinglet(debug=True)
 
-# Example 1: Parameterized CORS Middleware (v1.4.2+)
+# Example 1: Parameterized CORS Middleware
 cors_middleware = CorsMiddleware(
     allow_origin="https://example.com",
     allow_methods="GET,POST,PUT,DELETE",
@@ -43,7 +43,7 @@ timing = TimingMiddleware(header_name="X-API-Time")
 app.add_middleware(timing)
 
 
-# Example 3: Error Enhancement Middleware (v1.4.2+ error processing)
+# Example 3: Error Enhancement Middleware
 class ErrorEnhancementMiddleware:
     async def process_response(self, request, response):
         if response.status >= 400:

@@ -182,7 +182,6 @@ async def health_check(request):
         "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "runtime": "Pyodide" if hasattr(sys, "_emscripten_info") else "CPython",
         "cache_backend": cache_backend,
-        "kinglet_version": "1.5.0",
     }
 
 

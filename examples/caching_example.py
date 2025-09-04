@@ -1,5 +1,5 @@
 """
-Kinglet Environment-Aware Caching Examples (v1.4.3+)
+Kinglet Environment-Aware Caching Examples
 
 Demonstrates intelligent caching that adapts to deployment environments
 with policy-based configuration.

@@ -1,5 +1,5 @@
 """
-Tests for Kinglet 1.4.0 FGA (Fine-Grained Authorization) system
+Tests for Kinglet FGA (Fine-Grained Authorization) system
 """
 
 import base64
