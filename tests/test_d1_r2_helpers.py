@@ -1,5 +1,5 @@
 """
-Tests for Kinglet 1.3.0 D1 and R2 helper functions
+Tests for Kinglet D1 and R2 helper functions
 """
 
 import os

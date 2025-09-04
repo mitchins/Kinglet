@@ -1,6 +1,6 @@
 """
 TOTP Authentication Example
-Demonstrates session elevation with TOTP in Kinglet 1.4.0
+Demonstrates session elevation with TOTP in Kinglet
 """
 
 from kinglet import Kinglet, Response

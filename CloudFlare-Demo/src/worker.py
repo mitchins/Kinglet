@@ -1,5 +1,5 @@
 """
-Kinglet 1.4.0 Demo - Testing all new features
+Kinglet Demo - Testing all features
 """
 
 from kinglet import Kinglet, Response, Router
@@ -18,8 +18,7 @@ app = Kinglet()
 @app.get("/")
 async def hello(request):
     return {
-        "message": "Kinglet 1.4.0 Demo",
-        "version": "1.4.0",
+        "message": "Kinglet Demo",
         "features": [
             "Authorization (FGA)",
             "TOTP Support",
@@ -32,7 +31,7 @@ async def hello(request):
 
 @app.get("/health")
 async def health_check(request):
-    return {"status": "healthy", "version": "1.4.0"}
+    return {"status": "healthy"}
 
 
 # ============ Authorization Demo ============

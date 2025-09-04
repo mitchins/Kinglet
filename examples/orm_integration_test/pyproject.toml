@@ -1,6 +1,6 @@
 [project]
 name = "kinglet-orm-integration-test"
-version = "1.6.0"
+version = "1.6.1"
 description = "Integration test for Kinglet 1.6.0 Micro-ORM"
 dependencies = [
     "kinglet",
