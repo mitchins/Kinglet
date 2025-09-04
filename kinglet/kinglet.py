@@ -26,7 +26,6 @@ from .storage import (
 )
 from .testing import TestClient
 
-__version__ = "1.4.2"
 __author__ = "Mitchell Currie"
 
 # For backward compatibility - export everything that was in the original kinglet.py

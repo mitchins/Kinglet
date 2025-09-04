@@ -1,7 +1,7 @@
 """
-Kinglet 1.3.0 D1 and R2 Helpers Example
+Kinglet D1 and R2 Helpers Example
 
-Demonstrates the new database and storage helpers that eliminate
+Demonstrates the database and storage helpers that eliminate
 common boilerplate when working with Cloudflare D1 and R2.
 """
 
@@ -23,7 +23,7 @@ app = Kinglet()
 async def list_games(request):
     """Example using D1 helpers to safely unwrap database results"""
 
-    # Before 1.3.0: Manual unwrapping with _to_py() everywhere
+    # Manual unwrapping with _to_py() everywhere
     # def _to_py(x):
     #     return x.to_py() if hasattr(x, "to_py") else x
     #
@@ -34,7 +34,7 @@ async def list_games(request):
     #         # ... lots of defensive conversion code
     #     rows.append(row_dict)
 
-    # After 1.3.0: Clean and simple with lazy iteration
+    # Clean and simple with lazy iteration
     result = await request.env.DB.prepare("SELECT * FROM games LIMIT 10").all()
     games = list(d1_unwrap_results(result))  # Generator -> list for JSON
 
@@ -75,7 +75,7 @@ async def upload_media(request):
 
     file_id = str(uuid.uuid4())
 
-    # Before 1.3.0: Manual JS ArrayBuffer conversion
+    # Manual JS ArrayBuffer conversion
     # import js
     # ab = js.ArrayBuffer.new(len(body_bytes))
     # u8 = js.Uint8Array.new(ab)
@@ -84,7 +84,7 @@ async def upload_media(request):
     #     "httpMetadata": {"contentType": content_type}
     # })
 
-    # After 1.3.0: Simple one-liner
+    # Simple one-liner
     await r2_put(request.env.STORAGE, file_id, body_bytes, content_type)
 
     # Generate environment-aware URL
@@ -108,7 +108,7 @@ async def get_media(request):
     if not obj:
         return {"error": "File not found"}, 404
 
-    # Before 1.3.0: Defensive property access everywhere
+    # Defensive property access everywhere
     # content_type = "application/octet-stream"
     # try:
     #     meta = getattr(obj, "httpMetadata", None)
@@ -119,7 +119,7 @@ async def get_media(request):
     # except Exception:
     #     pass
 
-    # After 1.3.0: Clean metadata extraction
+    # Clean metadata extraction
     info = r2_get_content_info(obj)
 
     return {
@@ -228,7 +228,7 @@ async def on_fetch(request, env):
 
 
 if __name__ == "__main__":
-    print("Kinglet 1.3.0 D1/R2 Helpers Example")
+    print("Kinglet D1/R2 Helpers Example")
     print("===================================")
     print()
     print("New helpers eliminate boilerplate:")

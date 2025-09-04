@@ -1,6 +1,6 @@
 # kinglet/totp.py
 """
-TOTP (Time-based One-Time Password) support for Kinglet 1.4.0
+TOTP (Time-based One-Time Password) support for Kinglet
 Implements RFC 6238 TOTP algorithm for session elevation
 """
 
