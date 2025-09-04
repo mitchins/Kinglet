@@ -284,7 +284,6 @@ async def health_check(request):
         "project": "Kinglet-SecureAdminExample",
         "description": "Secure admin endpoint demonstration",
         "timestamp": "2024-01-15T10:45:00Z",
-        "version": "1.0.0",
     }
 
 

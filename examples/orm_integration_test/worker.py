@@ -1,5 +1,5 @@
 """
-Kinglet 1.6.0 ORM Integration Test & Demo
+Kinglet ORM Integration Test & Demo
 
 This is a complete integration test that demonstrates the micro-ORM
 running in a real Cloudflare Workers environment with D1 database.
@@ -456,7 +456,7 @@ async def demo_bulk_delete(request):
 async def health_check(request):
     """Health check and API info"""
     return {
-        "service": "Kinglet 1.6.0 ORM Integration Test",
+        "service": "Kinglet ORM Integration Test",
         "status": "healthy",
         "endpoints": {
             "POST /migrate": "Initialize database schema",

@@ -454,7 +454,7 @@ class TestFloatField:
             field.validate("not_a_number")
 
         with pytest.raises(ValueError, match="Invalid float value"):
-            field.validate("1.2.3")
+            field.validate("invalid_float")
 
     def test_float_field_to_python(self):
         field = FloatField()

@@ -4,7 +4,7 @@ Comprehensive tests for NULL handling in Kinglet ORM
 This test file ensures 100% coverage of NULL/None value handling to prevent
 D1_TYPE_ERROR: Type 'undefined' not supported issues in Cloudflare Workers.
 
-Critical for alpha testing of Kinglet 1.6.0 with D1 database.
+Critical for testing with D1 database.
 """
 
 import os

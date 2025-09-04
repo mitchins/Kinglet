@@ -1,5 +1,5 @@
 """
-Kinglet 1.4.0 Fine-Grained Authorization (FGA) Example
+Kinglet Fine-Grained Authorization (FGA) Example
 
 Complete example showing all authorization patterns including admin override.
 """
