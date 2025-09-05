@@ -402,6 +402,8 @@ def validate_json(
     """
     Decorator to validate JSON data from request
 
+    Note: JSON parameter must be passed as a keyword argument
+
     Args:
         schema: Validation schema
         json_param: Parameter name that contains the JSON data to validate
@@ -415,62 +417,47 @@ def validate_json(
             # data is validated JSON
             pass
     """
-    if isinstance(schema, dict):
-        validation_schema = ValidationSchema(schema)
-    else:
-        validation_schema = schema
+    validation_schema = (
+        schema if isinstance(schema, ValidationSchema) else ValidationSchema(schema)
+    )
 
     def decorator(func):
-        # Get function signature to map positional args to parameter names
-        sig = inspect.signature(func)
-        param_names = list(sig.parameters.keys())
-
-        def _validate_json_parameter(args, kwargs):
-            """Shared validation logic for both sync and async wrappers"""
-            json_data = None
-
-            # Check if JSON parameter was passed as keyword argument
-            if json_param in kwargs:
-                json_data = kwargs[json_param]
-            else:
-                # Check if JSON parameter was passed as positional argument
-                try:
-                    param_index = param_names.index(json_param)
-                    if param_index < len(args):
-                        json_data = args[param_index]
-                except ValueError:
-                    # Parameter name not found in signature
-                    pass
-
-            if json_data is None:
-                raise ValidationException(f"Missing required parameter: {json_param}")
-
-            if not isinstance(json_data, dict):
-                raise ValidationException(
-                    f"Parameter {json_param} must be a dictionary"
-                )
-
-            # Validate the JSON data
-            result = validation_schema.validate(json_data)
-
-            if not result.is_valid:
-                raise ValidationException(VALIDATION_FAILED_MESSAGE, result.errors)
-
-        @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            _validate_json_parameter(args, kwargs)
-            return await func(*args, **kwargs)
-
-        @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            _validate_json_parameter(args, kwargs)
-            return func(*args, **kwargs)
-
-        # Return appropriate wrapper
         if inspect.iscoroutinefunction(func):
-            return async_wrapper
+
+            @functools.wraps(func)
+            async def wrapper(*args, **kwargs):
+                if json_param not in kwargs:
+                    raise ValidationException(
+                        f"Missing required parameter: {json_param}"
+                    )
+                data = kwargs[json_param]
+                if not isinstance(data, dict):
+                    raise ValidationException(
+                        f"Parameter {json_param} must be a dictionary"
+                    )
+                result = validation_schema.validate(data)
+                if not result.is_valid:
+                    raise ValidationException(VALIDATION_FAILED_MESSAGE, result.errors)
+                return await func(*args, **kwargs)
         else:
-            return sync_wrapper
+
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                if json_param not in kwargs:
+                    raise ValidationException(
+                        f"Missing required parameter: {json_param}"
+                    )
+                data = kwargs[json_param]
+                if not isinstance(data, dict):
+                    raise ValidationException(
+                        f"Parameter {json_param} must be a dictionary"
+                    )
+                result = validation_schema.validate(data)
+                if not result.is_valid:
+                    raise ValidationException(VALIDATION_FAILED_MESSAGE, result.errors)
+                return func(*args, **kwargs)
+
+        return wrapper
 
     return decorator
 
