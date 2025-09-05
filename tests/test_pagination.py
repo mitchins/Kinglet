@@ -249,7 +249,10 @@ class TestPaginationConfig:
         assert config.min_per_page == 5
         assert config.page_param == "p"
         assert config.per_page_param == "limit"
-        assert config.count_query_timeout == 5.0
+        assert config.count_query_timeout is not None
+        import math
+
+        assert math.isclose(config.count_query_timeout, 5.0)
 
 
 class TestPaginator:
@@ -281,14 +284,14 @@ class TestPaginator:
     def test_validate_params_negative_page(self):
         """Test validate_params normalizes negative page"""
         paginator = Paginator()
-        page, per_page = paginator.validate_params(-1, 25)
+        page, _ = paginator.validate_params(-1, 25)
 
         assert page == 1
 
     def test_validate_params_zero_page(self):
         """Test validate_params normalizes zero page"""
         paginator = Paginator()
-        page, per_page = paginator.validate_params(0, 25)
+        page, _ = paginator.validate_params(0, 25)
 
         assert page == 1
 
@@ -296,7 +299,7 @@ class TestPaginator:
         """Test validate_params enforces min_per_page"""
         config = PaginationConfig(min_per_page=5)
         paginator = Paginator(config)
-        page, per_page = paginator.validate_params(1, 2)
+        _, per_page = paginator.validate_params(1, 2)
 
         assert per_page == 5
 
@@ -304,7 +307,7 @@ class TestPaginator:
         """Test validate_params enforces max_per_page"""
         config = PaginationConfig(max_per_page=50)
         paginator = Paginator(config)
-        page, per_page = paginator.validate_params(1, 100)
+        _, per_page = paginator.validate_params(1, 100)
 
         assert per_page == 50
 
@@ -675,11 +678,11 @@ class TestUtilityFunctions:
         page_info = PageInfo.from_query(3, 10, 100)
         urls = create_pagination_urls("https://api.example.com/items", page_info)
 
-        assert "page=2" in urls["previous"]
-        assert "per_page=10" in urls["previous"]
-        assert "page=4" in urls["next"]
-        assert "page=1" in urls["first"]
-        assert "page=10" in urls["last"]
+        assert urls["previous"] is not None and "page=2" in urls["previous"]
+        assert urls["previous"] is not None and "per_page=10" in urls["previous"]
+        assert urls["next"] is not None and "page=4" in urls["next"]
+        assert urls["first"] is not None and "page=1" in urls["first"]
+        assert urls["last"] is not None and "page=10" in urls["last"]
 
     def test_create_pagination_urls_with_query_params(self):
         """Test create_pagination_urls preserves existing query params"""
@@ -690,9 +693,9 @@ class TestUtilityFunctions:
             "https://api.example.com/items", page_info, query_params
         )
 
-        assert "category=electronics" in urls["next"]
-        assert "sort=name" in urls["next"]
-        assert "page=3" in urls["next"]
+        assert urls["next"] is not None and "category=electronics" in urls["next"]
+        assert urls["next"] is not None and "sort=name" in urls["next"]
+        assert urls["next"] is not None and "page=3" in urls["next"]
 
     def test_create_pagination_urls_first_page(self):
         """Test create_pagination_urls for first page"""
@@ -710,10 +713,10 @@ class TestUtilityFunctions:
         assert urls["next"] is None
         assert urls["previous"] is not None
 
-    def test_paginate_queryset_with_list(self):
+    async def test_paginate_queryset_with_list(self):
         """Test paginate_queryset with list"""
         items = list(range(1, 26))  # 1 to 25
-        result = paginate_queryset(items, page=2, per_page=10)
+        result = await paginate_queryset(items, page=2, per_page=10)
 
         assert isinstance(result, PaginatedResult)
         assert result.items == list(range(11, 21))  # Items 11-20

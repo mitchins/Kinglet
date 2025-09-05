@@ -431,14 +431,14 @@ def create_pagination_urls(
     }
 
 
-def paginate_queryset(
+async def paginate_queryset(
     queryset,
     page: int = 1,
     per_page: int = 20,
     config: PaginationConfig | None = None,
 ) -> PaginatedResult:
     """
-    Quick function to paginate a queryset or list
+    Async function to paginate a queryset or list
 
     Args:
         queryset: Queryset or list to paginate
@@ -452,9 +452,9 @@ def paginate_queryset(
     paginator = Paginator(config)
 
     if hasattr(queryset, "limit") and hasattr(queryset, "offset"):
-        # Assume it's a query builder
+        # Assume it's a query builder - must await the async method
         count_query = queryset  # Simplified - in practice you'd clone for count
-        return paginator.paginate_query(queryset, count_query, page, per_page)
+        return await paginator.paginate_query(queryset, count_query, page, per_page)
     else:
         # Assume it's a list
         return paginator.paginate_list(list(queryset), page, per_page)

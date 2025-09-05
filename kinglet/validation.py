@@ -421,12 +421,29 @@ def validate_json(
         validation_schema = schema
 
     def decorator(func):
-        def _validate_json_parameter(kwargs):
-            """Shared validation logic for both sync and async wrappers"""
-            if json_param not in kwargs:
-                raise ValidationException(f"Missing required parameter: {json_param}")
+        # Get function signature to map positional args to parameter names
+        sig = inspect.signature(func)
+        param_names = list(sig.parameters.keys())
 
-            json_data = kwargs[json_param]
+        def _validate_json_parameter(args, kwargs):
+            """Shared validation logic for both sync and async wrappers"""
+            json_data = None
+
+            # Check if JSON parameter was passed as keyword argument
+            if json_param in kwargs:
+                json_data = kwargs[json_param]
+            else:
+                # Check if JSON parameter was passed as positional argument
+                try:
+                    param_index = param_names.index(json_param)
+                    if param_index < len(args):
+                        json_data = args[param_index]
+                except ValueError:
+                    # Parameter name not found in signature
+                    pass
+
+            if json_data is None:
+                raise ValidationException(f"Missing required parameter: {json_param}")
 
             if not isinstance(json_data, dict):
                 raise ValidationException(
@@ -441,12 +458,12 @@ def validate_json(
 
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
-            _validate_json_parameter(kwargs)
+            _validate_json_parameter(args, kwargs)
             return await func(*args, **kwargs)
 
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
-            _validate_json_parameter(kwargs)
+            _validate_json_parameter(args, kwargs)
             return func(*args, **kwargs)
 
         # Return appropriate wrapper
