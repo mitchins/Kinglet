@@ -287,5 +287,14 @@ if not _orm_available:
         "QuerySet",
         "Manager",
         "SchemaManager",
+        # Enhanced Fields also depend on ORM
+        "MediaField",
+        "ImageField",
+        "VideoField",
+        "DocumentField",
+        "MediaConfig",
+        "MediaUrlResolver",
+        "generate_media_uid",
+        "resolve_media_url",
     ]
     __all__ = [item for item in __all__ if item not in orm_items]
