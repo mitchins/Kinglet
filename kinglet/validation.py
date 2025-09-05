@@ -8,9 +8,12 @@ import inspect
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 from .services import ValidationException
+
+# Constants
+VALIDATION_FAILED_MESSAGE = "Validation failed"
 
 
 @dataclass
@@ -55,7 +58,7 @@ class Validator:
 
     def _default_error_message(self) -> str:
         """Default error message for this validator"""
-        return "Validation failed"
+        return VALIDATION_FAILED_MESSAGE
 
     def validate(self, value: Any, field_name: str = None) -> bool:
         """Validate a value. Should be overridden by subclasses"""
@@ -139,8 +142,8 @@ class RangeValidator(Validator):
 
     def __init__(
         self,
-        min_value: Optional[Union[int, float]] = None,
-        max_value: Optional[Union[int, float]] = None,
+        min_value: Optional[int | float] = None,
+        max_value: Optional[int | float] = None,
         **kwargs,
     ):
         self.min_value = min_value
@@ -176,7 +179,7 @@ class RangeValidator(Validator):
 class RegexValidator(Validator):
     """Validates against regular expression pattern"""
 
-    def __init__(self, pattern: Union[str, re.Pattern], **kwargs):
+    def __init__(self, pattern: str | re.Pattern, **kwargs):
         if isinstance(pattern, str):
             self.pattern = re.compile(pattern)
         else:
@@ -325,7 +328,7 @@ class ValidationSchema:
         return result
 
 
-def validate_schema(schema: Union[Dict[str, List[Validator]], ValidationSchema]):
+def validate_schema(schema: Dict[str, List[Validator]] | ValidationSchema):
     """
     Decorator to validate function arguments against a schema
 
@@ -358,7 +361,7 @@ def validate_schema(schema: Union[Dict[str, List[Validator]], ValidationSchema])
             result = validation_schema.validate(dict(bound.arguments))
 
             if not result.is_valid:
-                raise ValidationException("Validation failed", result.errors)
+                raise ValidationException(VALIDATION_FAILED_MESSAGE, result.errors)
 
             return await func(*args, **kwargs)
 
@@ -373,7 +376,7 @@ def validate_schema(schema: Union[Dict[str, List[Validator]], ValidationSchema])
             result = validation_schema.validate(dict(bound.arguments))
 
             if not result.is_valid:
-                raise ValidationException("Validation failed", result.errors)
+                raise ValidationException(VALIDATION_FAILED_MESSAGE, result.errors)
 
             return func(*args, **kwargs)
 
@@ -387,7 +390,7 @@ def validate_schema(schema: Union[Dict[str, List[Validator]], ValidationSchema])
 
 
 def validate_json(
-    schema: Union[Dict[str, List[Validator]], ValidationSchema],
+    schema: Dict[str, List[Validator]] | ValidationSchema,
     json_param: str = "data",
 ):
     """
@@ -412,9 +415,8 @@ def validate_json(
         validation_schema = schema
 
     def decorator(func):
-        @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            # Get the JSON data parameter
+        def _validate_json_parameter(kwargs):
+            """Shared validation logic for both sync and async wrappers"""
             if json_param not in kwargs:
                 raise ValidationException(f"Missing required parameter: {json_param}")
 
@@ -429,29 +431,16 @@ def validate_json(
             result = validation_schema.validate(json_data)
 
             if not result.is_valid:
-                raise ValidationException("Validation failed", result.errors)
+                raise ValidationException(VALIDATION_FAILED_MESSAGE, result.errors)
 
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            _validate_json_parameter(kwargs)
             return await func(*args, **kwargs)
 
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
-            # Get the JSON data parameter
-            if json_param not in kwargs:
-                raise ValidationException(f"Missing required parameter: {json_param}")
-
-            json_data = kwargs[json_param]
-
-            if not isinstance(json_data, dict):
-                raise ValidationException(
-                    f"Parameter {json_param} must be a dictionary"
-                )
-
-            # Validate the JSON data
-            result = validation_schema.validate(json_data)
-
-            if not result.is_valid:
-                raise ValidationException("Validation failed", result.errors)
-
+            _validate_json_parameter(kwargs)
             return func(*args, **kwargs)
 
         # Return appropriate wrapper

@@ -5,7 +5,7 @@ Eliminates boilerplate for paginated queries and responses
 
 import math
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Dict, List, Optional, TypeVar
 from urllib.parse import urlencode
 
 T = TypeVar("T")
@@ -44,7 +44,7 @@ class PageInfo:
 
 
 @dataclass
-class PaginatedResult(Generic[T]):
+class PaginatedResult[T]:
     """Container for paginated query results"""
 
     items: List[T]

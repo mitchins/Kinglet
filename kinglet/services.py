@@ -8,7 +8,7 @@ import functools
 import traceback
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, Generic, Optional, TypeVar
+from typing import Any, Callable, Dict, Optional
 
 
 class ServiceResultType(Enum):
@@ -38,13 +38,11 @@ class ServiceResult:
         cls, data: Any = None, message: str = "Operation successful"
     ) -> "ServiceResult":
         """Create a success result"""
+        # Extract nested conditional expression
+        formatted_data = cls._format_success_data(data)
         return cls(
             success=True,
-            data=data
-            if isinstance(data, dict)
-            else {"result": data}
-            if data is not None
-            else {},
+            data=formatted_data,
             message=message,
             result_type=ServiceResultType.SUCCESS,
         )
@@ -102,6 +100,16 @@ class ServiceResult:
             result_type=ServiceResultType.PERMISSION_DENIED,
         )
 
+    @staticmethod
+    def _format_success_data(data: Any) -> Dict[str, Any]:
+        """Format data for success result"""
+        if isinstance(data, dict):
+            return data
+        elif data is not None:
+            return {"result": data}
+        else:
+            return {}
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API responses"""
         result = {"success": self.success, "message": self.message}
@@ -151,6 +159,28 @@ class ValidationException(ServiceException):
         self.field_errors = field_errors or {}
 
 
+def _convert_function_result_to_service_result(result) -> ServiceResult:
+    """Convert various function return types to ServiceResult"""
+    # If function returns ServiceResult, pass through
+    if isinstance(result, ServiceResult):
+        return result
+
+    # If function returns tuple (legacy pattern), convert
+    if isinstance(result, tuple) and len(result) == 2:
+        success, data = result
+        if success:
+            return ServiceResult.success_result(data)
+        else:
+            return ServiceResult.error_result(
+                data.get("error", "Operation failed"),
+                data.get("code", "OPERATION_FAILED"),
+                data.get("details"),
+            )
+
+    # If function returns data directly, wrap in success
+    return ServiceResult.success_result(result)
+
+
 def handle_service_exceptions(func: Callable) -> Callable:
     """
     Decorator to handle exceptions and convert them to ServiceResult
@@ -161,26 +191,7 @@ def handle_service_exceptions(func: Callable) -> Callable:
     async def async_wrapper(*args, **kwargs) -> ServiceResult:
         try:
             result = await func(*args, **kwargs)
-
-            # If function returns ServiceResult, pass through
-            if isinstance(result, ServiceResult):
-                return result
-
-            # If function returns tuple (legacy pattern), convert
-            if isinstance(result, tuple) and len(result) == 2:
-                success, data = result
-                if success:
-                    return ServiceResult.success_result(data)
-                else:
-                    return ServiceResult.error_result(
-                        data.get("error", "Operation failed"),
-                        data.get("code", "OPERATION_FAILED"),
-                        data.get("details"),
-                    )
-
-            # If function returns data directly, wrap in success
-            return ServiceResult.success_result(result)
-
+            return _convert_function_result_to_service_result(result)
         except ValidationException as e:
             return ServiceResult.validation_error(e.message, e.field_errors)
         except ServiceException as e:
@@ -196,23 +207,7 @@ def handle_service_exceptions(func: Callable) -> Callable:
     def sync_wrapper(*args, **kwargs) -> ServiceResult:
         try:
             result = func(*args, **kwargs)
-
-            if isinstance(result, ServiceResult):
-                return result
-
-            if isinstance(result, tuple) and len(result) == 2:
-                success, data = result
-                if success:
-                    return ServiceResult.success_result(data)
-                else:
-                    return ServiceResult.error_result(
-                        data.get("error", "Operation failed"),
-                        data.get("code", "OPERATION_FAILED"),
-                        data.get("details"),
-                    )
-
-            return ServiceResult.success_result(result)
-
+            return _convert_function_result_to_service_result(result)
         except ValidationException as e:
             return ServiceResult.validation_error(e.message, e.field_errors)
         except ServiceException as e:
@@ -230,10 +225,7 @@ def handle_service_exceptions(func: Callable) -> Callable:
         return sync_wrapper
 
 
-T = TypeVar("T")
-
-
-class BaseService(Generic[T]):
+class BaseService[T]:
     """
     Base service class with common patterns
     Provides standard CRUD operations and utilities

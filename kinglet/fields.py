@@ -10,6 +10,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 from .orm import StringField
 
+# Constants for API endpoints
+API_MEDIA_ENDPOINT = "/api/media"
+TEST_MEDIA_ENDPOINT = "/test-media"
+
 
 @dataclass
 class MediaConfig:
@@ -32,7 +36,7 @@ class MediaConfig:
 
     # Thumbnail settings
     thumbnail_suffix: str = "_thumb"
-    thumbnail_sizes: List[int] = None
+    thumbnail_sizes: Optional[List[int]] = None
 
     # Allowed file types
     allowed_types: Optional[List[str]] = None
@@ -46,8 +50,8 @@ class MediaConfig:
 
         if self.environment_urls is None:
             self.environment_urls = {
-                "development": "/api/media",
-                "testing": "/test-media",
+                "development": API_MEDIA_ENDPOINT,
+                "testing": TEST_MEDIA_ENDPOINT,
                 "production": None,  # Will use base_url
             }
 
@@ -225,8 +229,8 @@ class MediaField(StringField):
         if not uid:
             return MediaFieldValue(None, self.resolver)
 
-        # TODO: In a real implementation, you might want to fetch metadata from database
-        # For now, we'll just create a basic MediaFieldValue
+        # Note: In a production implementation, metadata could be fetched from database
+        # Currently using basic MediaFieldValue without database metadata lookup
         return MediaFieldValue(uid, self.resolver)
 
     def to_database(self, value):
@@ -342,12 +346,14 @@ def resolve_media_url(
 
 
 # Environment-specific URL helpers
-def create_development_media_config(api_prefix: str = "/api/media") -> MediaConfig:
+def create_development_media_config(
+    api_prefix: str = API_MEDIA_ENDPOINT,
+) -> MediaConfig:
     """Create MediaConfig for development environment"""
     return MediaConfig(
         environment_urls={
             "development": api_prefix,
-            "testing": "/test-media",
+            "testing": TEST_MEDIA_ENDPOINT,
             "production": None,
         }
     )
@@ -358,8 +364,8 @@ def create_production_media_config(cdn_url: str) -> MediaConfig:
     return MediaConfig(
         base_url=cdn_url,
         environment_urls={
-            "development": "/api/media",
-            "testing": "/test-media",
+            "development": API_MEDIA_ENDPOINT,
+            "testing": TEST_MEDIA_ENDPOINT,
             "production": cdn_url,
         },
     )
