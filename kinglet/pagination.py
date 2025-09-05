@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any, TypeVar
 from urllib.parse import urlencode
 
 T = TypeVar("T")
@@ -46,7 +46,7 @@ class PageInfo:
 
 
 @dataclass
-class PaginatedResult(Generic[T]):
+class PaginatedResult[T]:
     """Container for paginated query results"""
 
     items: list[T]

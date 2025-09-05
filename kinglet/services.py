@@ -11,9 +11,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Generic, TypeVar
-
-T = TypeVar("T")
+from typing import Any
 
 
 class ServiceResultType(Enum):
@@ -230,7 +228,7 @@ def handle_service_exceptions(func: Callable) -> Callable:
         return sync_wrapper
 
 
-class BaseService(Generic[T]):
+class BaseService[T]:
     """
     Base service class with common patterns
     Provides standard CRUD operations and utilities
@@ -240,7 +238,7 @@ class BaseService(Generic[T]):
         self.db = db
         self.model_class = model_class
 
-    def _get_model_class(self) -> T:
+    def _get_model_class(self) -> type[T]:
         """Get model class from generic type or explicit assignment"""
         if self.model_class:
             return self.model_class

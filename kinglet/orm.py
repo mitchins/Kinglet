@@ -441,7 +441,7 @@ class QuerySet:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    async def first(self) -> Model | None:
+    async def first(self) -> Model | dict[str, Any] | None:
         """
         Execute query and return first result
 
