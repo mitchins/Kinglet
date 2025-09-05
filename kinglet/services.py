@@ -6,9 +6,10 @@ Eliminates boilerplate in service layer patterns
 import asyncio
 import functools
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 
 class ServiceResultType(Enum):
@@ -27,10 +28,10 @@ class ServiceResult:
     """
 
     success: bool
-    data: Optional[Dict[str, Any]] = None
-    message: Optional[str] = None
-    error_code: Optional[str] = None
-    error_details: Optional[str] = None
+    data: dict[str, Any] | None = None
+    message: str | None = None
+    error_code: str | None = None
+    error_details: str | None = None
     result_type: ServiceResultType = ServiceResultType.SUCCESS
 
     @classmethod
@@ -52,7 +53,7 @@ class ServiceResult:
         cls,
         message: str,
         error_code: str = "OPERATION_FAILED",
-        error_details: Optional[str] = None,
+        error_details: str | None = None,
         result_type: ServiceResultType = ServiceResultType.ERROR,
     ) -> "ServiceResult":
         """Create an error result"""
@@ -67,7 +68,7 @@ class ServiceResult:
 
     @classmethod
     def validation_error(
-        cls, message: str, field_errors: Optional[Dict[str, str]] = None
+        cls, message: str, field_errors: dict[str, str] | None = None
     ) -> "ServiceResult":
         """Create a validation error result"""
         return cls(
@@ -101,7 +102,7 @@ class ServiceResult:
         )
 
     @staticmethod
-    def _format_success_data(data: Any) -> Dict[str, Any]:
+    def _format_success_data(data: Any) -> dict[str, Any]:
         """Format data for success result"""
         if isinstance(data, dict):
             return data
@@ -110,7 +111,7 @@ class ServiceResult:
         else:
             return {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses"""
         result = {"success": self.success, "message": self.message}
 
@@ -125,7 +126,7 @@ class ServiceResult:
 
         return result
 
-    def to_tuple(self) -> tuple[bool, Dict[str, Any]]:
+    def to_tuple(self) -> tuple[bool, dict[str, Any]]:
         """Convert to legacy tuple format for backward compatibility"""
         if self.success:
             return True, self.data or {}
@@ -143,7 +144,7 @@ class ServiceException(Exception):
         self,
         message: str,
         error_code: str = "SERVICE_ERROR",
-        details: Optional[str] = None,
+        details: str | None = None,
     ):
         super().__init__(message)
         self.message = message
@@ -154,7 +155,7 @@ class ServiceException(Exception):
 class ValidationException(ServiceException):
     """Exception for validation errors"""
 
-    def __init__(self, message: str, field_errors: Optional[Dict[str, str]] = None):
+    def __init__(self, message: str, field_errors: dict[str, str] | None = None):
         super().__init__(message, "VALIDATION_ERROR")
         self.field_errors = field_errors or {}
 
@@ -231,7 +232,7 @@ class BaseService[T]:
     Provides standard CRUD operations and utilities
     """
 
-    def __init__(self, db, model_class: Optional[T] = None):
+    def __init__(self, db, model_class: T | None = None):
         self.db = db
         self.model_class = model_class
 
@@ -251,7 +252,7 @@ class BaseService[T]:
         )
 
     @handle_service_exceptions
-    async def create(self, data: Dict[str, Any], message: str = None) -> ServiceResult:
+    async def create(self, data: dict[str, Any], message: str = None) -> ServiceResult:
         """Generic create operation"""
         model_class = self._get_model_class()
 
@@ -278,7 +279,7 @@ class BaseService[T]:
 
     @handle_service_exceptions
     async def update(
-        self, item_id: Any, data: Dict[str, Any], message: str = None
+        self, item_id: Any, data: dict[str, Any], message: str = None
     ) -> ServiceResult:
         """Generic update operation"""
         model_class = self._get_model_class()
@@ -327,7 +328,7 @@ class BaseService[T]:
     @handle_service_exceptions
     async def list_items(
         self,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
         limit: int = 20,
         offset: int = 0,
         order_by: str = "-created_at",

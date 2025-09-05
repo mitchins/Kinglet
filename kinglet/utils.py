@@ -6,7 +6,8 @@ import functools
 import hashlib
 import json
 import time
-from typing import Any, Callable, Optional, Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from .http import Request
 
@@ -98,7 +99,7 @@ class CacheService:
         self.storage = storage
         self.ttl = ttl
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Get value from cache"""
         try:
             if hasattr(self.storage, "get"):
@@ -171,7 +172,7 @@ def cache_aside(
     storage_binding: str = "STORAGE",
     cache_type: str = "default",
     ttl: int = 3600,
-    policy: Optional[CachePolicy] = None,
+    policy: CachePolicy | None = None,
 ):
     """
     Policy-driven cache-aside decorator for expensive operations
@@ -234,7 +235,7 @@ def _build_asset_path(uid: str, asset_type: str) -> str:
         return f"/{asset_type}/{uid}"
 
 
-def _get_cdn_url(request: Request, path: str, asset_type: str) -> Optional[str]:
+def _get_cdn_url(request: Request, path: str, asset_type: str) -> str | None:
     """Get CDN URL if available for media assets"""
     if asset_type == "media" and hasattr(request.env, "CDN_BASE_URL"):
         cdn_base = request.env.CDN_BASE_URL.rstrip("/")
@@ -360,7 +361,7 @@ def cache_aside_d1(
     db_binding: str = "DB",
     cache_type: str = "default",
     ttl: int = 3600,
-    policy: Optional[CachePolicy] = None,
+    policy: CachePolicy | None = None,
     track_hits: bool = False,
 ):
     """

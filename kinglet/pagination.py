@@ -5,7 +5,7 @@ Eliminates boilerplate for paginated queries and responses
 
 import math
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, TypeVar
+from typing import Any, TypeVar
 from urllib.parse import urlencode
 
 T = TypeVar("T")
@@ -21,8 +21,8 @@ class PageInfo:
     total_pages: int
     has_next: bool
     has_previous: bool
-    next_page: Optional[int] = None
-    previous_page: Optional[int] = None
+    next_page: int | None = None
+    previous_page: int | None = None
 
     @classmethod
     def from_query(cls, page: int, per_page: int, total_count: int) -> "PageInfo":
@@ -47,7 +47,7 @@ class PageInfo:
 class PaginatedResult[T]:
     """Container for paginated query results"""
 
-    items: List[T]
+    items: list[T]
     page_info: PageInfo
 
     @property
@@ -80,7 +80,7 @@ class PaginatedResult[T]:
         """Whether there is a previous page"""
         return self.page_info.has_previous
 
-    def to_dict(self, serialize_items: bool = True) -> Dict[str, Any]:
+    def to_dict(self, serialize_items: bool = True) -> dict[str, Any]:
         """Convert to dictionary for API responses"""
         result = {"pagination": asdict(self.page_info), "count": self.count}
 
@@ -116,7 +116,7 @@ class PaginationConfig:
         min_per_page: int = 1,
         page_param: str = "page",
         per_page_param: str = "per_page",
-        count_query_timeout: Optional[float] = None,
+        count_query_timeout: float | None = None,
     ):
         self.default_per_page = default_per_page
         self.max_per_page = max_per_page
@@ -129,7 +129,7 @@ class PaginationConfig:
 class Paginator:
     """Handles pagination logic and query building"""
 
-    def __init__(self, config: Optional[PaginationConfig] = None):
+    def __init__(self, config: PaginationConfig | None = None):
         self.config = config or PaginationConfig()
 
     def validate_params(self, page: int, per_page: int) -> tuple[int, int]:
@@ -153,7 +153,7 @@ class Paginator:
         query_builder,
         count_query_builder,
         page: int = 1,
-        per_page: Optional[int] = None,
+        per_page: int | None = None,
     ) -> PaginatedResult:
         """
         Paginate a query builder
@@ -199,7 +199,7 @@ class Paginator:
                     asyncio.gather(get_count(), get_items()),
                     timeout=self.config.count_query_timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # If queries timeout, just get items and estimate count
                 items = await get_items()
                 total_count = len(items) + offset  # Rough estimate
@@ -212,7 +212,7 @@ class Paginator:
         return PaginatedResult(items, page_info)
 
     def paginate_list(
-        self, items: List[T], page: int = 1, per_page: Optional[int] = None
+        self, items: list[T], page: int = 1, per_page: int | None = None
     ) -> PaginatedResult[T]:
         """
         Paginate an in-memory list
@@ -239,7 +239,7 @@ class Paginator:
 
         return PaginatedResult(page_items, page_info)
 
-    def parse_request_params(self, request_params: Dict[str, Any]) -> tuple[int, int]:
+    def parse_request_params(self, request_params: dict[str, Any]) -> tuple[int, int]:
         """
         Parse pagination parameters from request
 
@@ -270,8 +270,8 @@ class PaginationMixin:
     async def paginate(
         self,
         page: int = 1,
-        per_page: Optional[int] = None,
-        config: Optional[PaginationConfig] = None,
+        per_page: int | None = None,
+        config: PaginationConfig | None = None,
     ) -> PaginatedResult:
         """
         Paginate the current query
@@ -328,9 +328,9 @@ class CursorPaginator:
         self,
         query_builder,
         limit: int = 20,
-        after_cursor: Optional[str] = None,
-        before_cursor: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        after_cursor: str | None = None,
+        before_cursor: str | None = None,
+    ) -> dict[str, Any]:
         """
         Paginate using cursor-based approach
 
@@ -398,8 +398,8 @@ class CursorPaginator:
 
 # Utility functions for pagination
 def create_pagination_urls(
-    base_url: str, page_info: PageInfo, query_params: Optional[Dict[str, Any]] = None
-) -> Dict[str, Optional[str]]:
+    base_url: str, page_info: PageInfo, query_params: dict[str, Any] | None = None
+) -> dict[str, str | None]:
     """
     Create pagination URLs for API responses
 
@@ -433,7 +433,7 @@ def paginate_queryset(
     queryset,
     page: int = 1,
     per_page: int = 20,
-    config: Optional[PaginationConfig] = None,
+    config: PaginationConfig | None = None,
 ) -> PaginatedResult:
     """
     Quick function to paginate a queryset or list

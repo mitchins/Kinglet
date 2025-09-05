@@ -11,7 +11,6 @@ import secrets
 import struct
 import time
 import urllib.parse
-from typing import Optional
 
 # Test TOTP secret that generates predictable codes for development/testing
 # This secret will generate "000000" at Unix timestamp 0 (and cyclically)
@@ -139,7 +138,7 @@ def install_test_totp_secret() -> str:
 
 
 def generate_totp_code(
-    secret: str, timestamp: Optional[int] = None, algorithm: str = "sha1"
+    secret: str, timestamp: int | None = None, algorithm: str = "sha1"
 ) -> str:
     """
     Generate TOTP code for given secret and timestamp

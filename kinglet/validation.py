@@ -6,9 +6,10 @@ Eliminates boilerplate for input validation with decorators and validators
 import functools
 import inspect
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from .services import ValidationException
 
@@ -22,7 +23,7 @@ class ValidationRule:
 
     validator: Callable[[Any], bool]
     error_message: str
-    field_name: Optional[str] = None
+    field_name: str | None = None
 
 
 @dataclass
@@ -30,7 +31,7 @@ class ValidationResult:
     """Result of validation operation"""
 
     is_valid: bool
-    errors: Dict[str, List[str]]
+    errors: dict[str, list[str]]
 
     @classmethod
     def success(cls) -> "ValidationResult":
@@ -38,7 +39,7 @@ class ValidationResult:
         return cls(is_valid=True, errors={})
 
     @classmethod
-    def failure(cls, errors: Dict[str, List[str]]) -> "ValidationResult":
+    def failure(cls, errors: dict[str, list[str]]) -> "ValidationResult":
         """Create failed validation result"""
         return cls(is_valid=False, errors=errors)
 
@@ -106,8 +107,8 @@ class LengthValidator(Validator):
 
     def __init__(
         self,
-        min_length: Optional[int] = None,
-        max_length: Optional[int] = None,
+        min_length: int | None = None,
+        max_length: int | None = None,
         **kwargs,
     ):
         self.min_length = min_length
@@ -142,8 +143,8 @@ class RangeValidator(Validator):
 
     def __init__(
         self,
-        min_value: Optional[int | float] = None,
-        max_value: Optional[int | float] = None,
+        min_value: int | float | None = None,
+        max_value: int | float | None = None,
         **kwargs,
     ):
         self.min_value = min_value
@@ -244,7 +245,7 @@ class PasswordValidator(Validator):
 class ChoicesValidator(Validator):
     """Validates that value is in allowed choices"""
 
-    def __init__(self, choices: List[Any], **kwargs):
+    def __init__(self, choices: list[Any], **kwargs):
         self.choices = choices
         super().__init__(**kwargs)
 
@@ -287,7 +288,7 @@ class DateValidator(Validator):
 class ValidationSchema:
     """Schema for validating dictionaries of data"""
 
-    def __init__(self, rules: Dict[str, List[Validator]]):
+    def __init__(self, rules: dict[str, list[Validator]]):
         """
         Initialize validation schema
 
@@ -296,7 +297,7 @@ class ValidationSchema:
         """
         self.rules = rules
 
-    def validate(self, data: Dict[str, Any]) -> ValidationResult:
+    def validate(self, data: dict[str, Any]) -> ValidationResult:
         """
         Validate dictionary against schema
 
@@ -328,7 +329,7 @@ class ValidationSchema:
         return result
 
 
-def validate_schema(schema: Dict[str, List[Validator]] | ValidationSchema):
+def validate_schema(schema: dict[str, list[Validator]] | ValidationSchema):
     """
     Decorator to validate function arguments against a schema
 
@@ -390,7 +391,7 @@ def validate_schema(schema: Dict[str, List[Validator]] | ValidationSchema):
 
 
 def validate_json(
-    schema: Dict[str, List[Validator]] | ValidationSchema,
+    schema: dict[str, list[Validator]] | ValidationSchema,
     json_param: str = "data",
 ):
     """
@@ -468,7 +469,7 @@ def validate_password(password: str, min_length: int = 8) -> tuple[bool, str]:
 
 
 def validate_required_fields(
-    data: Dict[str, Any], fields: List[str]
+    data: dict[str, Any], fields: list[str]
 ) -> ValidationResult:
     """Quick validation for required fields"""
     result = ValidationResult.success()

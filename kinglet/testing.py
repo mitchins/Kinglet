@@ -52,7 +52,7 @@ class TestClient:
 
     def _serialize_response_content(self, content):
         """Serialize response content for test consumption"""
-        if isinstance(content, (dict, list)):
+        if isinstance(content, dict | list):
             return json.dumps(content)
         return str(content) if content is not None else ""
 
