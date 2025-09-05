@@ -2,14 +2,14 @@ coverage:
   status:
     project:
       default:
-        target: auto
-        threshold: 1%
-        base: auto
+        target: 80%
+        threshold: 1%     # optional leniency for overall coverage
     patch:
       default:
-        target: auto
-        threshold: 1%
-        base: auto
+        target: 80%       # match Sonar’s gate for new code
+        threshold: 0%     # no slack on the patch (tweak if you want)
+        informational: false
+
 
 comment:
   layout: "header, diff, flags, components, footer"
