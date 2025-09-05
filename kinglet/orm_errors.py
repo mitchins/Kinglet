@@ -5,6 +5,8 @@ Normalized exception hierarchy for predictable error handling.
 Maps D1/SQLite errors to semantic ORM exceptions.
 """
 
+from __future__ import annotations
+
 import re
 
 from .constants import CHECK_CONSTRAINT_VIOLATION

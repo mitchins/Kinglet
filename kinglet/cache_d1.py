@@ -2,6 +2,8 @@
 Kinglet D1-backed Cache Service - Fast, cost-effective caching with CloudFlare D1
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import time

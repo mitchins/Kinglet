@@ -2,6 +2,8 @@
 Kinglet HTTP Primitives - Request, Response, and utility functions
 """
 
+from __future__ import annotations
+
 import json
 import secrets
 from typing import Any

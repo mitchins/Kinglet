@@ -2,6 +2,8 @@
 Kinglet Core - Routing and application framework
 """
 
+from __future__ import annotations
+
 import re
 from collections.abc import Callable
 
@@ -125,7 +127,7 @@ class Router:
         """Decorator for OPTIONS routes"""
         return self.route(path, ["OPTIONS"])
 
-    def include_router(self, prefix: str, router: "Router"):
+    def include_router(self, prefix: str, router: Router):
         """Include another router with a path prefix"""
         # Normalize prefix: ensure it starts with / and doesn't end with /
         if not prefix.startswith("/"):

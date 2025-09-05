@@ -3,9 +3,11 @@ Kinglet Pagination System
 Eliminates boilerplate for paginated queries and responses
 """
 
+from __future__ import annotations
+
 import math
 from dataclasses import asdict, dataclass
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 from urllib.parse import urlencode
 
 T = TypeVar("T")
@@ -25,7 +27,7 @@ class PageInfo:
     previous_page: int | None = None
 
     @classmethod
-    def from_query(cls, page: int, per_page: int, total_count: int) -> "PageInfo":
+    def from_query(cls, page: int, per_page: int, total_count: int) -> PageInfo:
         """Create PageInfo from query parameters"""
         total_pages = math.ceil(total_count / per_page) if per_page > 0 else 0
         has_next = page < total_pages
@@ -44,7 +46,7 @@ class PageInfo:
 
 
 @dataclass
-class PaginatedResult[T]:
+class PaginatedResult(Generic[T]):
     """Container for paginated query results"""
 
     items: list[T]
@@ -100,7 +102,7 @@ class PaginatedResult[T]:
 
         return result
 
-    def map(self, func) -> "PaginatedResult":
+    def map(self, func) -> PaginatedResult:
         """Apply function to all items, returning new PaginatedResult"""
         mapped_items = [func(item) for item in self.items]
         return PaginatedResult(mapped_items, self.page_info)

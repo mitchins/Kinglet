@@ -3,6 +3,8 @@ Kinglet Model Serialization System
 Eliminates boilerplate for model-to-API response formatting
 """
 
+from __future__ import annotations
+
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -34,7 +36,7 @@ class SerializerConfig:
     transforms: dict[str, Callable] | None = field(default_factory=dict)
 
     # Related field serialization: field_name -> nested serializer config
-    related: dict[str, "SerializerConfig"] | None = field(default_factory=dict)
+    related: dict[str, SerializerConfig] | None = field(default_factory=dict)
 
     # Custom field mappings: model_field -> api_field
     field_mappings: dict[str, str] | None = field(default_factory=dict)
@@ -312,9 +314,6 @@ class FieldTransforms:
             return None
         return int(dollar_value * 100)
 
-    # Make it reversible
-    cents_to_dollars.reverse = dollars_to_cents
-
     @staticmethod
     def format_datetime(dt, format_str="%Y-%m-%d %H:%M:%S"):
         """Format datetime to string"""
@@ -338,8 +337,6 @@ class FieldTransforms:
             return None
         return bool(int_value)
 
-    boolean_to_int.reverse = int_to_boolean
-
     @staticmethod
     def json_list_to_string(json_list):
         """Convert JSON list to comma-separated string"""
@@ -354,7 +351,11 @@ class FieldTransforms:
             return []
         return [item.strip() for item in string_value.split(",")]
 
-    json_list_to_string.reverse = string_to_json_list
+
+# Set up reverse relationships after class definition
+FieldTransforms.cents_to_dollars.reverse = FieldTransforms.dollars_to_cents
+FieldTransforms.boolean_to_int.reverse = FieldTransforms.int_to_boolean
+FieldTransforms.json_list_to_string.reverse = FieldTransforms.string_to_json_list
 
 
 class SerializerMixin:

@@ -3,13 +3,17 @@ Kinglet Service Layer Utilities
 Eliminates boilerplate in service layer patterns
 """
 
+from __future__ import annotations
+
 import asyncio
 import functools
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Generic, TypeVar
+
+T = TypeVar("T")
 
 
 class ServiceResultType(Enum):
@@ -37,7 +41,7 @@ class ServiceResult:
     @classmethod
     def success_result(
         cls, data: Any = None, message: str = "Operation successful"
-    ) -> "ServiceResult":
+    ) -> ServiceResult:
         """Create a success result"""
         # Extract nested conditional expression
         formatted_data = cls._format_success_data(data)
@@ -55,7 +59,7 @@ class ServiceResult:
         error_code: str = "OPERATION_FAILED",
         error_details: str | None = None,
         result_type: ServiceResultType = ServiceResultType.ERROR,
-    ) -> "ServiceResult":
+    ) -> ServiceResult:
         """Create an error result"""
         return cls(
             success=False,
@@ -69,7 +73,7 @@ class ServiceResult:
     @classmethod
     def validation_error(
         cls, message: str, field_errors: dict[str, str] | None = None
-    ) -> "ServiceResult":
+    ) -> ServiceResult:
         """Create a validation error result"""
         return cls(
             success=False,
@@ -80,7 +84,7 @@ class ServiceResult:
         )
 
     @classmethod
-    def not_found(cls, message: str = "Resource not found") -> "ServiceResult":
+    def not_found(cls, message: str = "Resource not found") -> ServiceResult:
         """Create a not found result"""
         return cls(
             success=False,
@@ -91,7 +95,7 @@ class ServiceResult:
         )
 
     @classmethod
-    def permission_denied(cls, message: str = "Permission denied") -> "ServiceResult":
+    def permission_denied(cls, message: str = "Permission denied") -> ServiceResult:
         """Create a permission denied result"""
         return cls(
             success=False,
@@ -226,7 +230,7 @@ def handle_service_exceptions(func: Callable) -> Callable:
         return sync_wrapper
 
 
-class BaseService[T]:
+class BaseService(Generic[T]):
     """
     Base service class with common patterns
     Provides standard CRUD operations and utilities
