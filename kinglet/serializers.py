@@ -4,10 +4,11 @@ Eliminates boilerplate for model-to-API response formatting
 """
 
 import inspect
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any
 
 
 class SerializationContext:
@@ -24,28 +25,28 @@ class SerializerConfig:
     """Configuration for model serialization"""
 
     # Fields to include (if None, includes all model fields)
-    include: Optional[List[str]] = None
+    include: list[str] | None = None
 
     # Fields to exclude
-    exclude: Optional[List[str]] = field(default_factory=list)
+    exclude: list[str] | None = field(default_factory=list)
 
     # Field transformations: field_name -> function
-    transforms: Optional[Dict[str, Callable]] = field(default_factory=dict)
+    transforms: dict[str, Callable] | None = field(default_factory=dict)
 
     # Related field serialization: field_name -> nested serializer config
-    related: Optional[Dict[str, "SerializerConfig"]] = field(default_factory=dict)
+    related: dict[str, "SerializerConfig"] | None = field(default_factory=dict)
 
     # Custom field mappings: model_field -> api_field
-    field_mappings: Optional[Dict[str, str]] = field(default_factory=dict)
+    field_mappings: dict[str, str] | None = field(default_factory=dict)
 
     # Additional computed fields: field_name -> function
-    computed_fields: Optional[Dict[str, Callable]] = field(default_factory=dict)
+    computed_fields: dict[str, Callable] | None = field(default_factory=dict)
 
     # Read-only fields (excluded from deserialization)
-    read_only_fields: Optional[Set[str]] = field(default_factory=set)
+    read_only_fields: set[str] | None = field(default_factory=set)
 
     # Write-only fields (excluded from serialization)
-    write_only_fields: Optional[Set[str]] = field(default_factory=set)
+    write_only_fields: set[str] | None = field(default_factory=set)
 
 
 class ModelSerializer:
@@ -54,12 +55,12 @@ class ModelSerializer:
     Eliminates manual to_dict() method boilerplate
     """
 
-    def __init__(self, config: Optional[SerializerConfig] = None):
+    def __init__(self, config: SerializerConfig | None = None):
         self.config = config or SerializerConfig()
 
     def serialize(
-        self, instance, context: Optional[SerializationContext] = None
-    ) -> Dict[str, Any]:
+        self, instance, context: SerializationContext | None = None
+    ) -> dict[str, Any]:
         """
         Serialize model instance to dictionary
 
@@ -89,8 +90,8 @@ class ModelSerializer:
         return result
 
     def serialize_many(
-        self, instances, context: Optional[SerializationContext] = None
-    ) -> List[Dict[str, Any]]:
+        self, instances, context: SerializationContext | None = None
+    ) -> list[dict[str, Any]]:
         """Serialize multiple instances"""
         if not instances:
             return []
@@ -99,10 +100,10 @@ class ModelSerializer:
 
     def deserialize(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         instance=None,
-        context: Optional[SerializationContext] = None,
-    ) -> Dict[str, Any]:
+        context: SerializationContext | None = None,
+    ) -> dict[str, Any]:
         """
         Deserialize dictionary to model field data
 
@@ -135,7 +136,7 @@ class ModelSerializer:
 
         return result
 
-    def _get_model_fields(self, instance) -> List[str]:
+    def _get_model_fields(self, instance) -> list[str]:
         """Get list of model field names"""
         if hasattr(instance, "_meta") and hasattr(instance._meta, "fields"):
             # Django-style model
@@ -151,7 +152,7 @@ class ModelSerializer:
                 if not attr.startswith("_") and not callable(getattr(instance, attr))
             ]
 
-    def _get_fields_to_include(self, model_fields: List[str]) -> List[str]:
+    def _get_fields_to_include(self, model_fields: list[str]) -> list[str]:
         """Determine which fields to include in serialization"""
         if self.config.include is not None:
             # Only include explicitly listed fields
@@ -178,8 +179,8 @@ class ModelSerializer:
     def _serialize_model_fields(
         self,
         instance,
-        fields_to_include: List[str],
-        result: Dict[str, Any],
+        fields_to_include: list[str],
+        result: dict[str, Any],
         context: SerializationContext,
     ) -> None:
         """Serialize regular model fields"""
@@ -202,7 +203,7 @@ class ModelSerializer:
             result[api_field_name] = self._serialize_value(field_value)
 
     def _serialize_computed_fields(
-        self, instance, result: Dict[str, Any], context: SerializationContext
+        self, instance, result: dict[str, Any], context: SerializationContext
     ) -> None:
         """Serialize computed fields"""
         for field_name, compute_func in self.config.computed_fields.items():
@@ -246,7 +247,7 @@ class ModelSerializer:
         related_config = self.config.related[field_name]
         related_serializer = ModelSerializer(related_config)
 
-        if isinstance(field_value, (list, tuple)):
+        if isinstance(field_value, list | tuple):
             return [related_serializer.serialize(item, context) for item in field_value]
         else:
             return related_serializer.serialize(field_value, context)
@@ -363,23 +364,23 @@ class SerializerMixin:
     """
 
     # Override in subclass to configure serialization
-    _serializer_config: Optional[SerializerConfig] = None
+    _serializer_config: SerializerConfig | None = None
 
-    def to_dict(self, context: Optional[SerializationContext] = None) -> Dict[str, Any]:
+    def to_dict(self, context: SerializationContext | None = None) -> dict[str, Any]:
         """Serialize model instance to dictionary"""
         config = self._get_serializer_config()
         serializer = ModelSerializer(config)
         return serializer.serialize(self, context)
 
     def to_api_dict(
-        self, context: Optional[SerializationContext] = None
-    ) -> Dict[str, Any]:
+        self, context: SerializationContext | None = None
+    ) -> dict[str, Any]:
         """Alias for to_dict() for clarity"""
         return self.to_dict(context)
 
     @classmethod
     def from_dict(
-        cls, data: Dict[str, Any], context: Optional[SerializationContext] = None
+        cls, data: dict[str, Any], context: SerializationContext | None = None
     ):
         """Create model instance from dictionary data"""
         config = cls._get_serializer_config()
@@ -398,8 +399,8 @@ class SerializerMixin:
 
     @classmethod
     def serialize_many(
-        cls, instances, context: Optional[SerializationContext] = None
-    ) -> List[Dict[str, Any]]:
+        cls, instances, context: SerializationContext | None = None
+    ) -> list[dict[str, Any]]:
         """Serialize multiple instances of this model"""
         config = cls._get_serializer_config()
         serializer = ModelSerializer(config)
@@ -409,9 +410,9 @@ class SerializerMixin:
 # Utility functions for quick serialization
 def serialize_model(
     instance,
-    config: Optional[SerializerConfig] = None,
-    context: Optional[SerializationContext] = None,
-) -> Dict[str, Any]:
+    config: SerializerConfig | None = None,
+    context: SerializationContext | None = None,
+) -> dict[str, Any]:
     """Quick function to serialize a model instance"""
     serializer = ModelSerializer(config or SerializerConfig())
     return serializer.serialize(instance, context)
@@ -419,9 +420,9 @@ def serialize_model(
 
 def serialize_models(
     instances,
-    config: Optional[SerializerConfig] = None,
-    context: Optional[SerializationContext] = None,
-) -> List[Dict[str, Any]]:
+    config: SerializerConfig | None = None,
+    context: SerializationContext | None = None,
+) -> list[dict[str, Any]]:
     """Quick function to serialize multiple model instances"""
     serializer = ModelSerializer(config or SerializerConfig())
     return serializer.serialize_many(instances, context)

@@ -21,7 +21,6 @@ import os
 import subprocess  # nosec B404
 import sys
 from datetime import datetime
-from typing import List, Type
 
 from .constants import MIGRATIONS_FILE, PYTHON_MODULE_HELP, SCHEMA_LOCK_FILE
 from .orm import Model, SchemaManager  # noqa: F401 - Used in template generation
@@ -33,7 +32,7 @@ from .orm_migrations import (  # noqa: F401 - Used in endpoints
 )
 
 
-def import_models(module_path: str) -> List[Type[Model]]:
+def import_models(module_path: str) -> list[type[Model]]:
     """Import all Model classes from a module"""
     module = importlib.import_module(module_path)
     models = []
@@ -46,11 +45,11 @@ def import_models(module_path: str) -> List[Type[Model]]:
     return models
 
 
-def _collect_tables(models: List[Type[Model]]) -> set[str]:
+def _collect_tables(models: list[type[Model]]) -> set[str]:
     return {m._meta.table_name for m in models}
 
 
-def _append_cleanslate(parts: list[str], models: List[Type[Model]]) -> None:
+def _append_cleanslate(parts: list[str], models: list[type[Model]]) -> None:
     parts.append("-- Clean Slate: Drop all tables first")
     tables = _collect_tables(models)
     dependent_tables = [
@@ -74,7 +73,7 @@ def _append_cleanslate(parts: list[str], models: List[Type[Model]]) -> None:
 
 
 def _append_create_tables(
-    parts: list[str], models: List[Type[Model]], cleanslate: bool
+    parts: list[str], models: list[type[Model]], cleanslate: bool
 ) -> None:
     seen: set[str] = set()
     for model in models:
@@ -97,7 +96,7 @@ def _append_create_tables(
 
 
 def _append_indexes(
-    parts: list[str], models: List[Type[Model]], include_indexes: bool
+    parts: list[str], models: list[type[Model]], include_indexes: bool
 ) -> None:
     if not include_indexes:
         return

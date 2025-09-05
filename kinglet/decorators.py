@@ -3,7 +3,7 @@ Kinglet Decorators and Utility Functions
 """
 
 import functools
-from typing import Callable
+from collections.abc import Callable
 
 from .exceptions import GeoRestrictedError, HTTPError
 from .http import Response

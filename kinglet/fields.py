@@ -5,8 +5,9 @@ Includes MediaField with automatic URL resolution and other specialized fields
 
 import os
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from .orm import StringField
 
@@ -20,29 +21,29 @@ class MediaConfig:
     """Configuration for media handling"""
 
     # Base URL for media files (can be environment-specific)
-    base_url: Optional[str] = None
+    base_url: str | None = None
 
     # Storage path prefix
     path_prefix: str = "media"
 
     # Environment detection function
-    environment_detector: Optional[Callable[[], str]] = None
+    environment_detector: Callable[[], str] | None = None
 
     # Environment-specific URL patterns
-    environment_urls: Optional[Dict[str, str]] = None
+    environment_urls: dict[str, str] | None = None
 
     # Default placeholder URL when media is missing
     placeholder_url: str = "/placeholder.jpg"
 
     # Thumbnail settings
     thumbnail_suffix: str = "_thumb"
-    thumbnail_sizes: Optional[List[int]] = None
+    thumbnail_sizes: list[int] | None = None
 
     # Allowed file types
-    allowed_types: Optional[List[str]] = None
+    allowed_types: list[str] | None = None
 
     # Maximum file size in bytes
-    max_file_size: Optional[int] = None
+    max_file_size: int | None = None
 
     def __post_init__(self):
         if self.thumbnail_sizes is None:
@@ -63,7 +64,7 @@ class MediaUrlResolver:
         self.config = config
 
     def resolve_url(
-        self, media_uid: str, thumbnail: bool = False, size: Optional[int] = None
+        self, media_uid: str, thumbnail: bool = False, size: int | None = None
     ) -> str:
         """
         Resolve media UID to full URL
@@ -98,11 +99,11 @@ class MediaUrlResolver:
         else:
             return f"{base_url}/{media_uid}"
 
-    def resolve_thumbnail_url(self, media_uid: str, size: Optional[int] = None) -> str:
+    def resolve_thumbnail_url(self, media_uid: str, size: int | None = None) -> str:
         """Convenience method for thumbnail URLs"""
         return self.resolve_url(media_uid, thumbnail=True, size=size)
 
-    def _get_environment_base_url(self) -> Optional[str]:
+    def _get_environment_base_url(self) -> str | None:
         """Get base URL for current environment"""
         # If base_url is explicitly set, use it
         if self.config.base_url:
@@ -139,9 +140,9 @@ class MediaFieldValue:
 
     def __init__(
         self,
-        uid: Optional[str],
+        uid: str | None,
         resolver: MediaUrlResolver,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ):
         self.uid = uid
         self.resolver = resolver
@@ -162,21 +163,21 @@ class MediaFieldValue:
         return self.resolver.resolve_thumbnail_url(self.uid, size)
 
     @property
-    def filename(self) -> Optional[str]:
+    def filename(self) -> str | None:
         """Get original filename if stored in metadata"""
         return self.metadata.get("filename")
 
     @property
-    def content_type(self) -> Optional[str]:
+    def content_type(self) -> str | None:
         """Get content type if stored in metadata"""
         return self.metadata.get("content_type")
 
     @property
-    def size_bytes(self) -> Optional[int]:
+    def size_bytes(self) -> int | None:
         """Get file size if stored in metadata"""
         return self.metadata.get("size_bytes")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses"""
         result = {"uid": self.uid, "url": self.url, "thumbnail_url": self.thumbnail_url}
 
@@ -209,7 +210,7 @@ class MediaField(StringField):
     Eliminates boilerplate for media URL handling
     """
 
-    def __init__(self, config: Optional[MediaConfig] = None, **kwargs):
+    def __init__(self, config: MediaConfig | None = None, **kwargs):
         """
         Initialize MediaField
 
@@ -337,7 +338,7 @@ def create_media_field_value(
 
 
 def resolve_media_url(
-    uid: str, config: Optional[MediaConfig] = None, thumbnail: bool = False
+    uid: str, config: MediaConfig | None = None, thumbnail: bool = False
 ) -> str:
     """Quick function to resolve a media URL"""
     config = config or MediaConfig()
