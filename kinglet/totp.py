@@ -4,6 +4,8 @@ TOTP (Time-based One-Time Password) support for Kinglet
 Implements RFC 6238 TOTP algorithm for session elevation
 """
 
+from __future__ import annotations
+
 import base64
 import hashlib
 import hmac

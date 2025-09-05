@@ -2,6 +2,8 @@
 Kinglet Middleware - Base classes and common middleware implementations
 """
 
+from __future__ import annotations
+
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable

@@ -3,6 +3,8 @@ Kinglet Enhanced Field Types
 Includes MediaField with automatic URL resolution and other specialized fields
 """
 
+from __future__ import annotations
+
 import os
 import uuid
 from collections.abc import Callable

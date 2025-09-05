@@ -5,6 +5,8 @@ Lightweight schema versioning for D1 databases.
 Tracks applied migrations without complex migration frameworks.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import time

@@ -3,6 +3,8 @@ Kinglet Validation System
 Eliminates boilerplate for input validation with decorators and validators
 """
 
+from __future__ import annotations
+
 import functools
 import inspect
 import re
@@ -34,12 +36,12 @@ class ValidationResult:
     errors: dict[str, list[str]]
 
     @classmethod
-    def success(cls) -> "ValidationResult":
+    def success(cls) -> ValidationResult:
         """Create successful validation result"""
         return cls(is_valid=True, errors={})
 
     @classmethod
-    def failure(cls, errors: dict[str, list[str]]) -> "ValidationResult":
+    def failure(cls, errors: dict[str, list[str]]) -> ValidationResult:
         """Create failed validation result"""
         return cls(is_valid=False, errors=errors)
 
@@ -95,9 +97,11 @@ class EmailValidator(Validator):
         return "{field} must be a valid email address"
 
     def validate(self, value: Any, field_name: str = None) -> bool:
-        if not value:
-            return True  # Use RequiredValidator for required checks
+        if value is None:
+            return True  # None means field not provided - that's ok
         if not isinstance(value, str):
+            return False
+        if not value:  # Empty string is not a valid email
             return False
         return bool(self.EMAIL_REGEX.match(value.strip()))
 
@@ -117,17 +121,18 @@ class LengthValidator(Validator):
 
     def _default_error_message(self) -> str:
         if self.min_length is not None and self.max_length is not None:
-            return "{field} must be between {min_length} and {max_length} characters"
+            return f"{{field}} must be between {self.min_length} and {self.max_length} characters"
         elif self.min_length is not None:
-            return "{field} must be at least {min_length} characters"
+            return f"{{field}} must be at least {self.min_length} characters"
         elif self.max_length is not None:
-            return "{field} must be at most {max_length} characters"
+            return f"{{field}} must be at most {self.max_length} characters"
         return "{field} length is invalid"
 
     def validate(self, value: Any, field_name: str = None) -> bool:
-        if not value:
-            return True  # Skip validation for empty values
+        if value is None:
+            return True  # None means field not provided
 
+        # Empty string/list has length 0, which may not meet min_length
         length = len(value)
 
         if self.min_length is not None and length < self.min_length:
@@ -218,7 +223,7 @@ class PasswordValidator(Validator):
         super().__init__(**kwargs)
 
     def _default_error_message(self) -> str:
-        return "{field} must be at least {min_length} characters with uppercase, lowercase, digit, and special character"
+        return f"{{field}} must be at least {self.min_length} characters with uppercase, lowercase, digit, and special character"
 
     def validate(self, value: Any, field_name: str = None) -> bool:
         if not value or not isinstance(value, str):
@@ -250,7 +255,7 @@ class ChoicesValidator(Validator):
         super().__init__(**kwargs)
 
     def _default_error_message(self) -> str:
-        return "{field} must be one of: {choices}"
+        return f"{{field}} must be one of: {self.choices}"
 
     def validate(self, value: Any, field_name: str = None) -> bool:
         if value is None:
@@ -464,7 +469,10 @@ def validate_password(password: str, min_length: int = 8) -> tuple[bool, str]:
     """Quick password validation with detailed message"""
     validator = PasswordValidator(min_length=min_length)
     is_valid = validator.validate(password)
-    message = validator.error_message if not is_valid else "Password is valid"
+    if not is_valid:
+        message = validator.error_message.format(field="password")
+    else:
+        message = "Password is valid"
     return is_valid, message
 
 

@@ -9,10 +9,12 @@ Key differences from Peewee/SQLAlchemy:
 - Lean query building with SQL error prevention
 """
 
+from __future__ import annotations
+
 import json
 import re
-from collections.abc import Coroutine
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import AsyncGenerator, Coroutine
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
@@ -230,7 +232,7 @@ class QuerySet:
     - Validates SQL structure to prevent errors
     """
 
-    def __init__(self, model_class: type["Model"], db):
+    def __init__(self, model_class: type[Model], db):
         self.model_class = model_class
         self.db = db
         self._where_conditions = []
@@ -244,7 +246,7 @@ class QuerySet:
         # Cache field names for validation
         self._field_names = set(model_class._fields.keys())
 
-    def filter(self, **kwargs) -> "QuerySet":
+    def filter(self, **kwargs) -> QuerySet:
         """Add WHERE conditions with field validation"""
         new_qs = self._clone()
         for key, value in kwargs.items():
@@ -270,7 +272,7 @@ class QuerySet:
             new_qs._where_conditions.append((condition, value))
         return new_qs
 
-    def exclude(self, **kwargs) -> "QuerySet":
+    def exclude(self, **kwargs) -> QuerySet:
         """Add WHERE NOT conditions with field validation (opposite of filter)"""
         new_qs = self._clone()
         for key, value in kwargs.items():
@@ -298,7 +300,7 @@ class QuerySet:
             new_qs._where_conditions.append((condition, value))
         return new_qs
 
-    def order_by(self, *fields) -> "QuerySet":
+    def order_by(self, *fields) -> QuerySet:
         """Add ORDER BY clause with field validation"""
         new_qs = self._clone()
         for field in fields:
@@ -317,7 +319,7 @@ class QuerySet:
                 new_qs._order_by.append(f"{_qi(field_name)} ASC")
         return new_qs
 
-    def limit(self, count: int) -> "QuerySet":
+    def limit(self, count: int) -> QuerySet:
         """
         Add LIMIT clause with safety checks
 
@@ -332,7 +334,7 @@ class QuerySet:
         new_qs._limit_count = count
         return new_qs
 
-    def offset(self, count: int) -> "QuerySet":
+    def offset(self, count: int) -> QuerySet:
         """
         Add OFFSET clause with safety checks
 
@@ -347,7 +349,7 @@ class QuerySet:
         new_qs._offset_count = count
         return new_qs
 
-    def only(self, *field_names) -> "QuerySet":
+    def only(self, *field_names) -> QuerySet:
         """
         Select only specific fields - D1 cost optimization
 
@@ -375,7 +377,7 @@ class QuerySet:
         new_qs._values_fields = None  # Clear values mode
         return new_qs
 
-    def values(self, *field_names) -> "QuerySet":
+    def values(self, *field_names) -> QuerySet:
         """
         Return dictionaries instead of model instances - D1 cost optimization
 
@@ -404,7 +406,7 @@ class QuerySet:
         new_qs._only_fields = None  # Clear only mode
         return new_qs
 
-    async def all(self) -> list["Model"]:
+    async def all(self) -> list[Model]:
         """
         Execute query and return all results
 
@@ -439,7 +441,7 @@ class QuerySet:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    async def first(self) -> "Model | None":
+    async def first(self) -> Model | None:
         """
         Execute query and return first result
 
@@ -465,7 +467,7 @@ class QuerySet:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    async def get(self) -> "Model":
+    async def get(self) -> Model:
         """
         Get single object matching query conditions
 
@@ -539,7 +541,7 @@ class QuerySet:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    def _clone(self) -> "QuerySet":
+    def _clone(self) -> QuerySet:
         """Create a copy of this QuerySet"""
         new_qs = QuerySet(self.model_class, self.db)
         new_qs._where_conditions = self._where_conditions.copy()
@@ -755,14 +757,14 @@ class QuerySet:
 class Manager:
     """Model manager for database operations"""
 
-    def __init__(self, model_class: type["Model"]):
+    def __init__(self, model_class: type[Model]):
         self.model_class = model_class
 
     def get_queryset(self, db) -> QuerySet:
         """Get base queryset for this model"""
         return QuerySet(self.model_class, db)
 
-    async def create(self, db, **kwargs) -> "Model":
+    async def create(self, db, **kwargs) -> Model:
         """
         Create and save a new model instance
 
@@ -772,7 +774,7 @@ class Manager:
         await instance.save(db)
         return instance
 
-    def _validate_bulk_instances(self, instances: list["Model"]) -> None:
+    def _validate_bulk_instances(self, instances: list[Model]) -> None:
         """Validate all instances are the same model type"""
         if not instances:
             return
@@ -780,7 +782,7 @@ class Manager:
         if not all(isinstance(inst, first_model.__class__) for inst in instances):
             raise ValueError("All instances must be of the same model type")
 
-    def _prepare_field_data(self, instance: "Model") -> dict[str, Any]:
+    def _prepare_field_data(self, instance: Model) -> dict[str, Any]:
         """Prepare field data for a single instance"""
         field_data = {}
         for field_name, field in instance._fields.items():
@@ -805,7 +807,7 @@ class Manager:
         return field_data
 
     def _prepare_bulk_data(
-        self, instances: list["Model"]
+        self, instances: list[Model]
     ) -> tuple[list[str], list[list[Any]]]:
         """Prepare field names and values for bulk insert"""
         field_names = []
@@ -839,9 +841,7 @@ class Manager:
             statements.append(stmt)
         return statements
 
-    def _update_instances_with_ids(
-        self, instances: list["Model"], results: list
-    ) -> None:
+    def _update_instances_with_ids(self, instances: list[Model], results: list) -> None:
         """Update instances with generated primary key IDs"""
         for instance, result in zip(instances, results, strict=False):
             pk_field = instance._get_pk_field()
@@ -853,7 +853,7 @@ class Manager:
                 instance.id = result.meta.last_row_id
             instance._state["saved"] = True
 
-    async def bulk_create(self, db, instances: list["Model"]) -> list["Model"]:
+    async def bulk_create(self, db, instances: list[Model]) -> list[Model]:
         """
         Create multiple instances in a single batch
 
@@ -874,7 +874,7 @@ class Manager:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    async def get(self, db, **kwargs) -> "Model":
+    async def get(self, db, **kwargs) -> Model:
         """
         Get single model instance matching the given lookup parameters
 
@@ -884,7 +884,7 @@ class Manager:
         """
         return await self.get_queryset(db).filter(**kwargs).get()
 
-    async def get_or_create(self, db, defaults=None, **kwargs) -> tuple["Model", bool]:
+    async def get_or_create(self, db, defaults=None, **kwargs) -> tuple[Model, bool]:
         """
         Get existing instance or create new one - D1 cost optimized
 
@@ -959,7 +959,7 @@ class Manager:
 
     async def _run_upsert_returning(
         self, db, sql: str, bind_values: list, kwargs: dict[str, Any]
-    ) -> tuple["Model", bool]:
+    ) -> tuple[Model, bool]:
         result = await (
             db.prepare(sql).bind(*bind_values) if bind_values else db.prepare(sql)
         ).first()
@@ -973,7 +973,7 @@ class Manager:
 
     def create_or_update(
         self, db, defaults=None, **kwargs
-    ) -> Coroutine[Any, Any, tuple["Model", bool]]:
+    ) -> Coroutine[Any, Any, tuple[Model, bool]]:
         """
         Create or update using ON CONFLICT DO UPDATE (upsert)
 
@@ -1010,7 +1010,7 @@ class Manager:
 
         return _inner()
 
-    async def upsert(self, db, **kwargs) -> "Model":
+    async def upsert(self, db, **kwargs) -> Model:
         """
         Convenient upsert that returns just the instance
 
@@ -1200,7 +1200,7 @@ class Model(metaclass=ModelMeta):
             setattr(self, field_name, value)
 
     @classmethod
-    def _from_db(cls, row_data: dict[str, Any]) -> "Model":
+    def _from_db(cls, row_data: dict[str, Any]) -> Model:
         """Create model instance from database row"""
         instance = cls.__new__(cls)
         instance._state = {"saved": True}
@@ -1513,7 +1513,7 @@ class D1Transaction:
 
 
 @asynccontextmanager
-async def transaction(db) -> AbstractAsyncContextManager[D1Transaction]:
+async def transaction(db) -> AsyncGenerator[D1Transaction, None]:
     """
     Transaction context manager for D1
 
@@ -1548,7 +1548,7 @@ class BatchOperations:
         self.db = db
         self.operations = []
 
-    def add_create(self, model_class: type["Model"], **kwargs) -> "BatchOperations":
+    def add_create(self, model_class: type[Model], **kwargs) -> BatchOperations:
         """Add a create operation to the batch"""
         # Prepare and validate data
         validated_data = {}
@@ -1591,7 +1591,7 @@ class BatchOperations:
         )
         return self
 
-    def add_update(self, instance: "Model") -> "BatchOperations":
+    def add_update(self, instance: Model) -> BatchOperations:
         """Add an update operation to the batch"""
         # Validate all fields
         field_data = {}
@@ -1630,7 +1630,7 @@ class BatchOperations:
         )
         return self
 
-    def add_delete(self, instance: "Model") -> "BatchOperations":
+    def add_delete(self, instance: Model) -> BatchOperations:
         """Add a delete operation to the batch"""
         pk_field = instance._get_pk_field()
         pk_value = getattr(instance, pk_field.name)
@@ -1668,7 +1668,7 @@ class BatchOperations:
 
 
 @asynccontextmanager
-async def batch(db) -> AbstractAsyncContextManager[BatchOperations]:
+async def batch(db) -> AsyncGenerator[BatchOperations, None]:
     """
     Batch operations context manager
 

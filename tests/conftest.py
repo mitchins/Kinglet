@@ -11,15 +11,10 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
 import pytest
 
-try:
-    import httpx
-
-    HAS_HTTPX = True
-except ImportError:
-    HAS_HTTPX = False
-
+from . import _version_guard  # noqa: F401
 from .mock_d1 import MockD1Database, d1_unwrap, d1_unwrap_results
 
 
@@ -196,17 +191,10 @@ export default {
 
         while time.time() - start_time < timeout:
             try:
-                if HAS_HTTPX:
-                    async with httpx.AsyncClient() as client:
-                        response = await client.get(
-                            f"{self.base_url}/health", timeout=1
-                        )
-                        if response.status_code == 200:
-                            return
-                else:
-                    # Fallback without httpx - just wait a bit
-                    await asyncio.sleep(2)
-                    return
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(f"{self.base_url}/health", timeout=1)
+                    if response.status_code == 200:
+                        return
             except Exception as e:
                 last_error = e
                 pass

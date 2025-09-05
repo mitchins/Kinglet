@@ -2,6 +2,8 @@
 Kinglet Utility Functions - Caching, asset URLs, and other helpers
 """
 
+from __future__ import annotations
+
 import functools
 import hashlib
 import json
