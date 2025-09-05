@@ -395,71 +395,57 @@ def validate_schema(schema: dict[str, list[Validator]] | ValidationSchema):
     return decorator
 
 
+# --- helper extracted to keep validate_json tiny ---
+def _make_json_validator_decorator(
+    validation_schema: ValidationSchema,
+    json_param: str,
+):
+    """Factory that returns a decorator which validates a JSON kwarg."""
+
+    def _ensure_valid_kwargs(kwargs: dict[str, Any]) -> None:
+        if json_param not in kwargs:
+            raise ValidationException(f"Missing required parameter: {json_param}")
+
+        data = kwargs[json_param]
+        if not isinstance(data, dict):
+            raise ValidationException(f"Parameter {json_param} must be a dictionary")
+
+        result = validation_schema.validate(data)
+        if not result.is_valid:
+            raise ValidationException(VALIDATION_FAILED_MESSAGE, result.errors)
+
+    def decorator(func: Callable):
+        is_coro = inspect.iscoroutinefunction(func)
+
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            _ensure_valid_kwargs(kwargs)
+            return await func(*args, **kwargs)
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            _ensure_valid_kwargs(kwargs)
+            return func(*args, **kwargs)
+
+        return async_wrapper if is_coro else sync_wrapper
+
+    return decorator
+
+
 def validate_json(
     schema: dict[str, list[Validator]] | ValidationSchema,
     json_param: str = "data",
 ):
     """
-    Decorator to validate JSON data from request
-
-    Note: JSON parameter must be passed as a keyword argument
-
-    Args:
-        schema: Validation schema
-        json_param: Parameter name that contains the JSON data to validate
-
+    Decorator to validate JSON data from a keyword argument (default: 'data').
     Usage:
-        @validate_json({
-            'title': [RequiredValidator(), LengthValidator(max_length=200)],
-            'price': [RequiredValidator(), RangeValidator(min_value=0)]
-        })
-        async def create_listing(data):
-            # data is validated JSON
-            pass
+        @validate_json({"email": [RequiredValidator(), EmailValidator()]})
+        async def handler(*, data): ...
     """
     validation_schema = (
         schema if isinstance(schema, ValidationSchema) else ValidationSchema(schema)
     )
-
-    def decorator(func):
-        if inspect.iscoroutinefunction(func):
-
-            @functools.wraps(func)
-            async def wrapper(*args, **kwargs):
-                if json_param not in kwargs:
-                    raise ValidationException(
-                        f"Missing required parameter: {json_param}"
-                    )
-                data = kwargs[json_param]
-                if not isinstance(data, dict):
-                    raise ValidationException(
-                        f"Parameter {json_param} must be a dictionary"
-                    )
-                result = validation_schema.validate(data)
-                if not result.is_valid:
-                    raise ValidationException(VALIDATION_FAILED_MESSAGE, result.errors)
-                return await func(*args, **kwargs)
-        else:
-
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                if json_param not in kwargs:
-                    raise ValidationException(
-                        f"Missing required parameter: {json_param}"
-                    )
-                data = kwargs[json_param]
-                if not isinstance(data, dict):
-                    raise ValidationException(
-                        f"Parameter {json_param} must be a dictionary"
-                    )
-                result = validation_schema.validate(data)
-                if not result.is_valid:
-                    raise ValidationException(VALIDATION_FAILED_MESSAGE, result.errors)
-                return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
+    return _make_json_validator_decorator(validation_schema, json_param)
 
 
 # Quick validation functions for common patterns
