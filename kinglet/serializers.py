@@ -76,71 +76,15 @@ class ModelSerializer:
         context = context or SerializationContext()
         result = {}
 
-        # Get all model fields
+        # Get all model fields and determine which to include
         model_fields = self._get_model_fields(instance)
-
-        # Determine fields to include
         fields_to_include = self._get_fields_to_include(model_fields)
 
-        # Serialize each field
-        for field_name in fields_to_include:
-            # Skip write-only fields
-            if field_name in self.config.write_only_fields:
-                continue
-
-            try:
-                # Get field value
-                field_value = getattr(instance, field_name, None)
-
-                # Apply transformation if configured
-                if field_name in self.config.transforms:
-                    transform_func = self.config.transforms[field_name]
-                    if callable(transform_func):
-                        # Pass context to transform function if it accepts it
-                        sig = inspect.signature(transform_func)
-                        if "context" in sig.parameters:
-                            field_value = transform_func(field_value, context=context)
-                        else:
-                            field_value = transform_func(field_value)
-
-                # Handle related field serialization
-                if field_name in self.config.related and field_value is not None:
-                    related_config = self.config.related[field_name]
-                    related_serializer = ModelSerializer(related_config)
-
-                    # Handle list of related objects
-                    if isinstance(field_value, (list, tuple)):
-                        field_value = [
-                            related_serializer.serialize(item, context)
-                            for item in field_value
-                        ]
-                    else:
-                        field_value = related_serializer.serialize(field_value, context)
-
-                # Apply field mapping
-                api_field_name = self.config.field_mappings.get(field_name, field_name)
-
-                # Set serialized value
-                result[api_field_name] = self._serialize_value(field_value)
-
-            except AttributeError:
-                # Field doesn't exist on model, skip
-                continue
+        # Serialize model fields
+        self._serialize_model_fields(instance, fields_to_include, result, context)
 
         # Add computed fields
-        for field_name, compute_func in self.config.computed_fields.items():
-            try:
-                # Pass instance and context to compute function
-                sig = inspect.signature(compute_func)
-                if "context" in sig.parameters:
-                    computed_value = compute_func(instance, context=context)
-                else:
-                    computed_value = compute_func(instance)
-
-                result[field_name] = self._serialize_value(computed_value)
-            except Exception:
-                # Skip failed computed fields
-                continue
+        self._serialize_computed_fields(instance, result, context)
 
         return result
 
@@ -230,6 +174,99 @@ class ModelSerializer:
                 fields.remove(excluded_field)
 
         return fields
+
+    def _serialize_model_fields(
+        self,
+        instance,
+        fields_to_include: List[str],
+        result: Dict[str, Any],
+        context: SerializationContext,
+    ) -> None:
+        """Serialize regular model fields"""
+        for field_name in fields_to_include:
+            if field_name in self.config.write_only_fields:
+                continue
+
+            field_value = self._get_field_value_safely(instance, field_name)
+            if field_value is None and not hasattr(instance, field_name):
+                continue
+
+            field_value = self._apply_field_transformation(
+                field_value, field_name, context
+            )
+            field_value = self._serialize_related_field(
+                field_value, field_name, context
+            )
+
+            api_field_name = self.config.field_mappings.get(field_name, field_name)
+            result[api_field_name] = self._serialize_value(field_value)
+
+    def _serialize_computed_fields(
+        self, instance, result: Dict[str, Any], context: SerializationContext
+    ) -> None:
+        """Serialize computed fields"""
+        for field_name, compute_func in self.config.computed_fields.items():
+            computed_value = self._compute_field_value_safely(
+                compute_func, instance, context
+            )
+            if computed_value is not None:
+                result[field_name] = self._serialize_value(computed_value)
+
+    def _get_field_value_safely(self, instance, field_name: str):
+        """Get field value from instance, handling AttributeError"""
+        try:
+            return getattr(instance, field_name, None)
+        except AttributeError:
+            return None
+
+    def _apply_field_transformation(
+        self, field_value, field_name: str, context: SerializationContext
+    ):
+        """Apply transformation to field value if configured"""
+        if field_name not in self.config.transforms:
+            return field_value
+
+        transform_func = self.config.transforms[field_name]
+        if not callable(transform_func):
+            return field_value
+
+        sig = inspect.signature(transform_func)
+        if "context" in sig.parameters:
+            return transform_func(field_value, context=context)
+        else:
+            return transform_func(field_value)
+
+    def _serialize_related_field(
+        self, field_value, field_name: str, context: SerializationContext
+    ):
+        """Serialize related field if configured"""
+        if field_name not in self.config.related or field_value is None:
+            return field_value
+
+        related_config = self.config.related[field_name]
+        related_serializer = ModelSerializer(related_config)
+
+        if isinstance(field_value, (list, tuple)):
+            return [related_serializer.serialize(item, context) for item in field_value]
+        else:
+            return related_serializer.serialize(field_value, context)
+
+    def _compute_field_value_safely(
+        self, compute_func: Callable, instance, context: SerializationContext
+    ):
+        """Compute field value, handling exceptions gracefully"""
+        try:
+            if not callable(compute_func):
+                return None
+
+            sig = inspect.signature(compute_func)
+            if "context" in sig.parameters:
+                return compute_func(instance, context=context)
+            else:
+                return compute_func(instance)
+        except Exception:
+            # Log error in production
+            return None
 
     def _reverse_field_mapping(self, api_field: str) -> str:
         """Reverse field mapping from API field to model field"""
