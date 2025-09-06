@@ -2,10 +2,12 @@
 Kinglet D1-backed Cache Service - Fast, cost-effective caching with CloudFlare D1
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .storage import d1_unwrap
 
@@ -47,7 +49,7 @@ class D1CacheService:
         name = self.table_name or "experience_cache"
         return safe_ident(name)
 
-    async def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
+    async def get(self, cache_key: str) -> dict[str, Any] | None:
         """Get value from cache with optional hit tracking"""
         try:
             current_time = int(time.time())
@@ -98,7 +100,7 @@ class D1CacheService:
             print(f"D1 cache get error: {e}")
             return None
 
-    async def set(self, cache_key: str, value: Dict[str, Any]) -> bool:
+    async def set(self, cache_key: str, value: dict[str, Any]) -> bool:
         """Set value in cache with TTL"""
         try:
             content = json.dumps(value)
@@ -165,7 +167,7 @@ class D1CacheService:
             print(f"D1 cache invalidate error: {e}")
             return 0
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """Get cache statistics for monitoring"""
         try:
             tn = self._safe_table()
@@ -219,7 +221,7 @@ class D1CacheService:
 
 
 def generate_cache_key(
-    path: str, query_params: Dict[str, Any] = None, extra_params: Dict[str, Any] = None
+    path: str, query_params: dict[str, Any] = None, extra_params: dict[str, Any] = None
 ) -> str:
     """
     Generate cache key from URL path and parameters

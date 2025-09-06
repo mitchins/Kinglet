@@ -2,9 +2,11 @@
 Kinglet Middleware - Base classes and common middleware implementations
 """
 
+from __future__ import annotations
+
 import time
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Optional
+from collections.abc import Callable
 
 from .http import Response
 from .orm_errors import ERROR_TYPE_MAP, ORMError, orm_problem_response
@@ -97,7 +99,7 @@ class ORMErrorMiddleware(Middleware):
         self,
         *,
         is_prod: bool = False,
-        error_type_map: Optional[Dict[str, tuple]] = None,
+        error_type_map: dict[str, tuple] | None = None,
         correlation_header: str = "X-Request-Id",
         include_trace: bool = False,
     ):
@@ -191,7 +193,7 @@ class ORMErrorMiddleware(Middleware):
 def create_global_error_boundary(
     *,
     is_prod: bool = False,
-    error_type_map: Optional[Dict[str, tuple]] = None,
+    error_type_map: dict[str, tuple] | None = None,
     correlation_header: str = "X-Request-Id",
     include_trace: bool = False,
 ) -> Callable[[Callable], Callable]:

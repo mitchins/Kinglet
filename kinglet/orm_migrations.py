@@ -5,11 +5,13 @@ Lightweight schema versioning for D1 databases.
 Tracks applied migrations without complex migration frameworks.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .constants import SCHEMA_LOCK_FILE
 from .sql import quote_ident_sqlite, safe_ident
@@ -29,7 +31,7 @@ class Migration:
         """Calculate checksum of SQL for integrity checking"""
         return hashlib.sha256(self.sql.encode()).hexdigest()[:16]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
             "checksum": self.checksum,
@@ -65,7 +67,7 @@ class MigrationTracker:
         """)
 
     @classmethod
-    async def get_applied_migrations(cls, db) -> List[str]:
+    async def get_applied_migrations(cls, db) -> list[str]:
         """Get list of applied migration versions"""
         try:
             safe_ident(cls.MIGRATIONS_TABLE)  # Validate table name
@@ -119,7 +121,7 @@ class MigrationTracker:
         )
 
     @classmethod
-    async def apply_migration(cls, db, migration: Migration) -> Dict[str, Any]:
+    async def apply_migration(cls, db, migration: Migration) -> dict[str, Any]:
         """Apply a single migration"""
         try:
             # Check if already applied
@@ -146,7 +148,7 @@ class MigrationTracker:
             return {"version": migration.version, "status": "failed", "error": str(e)}
 
     @classmethod
-    async def apply_migrations(cls, db, migrations: List[Migration]) -> Dict[str, Any]:
+    async def apply_migrations(cls, db, migrations: list[Migration]) -> dict[str, Any]:
         """Apply multiple migrations in order"""
         # Ensure migrations table exists
         await cls.ensure_migrations_table(db)
@@ -177,7 +179,7 @@ class MigrationTracker:
         return results
 
     @classmethod
-    async def get_schema_version(cls, db) -> Optional[str]:
+    async def get_schema_version(cls, db) -> str | None:
         """Get current schema version (latest applied migration)"""
         try:
             safe_ident(cls.MIGRATIONS_TABLE)  # Validate table name
@@ -199,7 +201,7 @@ class MigrationTracker:
             return None
 
     @classmethod
-    async def get_migration_status(cls, db) -> Dict[str, Any]:
+    async def get_migration_status(cls, db) -> dict[str, Any]:
         """Get detailed migration status"""
         try:
             await cls.ensure_migrations_table(db)
@@ -258,8 +260,8 @@ class SchemaLock:
 
     @staticmethod
     def generate_lock(
-        models: List, migrations: List[Migration] = None
-    ) -> Dict[str, Any]:
+        models: list, migrations: list[Migration] = None
+    ) -> dict[str, Any]:
         """Generate schema lock data"""
         from .orm import Model
 
@@ -306,14 +308,14 @@ class SchemaLock:
 
     @staticmethod
     def write_lock_file(
-        lock_data: Dict[str, Any], filename: str = SCHEMA_LOCK_FILE
+        lock_data: dict[str, Any], filename: str = SCHEMA_LOCK_FILE
     ) -> None:
         """Write schema lock to file"""
         with open(filename, "w") as f:
             json.dump(lock_data, f, indent=2)
 
     @staticmethod
-    def read_lock_file(filename: str = SCHEMA_LOCK_FILE) -> Optional[Dict[str, Any]]:
+    def read_lock_file(filename: str = SCHEMA_LOCK_FILE) -> dict[str, Any] | None:
         """Read schema lock from file"""
         try:
             with open(filename) as f:
@@ -323,8 +325,8 @@ class SchemaLock:
 
     @staticmethod
     def verify_schema(
-        current_models: List, lock_file: str = SCHEMA_LOCK_FILE
-    ) -> Dict[str, Any]:
+        current_models: list, lock_file: str = SCHEMA_LOCK_FILE
+    ) -> dict[str, Any]:
         """Verify current schema matches lock file"""
 
         # Read existing lock
@@ -472,7 +474,7 @@ class MigrationGenerator:
             return str(default)
 
     @staticmethod
-    def detect_changes(old_lock: Dict, new_lock: Dict) -> List[Migration]:
+    def detect_changes(old_lock: dict, new_lock: dict) -> list[Migration]:
         """Detect changes and generate migrations"""
         migrations = []
         version_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

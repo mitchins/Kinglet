@@ -1,10 +1,13 @@
 # kinglet/authz.py
+from __future__ import annotations
+
 import base64
 import hashlib
 import hmac
 import json
 import time
-from typing import Any, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from .constants import AUTH_REQUIRED, NOT_FOUND, TOTP_STEP_UP_PATH
 from .http import Response  # Import directly from http module
@@ -17,7 +20,7 @@ def _b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s.encode())
 
 
-def verify_jwt_hs256(token: str, secret: str) -> Optional[dict]:
+def verify_jwt_hs256(token: str, secret: str) -> dict | None:
     try:
         h_b64, p_b64, s_b64 = token.split(".")
         signing = f"{h_b64}.{p_b64}".encode()
@@ -36,7 +39,7 @@ def verify_jwt_hs256(token: str, secret: str) -> Optional[dict]:
         return None
 
 
-def _extract_bearer_user(req, env_key: str) -> Optional[dict]:
+def _extract_bearer_user(req, env_key: str) -> dict | None:
     """Extract user from Bearer token"""
     auth = getattr(req, "header", lambda *_: None)("authorization") or ""
     if not auth.lower().startswith("bearer "):
@@ -57,7 +60,7 @@ def _extract_bearer_user(req, env_key: str) -> Optional[dict]:
     return None
 
 
-def _extract_cloudflare_user(req) -> Optional[dict]:
+def _extract_cloudflare_user(req) -> dict | None:
     """Extract user from Cloudflare Access JWT"""
     access_jwt = getattr(req, "header", lambda *_: None)(
         "cf-access-jwt-assertion"
@@ -77,7 +80,7 @@ def _extract_cloudflare_user(req) -> Optional[dict]:
     return None
 
 
-async def get_user(req, *, env_key="JWT_SECRET") -> Optional[dict]:
+async def get_user(req, *, env_key="JWT_SECRET") -> dict | None:
     """
     Returns {"id": <user_id>, "claims": {...}} or None.
     Prefers Bearer token; falls back to Cloudflare Access JWT header if present.
@@ -102,7 +105,7 @@ async def get_user(req, *, env_key="JWT_SECRET") -> Optional[dict]:
 
 
 # Example D1 owner resolver (table with columns: id TEXT PRIMARY KEY, owner_id TEXT, public INTEGER)
-async def d1_load_owner_public(d1, table: str, rid: str) -> Optional[dict]:
+async def d1_load_owner_public(d1, table: str, rid: str) -> dict | None:
     # Validate identifier to avoid SQL injection in table name
     from .sql import quote_ident_sqlite, safe_ident
 
@@ -116,7 +119,7 @@ async def d1_load_owner_public(d1, table: str, rid: str) -> Optional[dict]:
 
 
 # Example R2 media owner resolver (owner_id stored in customMetadata.owner_id)
-async def r2_media_owner(env, bucket_binding: str, key: str) -> Optional[dict]:
+async def r2_media_owner(env, bucket_binding: str, key: str) -> dict | None:
     bucket = getattr(env, bucket_binding)
     head = await (bucket.head(key) if hasattr(bucket, "head") else bucket.get(key))
     if not head:
@@ -146,7 +149,7 @@ def require_auth(handler: Callable[[Any], Awaitable[Any]]):
 
 
 def allow_public_or_owner(
-    load_fn: Callable[[Any, str], Awaitable[Optional[dict]]],
+    load_fn: Callable[[Any, str], Awaitable[dict | None]],
     *,
     id_param="uid",
     forbidden_as_404=True,
@@ -179,7 +182,7 @@ def allow_public_or_owner(
 
 
 def require_owner(
-    load_fn: Callable[[Any, str], Awaitable[Optional[dict]]],
+    load_fn: Callable[[Any, str], Awaitable[dict | None]],
     *,
     id_param="uid",
     allow_admin_env="ADMIN_IDS",

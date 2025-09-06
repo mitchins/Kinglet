@@ -9,11 +9,14 @@ Key differences from Peewee/SQLAlchemy:
 - Lean query building with SQL error prevention
 """
 
+from __future__ import annotations
+
 import json
 import re
+from collections.abc import AsyncGenerator, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, AsyncContextManager, Coroutine, Dict, List, Optional, Type
+from typing import Any
 
 from .orm_errors import (
     D1ErrorClassifier,
@@ -75,12 +78,12 @@ class Field:
 class StringField(Field):
     """Text field with optional max length"""
 
-    def __init__(self, max_length: Optional[int] = None, index: bool = False, **kwargs):
+    def __init__(self, max_length: int | None = None, index: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.max_length = max_length
         self.index = index  # Explicit indexing for performance-critical string fields
 
-    def validate(self, value: Any) -> Optional[str]:
+    def validate(self, value: Any) -> str | None:
         value = super().validate(value)
         if value is None:
             return None
@@ -105,7 +108,7 @@ class IntegerField(Field):
         super().__init__(**kwargs)
         self.index = index  # Explicit indexing control
 
-    def to_python(self, value: Any) -> Optional[int]:
+    def to_python(self, value: Any) -> int | None:
         if value is None:
             return None
         return int(value)
@@ -117,12 +120,12 @@ class IntegerField(Field):
 class BooleanField(Field):
     """Boolean field stored as INTEGER (0/1) in D1"""
 
-    def to_python(self, value: Any) -> Optional[bool]:
+    def to_python(self, value: Any) -> bool | None:
         if value is None:
             return None
         return bool(int(value))
 
-    def to_db(self, value: Any) -> Optional[int]:
+    def to_db(self, value: Any) -> int | None:
         if value is None:
             return None
         return 1 if value else 0
@@ -134,19 +137,19 @@ class BooleanField(Field):
 class FloatField(Field):
     """Float/decimal field stored as REAL in D1"""
 
-    def to_python(self, value: Any) -> Optional[float]:
+    def to_python(self, value: Any) -> float | None:
         if value is None:
             return None
         return float(value)
 
-    def to_db(self, value: Any) -> Optional[float]:
+    def to_db(self, value: Any) -> float | None:
         # Reuse to_python to avoid duplication
         return self.to_python(value)
 
     def get_sql_type(self) -> str:
         return "REAL"
 
-    def validate(self, value: Any) -> Optional[float]:
+    def validate(self, value: Any) -> float | None:
         """Validate and convert field value"""
         if value is None:
             if not self.null:
@@ -168,7 +171,7 @@ class DateTimeField(Field):
         self.auto_now_add = auto_now_add
         self.index = index  # Explicit indexing control
 
-    def to_python(self, value: Any) -> Optional[datetime]:
+    def to_python(self, value: Any) -> datetime | None:
         if value is None:
             return None
         if isinstance(value, datetime):
@@ -190,7 +193,7 @@ class DateTimeField(Field):
         except (ValueError, TypeError):
             return None
 
-    def to_db(self, value: Any) -> Optional[int]:
+    def to_db(self, value: Any) -> int | None:
         if value is None:
             return None
         if isinstance(value, datetime):
@@ -211,7 +214,7 @@ class JSONField(Field):
             return json.loads(value)
         return value
 
-    def to_db(self, value: Any) -> Optional[str]:
+    def to_db(self, value: Any) -> str | None:
         if value is None:
             return None
         return json.dumps(value)
@@ -229,7 +232,7 @@ class QuerySet:
     - Validates SQL structure to prevent errors
     """
 
-    def __init__(self, model_class: Type["Model"], db):
+    def __init__(self, model_class: type[Model], db):
         self.model_class = model_class
         self.db = db
         self._where_conditions = []
@@ -243,7 +246,7 @@ class QuerySet:
         # Cache field names for validation
         self._field_names = set(model_class._fields.keys())
 
-    def filter(self, **kwargs) -> "QuerySet":
+    def filter(self, **kwargs) -> QuerySet:
         """Add WHERE conditions with field validation"""
         new_qs = self._clone()
         for key, value in kwargs.items():
@@ -269,7 +272,7 @@ class QuerySet:
             new_qs._where_conditions.append((condition, value))
         return new_qs
 
-    def exclude(self, **kwargs) -> "QuerySet":
+    def exclude(self, **kwargs) -> QuerySet:
         """Add WHERE NOT conditions with field validation (opposite of filter)"""
         new_qs = self._clone()
         for key, value in kwargs.items():
@@ -297,7 +300,7 @@ class QuerySet:
             new_qs._where_conditions.append((condition, value))
         return new_qs
 
-    def order_by(self, *fields) -> "QuerySet":
+    def order_by(self, *fields) -> QuerySet:
         """Add ORDER BY clause with field validation"""
         new_qs = self._clone()
         for field in fields:
@@ -316,7 +319,7 @@ class QuerySet:
                 new_qs._order_by.append(f"{_qi(field_name)} ASC")
         return new_qs
 
-    def limit(self, count: int) -> "QuerySet":
+    def limit(self, count: int) -> QuerySet:
         """
         Add LIMIT clause with safety checks
 
@@ -331,7 +334,7 @@ class QuerySet:
         new_qs._limit_count = count
         return new_qs
 
-    def offset(self, count: int) -> "QuerySet":
+    def offset(self, count: int) -> QuerySet:
         """
         Add OFFSET clause with safety checks
 
@@ -346,7 +349,7 @@ class QuerySet:
         new_qs._offset_count = count
         return new_qs
 
-    def only(self, *field_names) -> "QuerySet":
+    def only(self, *field_names) -> QuerySet:
         """
         Select only specific fields - D1 cost optimization
 
@@ -374,7 +377,7 @@ class QuerySet:
         new_qs._values_fields = None  # Clear values mode
         return new_qs
 
-    def values(self, *field_names) -> "QuerySet":
+    def values(self, *field_names) -> QuerySet:
         """
         Return dictionaries instead of model instances - D1 cost optimization
 
@@ -403,7 +406,7 @@ class QuerySet:
         new_qs._only_fields = None  # Clear only mode
         return new_qs
 
-    async def all(self) -> List["Model"]:
+    async def all(self) -> list[Model]:
         """
         Execute query and return all results
 
@@ -438,7 +441,7 @@ class QuerySet:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    async def first(self) -> Optional["Model"]:
+    async def first(self) -> Model | dict[str, Any] | None:
         """
         Execute query and return first result
 
@@ -464,7 +467,7 @@ class QuerySet:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    async def get(self) -> "Model":
+    async def get(self) -> Model:
         """
         Get single object matching query conditions
 
@@ -538,7 +541,7 @@ class QuerySet:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    def _clone(self) -> "QuerySet":
+    def _clone(self) -> QuerySet:
         """Create a copy of this QuerySet"""
         new_qs = QuerySet(self.model_class, self.db)
         new_qs._where_conditions = self._where_conditions.copy()
@@ -613,24 +616,24 @@ class QuerySet:
         """Ensure string is surrounded with % for substring matching"""
         return s if (s.startswith("%") or s.endswith("%")) else f"%{s}%"
 
-    def _build_where_clause(self) -> tuple[str, List[Any]]:
+    def _build_where_clause(self) -> tuple[str, list[Any]]:
         """Build WHERE clause and parameters with LIKE value normalization"""
         if not self._where_conditions:
             return "", []
 
-        conditions: List[str] = []
-        params: List[Any] = []
+        conditions: list[str] = []
+        params: list[Any] = []
 
         for condition, value in self._where_conditions:
             conditions.append(condition)
-            if isinstance(value, (list, tuple)) and "IN" in condition:
+            if isinstance(value, list | tuple) and "IN" in condition:
                 params.extend(value)
             else:
                 params.append(self._normalize_like_value(condition, value))
 
         return " AND ".join(conditions), params
 
-    def _build_sql(self) -> tuple[str, List[Any]]:
+    def _build_sql(self) -> tuple[str, list[Any]]:
         """Build complete SQL query with D1 cost optimization"""
         # D1 Cost Optimization: Use projection instead of SELECT *
         if self._values_fields:
@@ -699,7 +702,7 @@ class QuerySet:
         result = await self.db.prepare(sql).bind(*params).run()
         return getattr(result, "changes", 0)
 
-    def _build_update_set(self, kwargs: Dict[str, Any]) -> tuple[list[str], list[Any]]:
+    def _build_update_set(self, kwargs: dict[str, Any]) -> tuple[list[str], list[Any]]:
         """Validate fields and build SET clauses and params for UPDATE"""
         set_clauses: list[str] = []
         set_params: list[Any] = []
@@ -754,14 +757,14 @@ class QuerySet:
 class Manager:
     """Model manager for database operations"""
 
-    def __init__(self, model_class: Type["Model"]):
+    def __init__(self, model_class: type[Model]):
         self.model_class = model_class
 
     def get_queryset(self, db) -> QuerySet:
         """Get base queryset for this model"""
         return QuerySet(self.model_class, db)
 
-    async def create(self, db, **kwargs) -> "Model":
+    async def create(self, db, **kwargs) -> Model:
         """
         Create and save a new model instance
 
@@ -771,7 +774,7 @@ class Manager:
         await instance.save(db)
         return instance
 
-    def _validate_bulk_instances(self, instances: List["Model"]) -> None:
+    def _validate_bulk_instances(self, instances: list[Model]) -> None:
         """Validate all instances are the same model type"""
         if not instances:
             return
@@ -779,7 +782,7 @@ class Manager:
         if not all(isinstance(inst, first_model.__class__) for inst in instances):
             raise ValueError("All instances must be of the same model type")
 
-    def _prepare_field_data(self, instance: "Model") -> Dict[str, Any]:
+    def _prepare_field_data(self, instance: Model) -> dict[str, Any]:
         """Prepare field data for a single instance"""
         field_data = {}
         for field_name, field in instance._fields.items():
@@ -804,8 +807,8 @@ class Manager:
         return field_data
 
     def _prepare_bulk_data(
-        self, instances: List["Model"]
-    ) -> tuple[List[str], List[List[Any]]]:
+        self, instances: list[Model]
+    ) -> tuple[list[str], list[list[Any]]]:
         """Prepare field names and values for bulk insert"""
         field_names = []
         all_values = []
@@ -822,8 +825,8 @@ class Manager:
         return field_names, all_values
 
     def _create_batch_statements(
-        self, db, field_names: List[str], all_values: List[List[Any]]
-    ) -> List:
+        self, db, field_names: list[str], all_values: list[list[Any]]
+    ) -> list:
         """Create batch INSERT statements"""
         placeholders = ["?" for _ in field_names]
         table = _qi(self.model_class._meta.table_name)
@@ -838,11 +841,9 @@ class Manager:
             statements.append(stmt)
         return statements
 
-    def _update_instances_with_ids(
-        self, instances: List["Model"], results: List
-    ) -> None:
+    def _update_instances_with_ids(self, instances: list[Model], results: list) -> None:
         """Update instances with generated primary key IDs"""
-        for instance, result in zip(instances, results):
+        for instance, result in zip(instances, results, strict=False):
             pk_field = instance._get_pk_field()
             if (
                 pk_field.name == "id"
@@ -852,7 +853,7 @@ class Manager:
                 instance.id = result.meta.last_row_id
             instance._state["saved"] = True
 
-    async def bulk_create(self, db, instances: List["Model"]) -> List["Model"]:
+    async def bulk_create(self, db, instances: list[Model]) -> list[Model]:
         """
         Create multiple instances in a single batch
 
@@ -873,7 +874,7 @@ class Manager:
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    async def get(self, db, **kwargs) -> "Model":
+    async def get(self, db, **kwargs) -> Model:
         """
         Get single model instance matching the given lookup parameters
 
@@ -883,7 +884,7 @@ class Manager:
         """
         return await self.get_queryset(db).filter(**kwargs).get()
 
-    async def get_or_create(self, db, defaults=None, **kwargs) -> tuple["Model", bool]:
+    async def get_or_create(self, db, defaults=None, **kwargs) -> tuple[Model, bool]:
         """
         Get existing instance or create new one - D1 cost optimized
 
@@ -915,7 +916,7 @@ class Manager:
                 instance = await self.create(db, **create_kwargs)
                 return instance, True
 
-    def _collect_unique_fields_from_kwargs(self, kwargs: Dict[str, Any]) -> list[str]:
+    def _collect_unique_fields_from_kwargs(self, kwargs: dict[str, Any]) -> list[str]:
         uniques: list[str] = []
         for fname, f in self.model_class._fields.items():
             if (f.unique or f.primary_key) and fname in kwargs:
@@ -957,8 +958,8 @@ class Manager:
         return sql, bind_vals
 
     async def _run_upsert_returning(
-        self, db, sql: str, bind_values: list, kwargs: Dict[str, Any]
-    ) -> tuple["Model", bool]:
+        self, db, sql: str, bind_values: list, kwargs: dict[str, Any]
+    ) -> tuple[Model, bool]:
         result = await (
             db.prepare(sql).bind(*bind_values) if bind_values else db.prepare(sql)
         ).first()
@@ -972,7 +973,7 @@ class Manager:
 
     def create_or_update(
         self, db, defaults=None, **kwargs
-    ) -> Coroutine[Any, Any, tuple["Model", bool]]:
+    ) -> Coroutine[Any, Any, tuple[Model, bool]]:
         """
         Create or update using ON CONFLICT DO UPDATE (upsert)
 
@@ -1009,7 +1010,7 @@ class Manager:
 
         return _inner()
 
-    async def upsert(self, db, **kwargs) -> "Model":
+    async def upsert(self, db, **kwargs) -> Model:
         """
         Convenient upsert that returns just the instance
 
@@ -1199,7 +1200,7 @@ class Model(metaclass=ModelMeta):
             setattr(self, field_name, value)
 
     @classmethod
-    def _from_db(cls, row_data: Dict[str, Any]) -> "Model":
+    def _from_db(cls, row_data: dict[str, Any]) -> Model:
         """Create model instance from database row"""
         instance = cls.__new__(cls)
         instance._state = {"saved": True}
@@ -1214,7 +1215,7 @@ class Model(metaclass=ModelMeta):
 
         return instance
 
-    def _prepare_save_field_data(self) -> Dict[str, Any]:
+    def _prepare_save_field_data(self) -> dict[str, Any]:
         """Prepare and validate field data for saving"""
         field_data = {}
         for field_name, field in self._fields.items():
@@ -1232,7 +1233,7 @@ class Model(metaclass=ModelMeta):
             field_data[field_name] = db_value
         return field_data
 
-    def _build_update_sql(self, field_data: Dict[str, Any]) -> tuple[str, List[Any]]:
+    def _build_update_sql(self, field_data: dict[str, Any]) -> tuple[str, list[Any]]:
         """Build UPDATE SQL with explicit NULL handling"""
         pk_field = self._get_pk_field()
         pk_value = getattr(self, pk_field.name)
@@ -1257,7 +1258,7 @@ class Model(metaclass=ModelMeta):
         sql = f"UPDATE {table} SET {', '.join(set_clauses)} WHERE {pk_col} = ?"  # nosec B608: identifier validated+quoted; values parameterized
         return sql, bind_values
 
-    def _build_insert_sql(self, field_data: Dict[str, Any]) -> tuple[str, List[Any]]:
+    def _build_insert_sql(self, field_data: dict[str, Any]) -> tuple[str, list[Any]]:
         """Build INSERT SQL with explicit NULL handling"""
         pk_field = self._get_pk_field()
 
@@ -1284,14 +1285,14 @@ class Model(metaclass=ModelMeta):
         sql = f"INSERT INTO {table} ({quoted_columns}) VALUES ({', '.join(value_expressions)})"  # nosec B608: identifier validated+quoted; values parameterized
         return sql, bind_values
 
-    async def _execute_update(self, db, sql: str, bind_values: List[Any]) -> None:
+    async def _execute_update(self, db, sql: str, bind_values: list[Any]) -> None:
         """Execute UPDATE statement"""
         try:
             await db.prepare(sql).bind(*bind_values).run()
         except Exception as e:
             raise D1ErrorClassifier.classify_error(e) from e
 
-    async def _execute_insert(self, db, sql: str, bind_values: List[Any]) -> None:
+    async def _execute_insert(self, db, sql: str, bind_values: list[Any]) -> None:
         """Execute INSERT statement and handle auto-generated ID"""
         try:
             if bind_values:
@@ -1371,7 +1372,7 @@ class Model(metaclass=ModelMeta):
                 return field
         raise ValueError("No primary key field found")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert model instance to dictionary"""
         result = {}
         for field_name, field in self._fields.items():
@@ -1484,7 +1485,7 @@ class D1Transaction:
         self.statements = []
         self.executed = False
 
-    async def add_statement(self, sql: str, params: List[Any] = None) -> None:
+    async def add_statement(self, sql: str, params: list[Any] = None) -> None:
         """Add a statement to the transaction batch"""
         if self.executed:
             raise RuntimeError("Transaction already executed")
@@ -1493,7 +1494,7 @@ class D1Transaction:
             stmt = stmt.bind(*params)
         self.statements.append(stmt)
 
-    async def execute(self) -> List[Any]:
+    async def execute(self) -> list[Any]:
         """Execute all statements as a batch"""
         if self.executed:
             raise RuntimeError("Transaction already executed")
@@ -1512,7 +1513,7 @@ class D1Transaction:
 
 
 @asynccontextmanager
-async def transaction(db) -> AsyncContextManager[D1Transaction]:
+async def transaction(db) -> AsyncGenerator[D1Transaction, None]:
     """
     Transaction context manager for D1
 
@@ -1547,7 +1548,7 @@ class BatchOperations:
         self.db = db
         self.operations = []
 
-    def add_create(self, model_class: Type["Model"], **kwargs) -> "BatchOperations":
+    def add_create(self, model_class: type[Model], **kwargs) -> BatchOperations:
         """Add a create operation to the batch"""
         # Prepare and validate data
         validated_data = {}
@@ -1590,7 +1591,7 @@ class BatchOperations:
         )
         return self
 
-    def add_update(self, instance: "Model") -> "BatchOperations":
+    def add_update(self, instance: Model) -> BatchOperations:
         """Add an update operation to the batch"""
         # Validate all fields
         field_data = {}
@@ -1629,7 +1630,7 @@ class BatchOperations:
         )
         return self
 
-    def add_delete(self, instance: "Model") -> "BatchOperations":
+    def add_delete(self, instance: Model) -> BatchOperations:
         """Add a delete operation to the batch"""
         pk_field = instance._get_pk_field()
         pk_value = getattr(instance, pk_field.name)
@@ -1643,7 +1644,7 @@ class BatchOperations:
         )
         return self
 
-    async def execute(self) -> List[Any]:
+    async def execute(self) -> list[Any]:
         """Execute all batched operations"""
         if not self.operations:
             return []
@@ -1659,7 +1660,7 @@ class BatchOperations:
         results = await self.db.batch(statements)
 
         # Update instance states for successful operations
-        for _i, (op, _result) in enumerate(zip(self.operations, results)):
+        for _i, (op, _result) in enumerate(zip(self.operations, results, strict=False)):
             if op["type"] == "delete":
                 op["instance"]._state["saved"] = False
 
@@ -1667,7 +1668,7 @@ class BatchOperations:
 
 
 @asynccontextmanager
-async def batch(db) -> AsyncContextManager[BatchOperations]:
+async def batch(db) -> AsyncGenerator[BatchOperations, None]:
     """
     Batch operations context manager
 
@@ -1695,7 +1696,7 @@ class SchemaManager:
     """Minimal schema management for D1 migrations"""
 
     @staticmethod
-    def generate_schema_sql(models: List[Type[Model]]) -> str:
+    def generate_schema_sql(models: list[type[Model]]) -> str:
         """Generate SQL for all models - for wrangler deployment"""
         sql_statements = []
         for model in models:
@@ -1703,7 +1704,7 @@ class SchemaManager:
         return "\n\n".join(sql_statements)
 
     @staticmethod
-    async def migrate_all(db, models: List[Type[Model]]) -> Dict[str, bool]:
+    async def migrate_all(db, models: list[type[Model]]) -> dict[str, bool]:
         """Create all tables - simple migration endpoint"""
         results = {}
         for model in models:

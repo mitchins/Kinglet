@@ -196,7 +196,7 @@ def bytes_to_arraybuffer(data):
         await r2_put(bucket, "path/file.jpg", file_bytes)
     """
     # Return early if already an ArrayBuffer or similar JS object
-    if not isinstance(data, (bytes, bytearray)):
+    if not isinstance(data, bytes | bytearray):
         return data
 
     try:
@@ -240,7 +240,7 @@ def arraybuffer_to_bytes(array_buffer):
         file_bytes = arraybuffer_to_bytes(r2_object.arrayBuffer())
     """
     # Return early if already bytes
-    if isinstance(array_buffer, (bytes, bytearray)):
+    if isinstance(array_buffer, bytes | bytearray):
         return bytes(array_buffer)
 
     try:

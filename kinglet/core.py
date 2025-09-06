@@ -2,8 +2,10 @@
 Kinglet Core - Routing and application framework
 """
 
+from __future__ import annotations
+
 import re
-from typing import Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
 
 from .exceptions import HTTPError
 from .http import Request, Response
@@ -13,7 +15,7 @@ from .middleware import Middleware
 class Route:
     """Represents a single route"""
 
-    def __init__(self, path: str, handler: Callable, methods: List[str]):
+    def __init__(self, path: str, handler: Callable, methods: list[str]):
         self.path = path
         self.handler = handler
         self.methods = [m.upper() for m in methods]
@@ -21,7 +23,7 @@ class Route:
         # Convert path to regex with parameter extraction
         self.regex, self.param_names = self._compile_path(path)
 
-    def _compile_path(self, path: str) -> Tuple[re.Pattern, List[str]]:
+    def _compile_path(self, path: str) -> tuple[re.Pattern, list[str]]:
         """Convert path pattern to regex with parameter names"""
         param_names = []
         regex_pattern = path
@@ -57,7 +59,7 @@ class Route:
 
         return re.compile(regex_pattern), param_names
 
-    def matches(self, method: str, path: str) -> Tuple[bool, Dict[str, str]]:
+    def matches(self, method: str, path: str) -> tuple[bool, dict[str, str]]:
         """Check if route matches method and path, return path params if match"""
         if method.upper() not in self.methods:
             return False, {}
@@ -78,15 +80,15 @@ class Router:
     """HTTP router for organizing routes"""
 
     def __init__(self):
-        self.routes: List[Route] = []
-        self.sub_routers: List[Router] = []
+        self.routes: list[Route] = []
+        self.sub_routers: list[Router] = []
 
-    def add_route(self, path: str, handler: Callable, methods: List[str]):
+    def add_route(self, path: str, handler: Callable, methods: list[str]):
         """Add a route to the router"""
         route = Route(path, handler, methods)
         self.routes.append(route)
 
-    def route(self, path: str, methods: List[str] = None):
+    def route(self, path: str, methods: list[str] = None):
         """Decorator for adding routes"""
         if methods is None:
             methods = ["GET"]
@@ -125,7 +127,7 @@ class Router:
         """Decorator for OPTIONS routes"""
         return self.route(path, ["OPTIONS"])
 
-    def include_router(self, prefix: str, router: "Router"):
+    def include_router(self, prefix: str, router: Router):
         """Include another router with a path prefix"""
         # Normalize prefix: ensure it starts with / and doesn't end with /
         if not prefix.startswith("/"):
@@ -137,9 +139,7 @@ class Router:
             new_path = prefix + route.path
             self.add_route(new_path, route.handler, route.methods)
 
-    def resolve(
-        self, method: str, path: str
-    ) -> Tuple[Optional[Callable], Dict[str, str]]:
+    def resolve(self, method: str, path: str) -> tuple[Callable | None, dict[str, str]]:
         """Find matching route and return handler with path params"""
         for route in self.routes:
             matches, path_params = route.matches(method, path)
@@ -159,14 +159,14 @@ class Kinglet:
         self, test_mode=False, root_path="", debug=False, auto_wrap_exceptions=True
     ):
         self.router = Router()
-        self.middleware_stack: List[Middleware] = []
-        self.error_handlers: Dict[int, Callable] = {}
+        self.middleware_stack: list[Middleware] = []
+        self.error_handlers: dict[int, Callable] = {}
         self.test_mode = test_mode
         self.root_path = root_path.rstrip("/")  # Remove trailing slash
         self.debug = debug
         self.auto_wrap_exceptions = auto_wrap_exceptions
 
-    def route(self, path: str, methods: List[str] = None):
+    def route(self, path: str, methods: list[str] = None):
         """Add route decorator"""
 
         def decorator(handler):
