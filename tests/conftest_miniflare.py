@@ -11,6 +11,8 @@ from pathlib import Path
 import httpx
 import pytest
 
+from . import _version_guard  # noqa: F401
+
 
 class MiniflareManager:
     """Manages Miniflare lifecycle for tests"""

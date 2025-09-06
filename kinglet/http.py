@@ -2,9 +2,11 @@
 Kinglet HTTP Primitives - Request, Response, and utility functions
 """
 
+from __future__ import annotations
+
 import json
 import secrets
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .exceptions import HTTPError
@@ -101,7 +103,7 @@ class Request:
         return self._headers.get(name.lower(), default)
 
     @property
-    def query_params(self) -> Dict[str, str]:
+    def query_params(self) -> dict[str, str]:
         """Get query parameters as dict"""
         return {
             k: v[0] if v else "" for k, v in parse_qs(self._parsed_url.query).items()
@@ -135,7 +137,7 @@ class Request:
         except ValueError as e:
             raise HTTPError(400, f"Path parameter '{key}' must be an integer") from e
 
-    def basic_auth(self) -> Optional[tuple[str, str]]:
+    def basic_auth(self) -> tuple[str, str] | None:
         """Extract basic auth credentials"""
         auth_header = self.header("authorization", "")
         if auth_header.startswith("Basic "):
@@ -196,7 +198,7 @@ class Request:
             return raw_json.to_py()
 
         if not (
-            hasattr(raw_json, "__iter__") and not isinstance(raw_json, (str, bytes))
+            hasattr(raw_json, "__iter__") and not isinstance(raw_json, str | bytes)
         ):
             return raw_json
 
@@ -243,7 +245,7 @@ class Request:
         except json.JSONDecodeError:
             return None
 
-    async def json(self, convert=True) -> Optional[Dict]:
+    async def json(self, convert=True) -> dict | None:
         """Get request body as parsed JSON
 
         Args:
@@ -276,7 +278,7 @@ class Response:
         self,
         content: Any = None,
         status: int = 200,
-        headers: Dict[str, str] = None,
+        headers: dict[str, str] = None,
         content_type: str = None,
     ):
         self.content = content
@@ -288,7 +290,7 @@ class Response:
             self.headers["Content-Type"] = content_type
         # Auto-detect content type like Cloudflare Workers
         elif "content-type" not in {k.lower() for k in self.headers.keys()}:
-            if isinstance(content, (dict, list)):
+            if isinstance(content, dict | list):
                 self.headers["Content-Type"] = "application/json"
             elif isinstance(content, str):
                 self.headers["Content-Type"] = "text/plain; charset=utf-8"
@@ -319,7 +321,7 @@ class Response:
         from workers import Response as WorkersResponse
 
         # Handle different content types
-        if isinstance(self.content, (dict, list)):
+        if isinstance(self.content, dict | list):
             # Use Response.json for JSON content
             return WorkersResponse.json(
                 self.content, status=self.status, headers=self.headers

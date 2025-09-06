@@ -5,8 +5,9 @@ Normalized exception hierarchy for predictable error handling.
 Maps D1/SQLite errors to semantic ORM exceptions.
 """
 
+from __future__ import annotations
+
 import re
-from typing import Dict, List, Optional
 
 from .constants import CHECK_CONSTRAINT_VIOLATION
 
@@ -35,10 +36,10 @@ class ConstraintRegistry:
 
     def __init__(self):
         # table_name -> constraint_name -> constraint_info
-        self._constraints: Dict[str, Dict[str, Dict]] = {}
+        self._constraints: dict[str, dict[str, dict]] = {}
 
     def register_table(
-        self, table_name: str, constraints: Dict[str, List[str]]
+        self, table_name: str, constraints: dict[str, list[str]]
     ) -> None:
         """
         Register constraints for a table
@@ -69,8 +70,8 @@ class ConstraintRegistry:
         self,
         table_name: str,
         constraint_name: str,
-        fields: List[str],
-        constraint_type: Optional[str] = None,
+        fields: list[str],
+        constraint_type: str | None = None,
     ) -> None:
         """
         Register a single constraint
@@ -93,9 +94,7 @@ class ConstraintRegistry:
             "table": table_name,
         }
 
-    def get_constraint_info(
-        self, table_name: str, constraint_name: str
-    ) -> Optional[Dict]:
+    def get_constraint_info(self, table_name: str, constraint_name: str) -> dict | None:
         """
         Get constraint information by table and constraint name
 
@@ -105,8 +104,8 @@ class ConstraintRegistry:
         return self._constraints.get(table_name, {}).get(constraint_name)
 
     def find_constraint_by_fields(
-        self, table_name: str, fields: List[str]
-    ) -> Optional[Dict]:
+        self, table_name: str, fields: list[str]
+    ) -> dict | None:
         """
         Find constraint by matching field list
 
@@ -121,11 +120,11 @@ class ConstraintRegistry:
 
         return None
 
-    def get_table_constraints(self, table_name: str) -> Dict[str, Dict]:
+    def get_table_constraints(self, table_name: str) -> dict[str, dict]:
         """Get all constraints for a table"""
         return self._constraints.get(table_name, {})
 
-    def list_tables(self) -> List[str]:
+    def list_tables(self) -> list[str]:
         """List all registered tables"""
         return list(self._constraints.keys())
 
@@ -176,7 +175,7 @@ def get_constraint_registry() -> ConstraintRegistry:
 class ORMError(Exception):
     """Base exception for all ORM-related errors"""
 
-    def __init__(self, message: str, original_error: Optional[Exception] = None):
+    def __init__(self, message: str, original_error: Exception | None = None):
         super().__init__(message)
         self.original_error = original_error
 
@@ -201,9 +200,9 @@ class UniqueViolationError(IntegrityError):
 
     def __init__(
         self,
-        field_name: Optional[str] = None,
+        field_name: str | None = None,
         message: str = None,
-        original_error: Optional[Exception] = None,
+        original_error: Exception | None = None,
     ):
         self.field_name = field_name
         if message is None:
@@ -219,9 +218,9 @@ class NotNullViolationError(IntegrityError):
 
     def __init__(
         self,
-        field_name: Optional[str] = None,
+        field_name: str | None = None,
         message: str = None,
-        original_error: Optional[Exception] = None,
+        original_error: Exception | None = None,
     ):
         self.field_name = field_name
         if message is None:
@@ -237,9 +236,9 @@ class ForeignKeyViolationError(IntegrityError):
 
     def __init__(
         self,
-        field_name: Optional[str] = None,
+        field_name: str | None = None,
         message: str = None,
-        original_error: Optional[Exception] = None,
+        original_error: Exception | None = None,
     ):
         self.field_name = field_name
         if message is None:
@@ -293,8 +292,8 @@ class RetryableError(ORMError):
     def __init__(
         self,
         message: str,
-        retry_after: Optional[float] = None,
-        original_error: Optional[Exception] = None,
+        retry_after: float | None = None,
+        original_error: Exception | None = None,
     ):
         self.retry_after = retry_after  # Suggested retry delay in seconds
         super().__init__(message, original_error)
@@ -303,7 +302,7 @@ class RetryableError(ORMError):
 class DeadlockError(RetryableError):
     """Database deadlock detected"""
 
-    def __init__(self, message: str = None, original_error: Optional[Exception] = None):
+    def __init__(self, message: str = None, original_error: Exception | None = None):
         if message is None:
             message = "Database deadlock detected - retry recommended"
         super().__init__(message, retry_after=0.1, original_error=original_error)
@@ -312,7 +311,7 @@ class DeadlockError(RetryableError):
 class TimeoutError(RetryableError):
     """Operation timed out"""
 
-    def __init__(self, message: str = None, original_error: Optional[Exception] = None):
+    def __init__(self, message: str = None, original_error: Exception | None = None):
         if message is None:
             message = "Database operation timed out - retry recommended"
         super().__init__(message, retry_after=1.0, original_error=original_error)
@@ -362,8 +361,8 @@ class D1ErrorClassifier:
 
     @classmethod
     def _classify_constraint_error(
-        cls, constraint_info: Dict, error: Exception
-    ) -> Optional[ORMError]:
+        cls, constraint_info: dict, error: Exception
+    ) -> ORMError | None:
         """Classify error based on constraint registry information"""
         constraint_type = constraint_info["type"]
         fields = constraint_info["fields"]
@@ -382,7 +381,7 @@ class D1ErrorClassifier:
         return None
 
     @classmethod
-    def _extract_field_from_match(cls, match) -> Optional[str]:
+    def _extract_field_from_match(cls, match) -> str | None:
         """Extract field name from regex match groups"""
         if not match.groups():
             return None
@@ -393,7 +392,7 @@ class D1ErrorClassifier:
     @classmethod
     def _check_unique_patterns(
         cls, error_msg_lower: str, error: Exception
-    ) -> Optional[ORMError]:
+    ) -> ORMError | None:
         """Check for unique constraint violations using pattern matching"""
         for pattern in cls.UNIQUE_PATTERNS:
             match = re.search(pattern, error_msg_lower, re.IGNORECASE)
@@ -405,7 +404,7 @@ class D1ErrorClassifier:
     @classmethod
     def _check_not_null_patterns(
         cls, error_msg_lower: str, error: Exception
-    ) -> Optional[ORMError]:
+    ) -> ORMError | None:
         """Check for NOT NULL violations using pattern matching"""
         for pattern in cls.NOT_NULL_PATTERNS:
             match = re.search(pattern, error_msg_lower, re.IGNORECASE)
@@ -419,7 +418,7 @@ class D1ErrorClassifier:
     @classmethod
     def _check_other_patterns(
         cls, error_msg_lower: str, error: Exception
-    ) -> Optional[ORMError]:
+    ) -> ORMError | None:
         """Check for foreign key, check, deadlock, and timeout patterns"""
         # Foreign key violations
         for pattern in cls.FOREIGN_KEY_PATTERNS:
@@ -446,7 +445,7 @@ class D1ErrorClassifier:
 
     @classmethod
     def classify_error(
-        cls, error: Exception, registry: Optional[ConstraintRegistry] = None
+        cls, error: Exception, registry: ConstraintRegistry | None = None
     ) -> ORMError:
         """
         Classify a database error into appropriate ORM exception with constraint registry
@@ -492,7 +491,7 @@ class D1ErrorClassifier:
     @classmethod
     def _find_constraint_by_name(
         cls, error_msg: str, registry: ConstraintRegistry
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """Find constraint by extracting constraint name from error message"""
         for pattern in cls.CONSTRAINT_NAME_PATTERNS:
             match = re.search(pattern, error_msg, re.IGNORECASE)
@@ -521,7 +520,7 @@ class D1ErrorClassifier:
     @classmethod
     def _find_constraint_by_table_column(
         cls, error_msg: str, registry: ConstraintRegistry
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """Find constraint by extracting table.column pattern from error message"""
         for word in error_msg.split():
             if "." not in word or word.count(".") != 1:
@@ -546,7 +545,7 @@ class D1ErrorClassifier:
     @classmethod
     def _extract_constraint_info(
         cls, error_msg: str, registry: ConstraintRegistry
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """
         Extract constraint information from error message using registry
 
@@ -597,8 +596,8 @@ def to_problem_json(
     status: int,
     type_uri: str = "about:blank",
     title: str,
-    instance: Optional[str] = None,
-    extra: Optional[dict] = None,
+    instance: str | None = None,
+    extra: dict | None = None,
     redact_in_prod: bool = True,
     is_prod: bool = False,
 ) -> dict:
@@ -762,8 +761,8 @@ def get_error_mapping(error: ORMError) -> tuple[int, str, str]:
 def orm_problem_response(
     error: ORMError,
     *,
-    instance: Optional[str] = None,
-    extra: Optional[dict] = None,
+    instance: str | None = None,
+    extra: dict | None = None,
     is_prod: bool = False,
 ) -> tuple[dict, int, dict]:
     """
