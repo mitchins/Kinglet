@@ -106,17 +106,26 @@ class TestAssetURLIntegration:
         result = asset_url(request, "123", "media")
         assert result == "https://cdn.example.com/api/media/123"
 
-    def test_media_url_fallback_to_host(self):
-        """Test media URL generation falling back to host detection"""
-        request = Mock()
-        request.env = Mock(spec=[])  # No CDN
-        request.header = Mock(
-            side_effect=lambda h: "example.com"
-            if h == "host"
-            else "https"
-            if h == "x-forwarded-proto"
-            else None
-        )
+    def test_media_url_environment_based(self):
+        """Test media URL generation using environment variables"""
+        import os
 
-        result = media_url(request, "456")
-        assert result == "https://example.com/api/media/456"
+        original_cdn = os.environ.get("CDN_BASE_URL")
+
+        try:
+            # Test with CDN_BASE_URL set
+            os.environ["CDN_BASE_URL"] = "https://cdn.example.com"
+            result = media_url("456")
+            assert result == "https://cdn.example.com/456"
+
+            # Test with default fallback
+            del os.environ["CDN_BASE_URL"]
+            result = media_url("456")
+            assert result == "/api/media/456"
+
+        finally:
+            # Restore original environment
+            if original_cdn:
+                os.environ["CDN_BASE_URL"] = original_cdn
+            elif "CDN_BASE_URL" in os.environ:
+                del os.environ["CDN_BASE_URL"]

@@ -124,17 +124,6 @@ except ImportError:
 
 # Micro-ORM (optional import)
 try:
-    # Enhanced fields with media support
-    from .fields import (
-        DocumentField,
-        ImageField,
-        MediaConfig,
-        MediaField,
-        MediaUrlResolver,
-        VideoField,
-        generate_media_uid,
-        resolve_media_url,
-    )
     from .orm import (
         BooleanField,
         DateTimeField,
@@ -259,15 +248,6 @@ __all__ = [
     "USER_REGISTRATION_SCHEMA",
     "USER_LOGIN_SCHEMA",
     "LISTING_CREATION_SCHEMA",
-    # Enhanced Fields
-    "MediaField",
-    "ImageField",
-    "VideoField",
-    "DocumentField",
-    "MediaConfig",
-    "MediaUrlResolver",
-    "generate_media_uid",
-    "resolve_media_url",
     # Modules
     "authz",
     "totp",
@@ -287,14 +267,5 @@ if not _orm_available:
         "QuerySet",
         "Manager",
         "SchemaManager",
-        # Enhanced Fields also depend on ORM
-        "MediaField",
-        "ImageField",
-        "VideoField",
-        "DocumentField",
-        "MediaConfig",
-        "MediaUrlResolver",
-        "generate_media_uid",
-        "resolve_media_url",
     ]
     __all__ = [item for item in __all__ if item not in orm_items]

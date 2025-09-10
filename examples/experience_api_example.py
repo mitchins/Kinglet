@@ -66,7 +66,7 @@ async def get_homepage(request):
 
     # Generate media URLs for covers
     for game in featured_games + latest_games:
-        game["cover_url"] = media_url(request, game["cover_uid"])
+        game["cover_url"] = media_url(game["cover_uid"])
 
     return {
         "featured_games": featured_games,
@@ -94,7 +94,7 @@ async def list_games(request):
 
     # Add media URLs
     for game in games:
-        game["cover_url"] = media_url(request, game["cover_uid"])
+        game["cover_url"] = media_url(game["cover_uid"])
 
     return {
         "games": games,
@@ -122,7 +122,7 @@ async def upload_media(request):
     return {
         "success": True,
         "uid": media_uid,
-        "url": media_url(request, media_uid),
+        "url": media_url(media_uid),
         "message": "Upload complete",
     }
 
@@ -137,7 +137,7 @@ async def get_media(request):
 
     media_info = MEDIA_STORAGE[uid]
 
-    return {"uid": uid, "url": media_url(request, uid), "metadata": media_info}
+    return {"uid": uid, "url": media_url(uid), "metadata": media_info}
 
 
 # === GAME DETAIL WITH DYNAMIC PATH CACHING ===
@@ -164,8 +164,8 @@ async def get_game_detail(request):
     # Add detailed info
     game["description"] = f"An amazing {game['genre']} game with epic gameplay!"
     game["screenshots"] = [
-        media_url(request, f"{game['cover_uid']}-screenshot1"),
-        media_url(request, f"{game['cover_uid']}-screenshot2"),
+        media_url(f"{game['cover_uid']}-screenshot1"),
+        media_url(f"{game['cover_uid']}-screenshot2"),
     ]
     game["cover_url"] = media_url(request, game["cover_uid"])
     game["generated_at"] = time.time()
