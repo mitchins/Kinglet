@@ -28,19 +28,19 @@ def test_asset_url_falls_back_on_exception(monkeypatch):
 
 
 def test_media_url_falls_back_on_exception():
-    class _Raw:
-        url = "https://example.com/"
-        method = "GET"
+    """Test that media_url falls back gracefully when no CDN_BASE_URL is set"""
+    import os
 
-        class _Headers:
-            def items(self):
-                return []
+    # Test that media_url works even with no environment variable set
+    original_cdn = os.environ.get("CDN_BASE_URL")
+    try:
+        if "CDN_BASE_URL" in os.environ:
+            del os.environ["CDN_BASE_URL"]
 
-        headers = _Headers()
+        # Should fall back to default
+        assert utils.media_url("abc") == "/api/media/abc"
 
-    class _Req(Request):
-        def header(self, *_args, **_kw):  # break header access
-            raise Exception("bad header")
-
-    req = _Req(_Raw(), env=SimpleNamespace())
-    assert utils.media_url(req, "abc") == "/api/media/abc"
+    finally:
+        # Restore original environment
+        if original_cdn:
+            os.environ["CDN_BASE_URL"] = original_cdn

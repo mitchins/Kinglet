@@ -100,27 +100,27 @@ def test_cache_aside_no_storage():
 
 def test_media_url_generation():
     """Test environment-aware media_url function"""
-    app = Kinglet()
+    import os
 
-    @app.get("/media")
-    async def media_endpoint(request):
-        uid = "test-uid-123"
-        return {"url": media_url(request, uid)}
+    # Test with CDN_BASE_URL environment variable
+    original_cdn = os.environ.get("CDN_BASE_URL")
 
-    # Test with CDN_BASE_URL
-    client_cdn = TestClient(app, env={"CDN_BASE_URL": "https://media.example.com"})
-    status, headers, body = client_cdn.request("GET", "/media")
-    data = json.loads(body)
-    assert data["url"] == "https://media.example.com/api/media/test-uid-123"
+    try:
+        os.environ["CDN_BASE_URL"] = "https://media.example.com"
+        result = media_url("test-uid-123")
+        assert result == "https://media.example.com/test-uid-123"
 
-    # Test without CDN (development mode)
-    client_dev = TestClient(app)
-    status, headers, body = client_dev.request(
-        "GET", "/media", headers={"host": "localhost:8787"}
-    )
-    data = json.loads(body)
-    assert "localhost:8787" in data["url"]
-    assert "test-uid-123" in data["url"]
+        # Test with default fallback
+        del os.environ["CDN_BASE_URL"]
+        result = media_url("test-uid-123")
+        assert result == "/api/media/test-uid-123"
+
+    finally:
+        # Restore original environment
+        if original_cdn:
+            os.environ["CDN_BASE_URL"] = original_cdn
+        elif "CDN_BASE_URL" in os.environ:
+            del os.environ["CDN_BASE_URL"]
 
 
 def test_validate_json_body():

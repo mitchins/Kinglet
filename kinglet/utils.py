@@ -295,40 +295,21 @@ def asset_url(request: Request, uid: str, asset_type: str = "media") -> str:
     return path
 
 
-def media_url(request: Request, uid: str) -> str:
+def media_url(uid: str) -> str:
     """
-    Generate media URL for assets
+    Generate media URL for assets using environment configuration
 
     Args:
-        request: Request object
         uid: Media asset unique identifier
 
     Returns:
         Complete media URL
     """
-    try:
-        # Check if CDN_BASE_URL is available in environment
-        if hasattr(request.env, "CDN_BASE_URL"):
-            cdn_base = request.env.CDN_BASE_URL.rstrip("/")
-            return f"{cdn_base}/api/media/{uid}"
+    import os
 
-        # Fallback to generating URL from request
-        protocol = "http"
-        if request.header("x-forwarded-proto") == "https" or (
-            hasattr(request, "_parsed_url") and request._parsed_url.scheme == "https"
-        ):
-            protocol = "https"
-
-        host = request.header("host")
-        if not host and hasattr(request, "_parsed_url"):
-            host = request._parsed_url.netloc
-
-        if host:
-            return f"{protocol}://{host}/api/media/{uid}"
-    except Exception:
-        return f"/api/media/{uid}"
-
-    return f"/api/media/{uid}"
+    # Use CDN_BASE_URL from environment directly
+    cdn_base = os.environ.get("CDN_BASE_URL", "/api/media").rstrip("/")
+    return f"{cdn_base}/{uid}"
 
 
 def _generate_cache_key(
