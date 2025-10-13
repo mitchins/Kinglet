@@ -268,6 +268,23 @@ class Kinglet:
 
     def _convert_to_workers_response(self, response: Response):
         """Convert response to Workers format if available"""
+        # Check if already a Workers Response - pass through directly
+        try:
+            from workers import Response as WorkersResponse
+
+            if isinstance(response, WorkersResponse):
+                return response
+        except ImportError:
+            pass
+
+        # Also check by type name in case import paths differ
+        if (
+            hasattr(response, "__class__")
+            and "workers" in str(type(response)).lower()
+            and "response" in str(type(response)).lower()
+        ):
+            return response
+
         try:
             return response.to_workers_response()
         except ImportError:
