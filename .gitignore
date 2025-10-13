@@ -58,7 +58,6 @@ python_modules/
 node_modules/
 
 # Package managers
-uv.lock
 package-lock.json
 yarn.lock
 
