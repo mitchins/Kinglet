@@ -8,6 +8,11 @@ Key Points:
 1. Import WorkersResponse from workers package
 2. Return obj.body (R2 stream) directly - NOT bytes or ArrayBuffer
 3. Kinglet automatically passes WorkersResponse through without processing
+
+Binary Upload Utilities:
+- r2_put(bucket, key, bytes) - Auto-converts Python bytes to ArrayBuffer
+- bytes_to_arraybuffer(data) - Manual conversion if needed
+- arraybuffer_to_bytes(buffer) - Convert back to Python bytes
 """
 
 from workers import Response as WorkersResponse
