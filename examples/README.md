@@ -3,7 +3,7 @@
 Quick start examples for all Kinglet features.
 
 ### Core Features
-- **[basic_api.py](basic_api.py)** - Simple REST API with routing
+- **[basic_api.py](basic_api.py)** - REST API with routing, OpenAPI/Swagger docs
 - **[decorators_example.py](decorators_example.py)** - Error handling, validation decorators
 - **[middleware_example.py](middleware_example.py)** - CORS, timing, custom middleware
 
