@@ -305,6 +305,78 @@ async def dangerous_action(request):
 app.include_router("/admin", admin_router)
 
 
+# ============ SES Email Test ============
+@app.get("/ses/test")
+async def test_ses_signing(request):
+    """Test SES SigV4 signing without actually sending email"""
+    from kinglet.ses import _sign_aws_request, _get_env_var
+
+    # Check for AWS credentials
+    aws_region = _get_env_var(request.env, "AWS_REGION") or "us-east-1"
+    access_key = _get_env_var(request.env, "AWS_ACCESS_KEY_ID")
+    secret_key = _get_env_var(request.env, "AWS_SECRET_ACCESS_KEY")
+
+    if not access_key or not secret_key:
+        # Test with dummy credentials to verify signing works
+        access_key = "AKIAIOSFODNN7EXAMPLE"
+        secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        using_dummy = True
+    else:
+        using_dummy = False
+
+    try:
+        # Test the signing function
+        url = f"https://email.{aws_region}.amazonaws.com/v2/email/outbound-emails"
+        body = '{"test": "payload"}'
+
+        signed_headers = await _sign_aws_request(
+            "POST", url, aws_region, "ses", access_key, secret_key, body
+        )
+
+        # Convert JS object to dict for display
+        import js
+        headers_dict = {}
+        keys = js.Object.keys(signed_headers).to_py()
+        for key in keys:
+            headers_dict[key] = getattr(signed_headers, key, None) or str(js.Reflect.get(signed_headers, key))
+
+        return {
+            "success": True,
+            "message": "SigV4 signing works!",
+            "using_dummy_credentials": using_dummy,
+            "region": aws_region,
+            "signed_headers": headers_dict,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }
+
+
+@app.post("/ses/send")
+async def send_test_email(request):
+    """Actually send a test email via SES"""
+    from kinglet.ses import send_email
+
+    data = await request.json()
+
+    result = await send_email(
+        request.env,
+        from_email=data.get("from", "test@example.com"),
+        to=data.get("to", ["test@example.com"]),
+        subject=data.get("subject", "Kinglet SES Test"),
+        body_text=data.get("body", "Test email from Kinglet SES module"),
+    )
+
+    return {
+        "success": result.success,
+        "message_id": result.message_id,
+        "error": result.error,
+    }
+
+
 # ============ Error Handling ============
 @app.exception_handler(404)
 async def not_found(request, error):

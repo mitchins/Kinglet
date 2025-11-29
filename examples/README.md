@@ -20,6 +20,9 @@ Quick start examples for all Kinglet features.
 - **[authz_example.py](authz_example.py)** - Fine-grained authorization
 - **[totp_example.py](totp_example.py)** - Two-factor authentication
 
+### Email & Integrations
+- **[ses_email_example.py](ses_email_example.py)** - Amazon SES email
+
 ### Media & Advanced
 - **[r2_media_example.py](r2_media_example.py)** - File upload/download
 - **[experience_api_example.py](experience_api_example.py)** - Real-world API patterns

@@ -3,8 +3,8 @@ Kinglet - A lightweight routing framework for Python Workers
 """
 
 # Core framework
-# Import specialized modules for FGA support and TOTP
-from . import authz, totp
+# Import specialized modules for FGA support, TOTP, and SES
+from . import authz, ses, totp
 from .core import Kinglet, Route, Router
 
 # Decorators
@@ -258,6 +258,7 @@ __all__ = [
     "LISTING_CREATION_SCHEMA",
     # Modules
     "authz",
+    "ses",
     "totp",
     # OpenAPI
     "SchemaGenerator",
