@@ -2,11 +2,23 @@
 Tests for Kinglet SES Email Module
 """
 
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kinglet.ses import EmailResult, _get_env_var, send_email
+from kinglet.ses import (
+    EmailResult,
+    _buffer_to_hex,
+    _get_env_var,
+    _hmac_sha256_buf,
+    _hmac_sha256_hex,
+    _hmac_sha256_key,
+    _sha256_hex,
+    _sign_aws_request,
+    send_email,
+)
 
 
 class TestEmailResult:
@@ -406,3 +418,116 @@ class TestSendEmailWithMockedJS:
                 )
 
                 assert result.success is True
+
+
+def _build_fake_js():
+    """Build a lightweight fake JS module for crypto helpers."""
+
+    class FakeTextEncoder:
+        def encode(self, message: str):
+            return message.encode()
+
+    class FakeArray:
+        @staticmethod
+        def of(*args):
+            return list(args)
+
+    class FakeObject:
+        @staticmethod
+        def fromEntries(entries):  # noqa: N802 - mirrors JS naming
+            return {key: value for key, value in entries}
+
+    class FakeUint8Array:
+        def __init__(self, buffer):
+            self.buffer = buffer
+
+        @staticmethod
+        def new(buffer):
+            return FakeUint8Array(buffer)
+
+        def to_py(self):
+            return list(self.buffer)
+
+    class FakeSubtle:
+        async def digest(self, algorithm, data):  # noqa: ANN001
+            assert algorithm == "SHA-256"
+            return bytes(range(1, len(data) + 1))
+
+        async def importKey(self, *_, **__):  # noqa: N802, ANN001
+            # Return the provided raw key (second positional argument)
+            return _[1]
+
+        async def sign(self, algorithm, key, data):  # noqa: ANN001
+            assert algorithm == "HMAC"
+            assert key is not None
+            return bytes(data)
+
+    class FakeCrypto:
+        def __init__(self):
+            self.subtle = FakeSubtle()
+
+    return SimpleNamespace(
+        TextEncoder=SimpleNamespace(new=lambda: FakeTextEncoder()),
+        Array=FakeArray,
+        Object=SimpleNamespace(fromEntries=FakeObject.fromEntries),
+        Uint8Array=FakeUint8Array,
+        crypto=FakeCrypto(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_sign_request_builds_expected_headers():
+    """_sign_aws_request returns the canonical AWS SigV4 headers."""
+
+    fake_js = _build_fake_js()
+
+    with patch.dict("sys.modules", {"js": fake_js}):
+        with patch(
+            "kinglet.ses.datetime",
+            wraps=datetime,
+        ) as mock_datetime, patch(
+            "kinglet.ses._sha256_hex",
+            AsyncMock(side_effect=["payloadhash", "requesthash"]),
+        ), patch(
+            "kinglet.ses._hmac_sha256_key",
+            AsyncMock(return_value=b"k_date"),
+        ), patch(
+            "kinglet.ses._hmac_sha256_buf",
+            AsyncMock(side_effect=[b"k_region", b"k_service", b"k_signing"]),
+        ), patch(
+            "kinglet.ses._hmac_sha256_hex", AsyncMock(return_value="deadbeef")
+        ):
+            mock_datetime.now.return_value = datetime(2024, 1, 1, tzinfo=UTC)
+
+            headers = await _sign_aws_request(
+                "POST",
+                "https://email.us-east-1.amazonaws.com/v2/email/outbound-emails",
+                "us-east-1",
+                "ses",
+                "AKIATEST",
+                "secret",
+                body="{}",
+            )
+
+    assert headers["Host"] == "email.us-east-1.amazonaws.com"
+    assert headers["X-Amz-Date"] == "20240101T000000Z"
+    assert headers["X-Amz-Content-Sha256"] == "payloadhash"
+    assert "deadbeef" in headers["Authorization"]
+
+
+@pytest.mark.asyncio
+async def test_crypto_helpers_operate_with_fake_js():
+    """Helper functions should operate against a lightweight JS shim."""
+
+    fake_js = _build_fake_js()
+    with patch.dict("sys.modules", {"js": fake_js}):
+        sha_hex = await _sha256_hex("abc")
+        key_buf = await _hmac_sha256_key("key", "msg1")
+        buf_out = await _hmac_sha256_buf(key_buf, "msg2")
+        hex_out = await _hmac_sha256_hex(key_buf, "msg3")
+        hex_direct = _buffer_to_hex(b"\x01\x02")
+
+    assert sha_hex == "010203"
+    assert buf_out == b"msg2"
+    assert hex_out == "6d736733"  # hex for "msg3"
+    assert hex_direct == "0102"
