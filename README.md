@@ -49,6 +49,7 @@ async def get_data(request):
 **Database:** Micro-ORM for D1 with migrations, field validation, bulk operations (v1.6.0+)
 **Security:** JWT validation, TOTP/2FA, geo-restrictions, fine-grained auth decorators
 **Developer:** Full type hints, debug mode, request validation, zero-dependency testing
+**OpenAPI:** Auto-generated Swagger/ReDoc docs from routes and models (v1.8.0+)
 
 ## Examples
 
@@ -111,14 +112,31 @@ def test_api():
     assert status == 200
 ```
 
+**OpenAPI/Swagger Documentation (v1.8.0+):**
+```python
+from kinglet import SchemaGenerator, Response
+
+@app.get("/openapi.json")
+async def openapi_spec(request):
+    generator = SchemaGenerator(app, title="My API", version="1.0.0")
+    return Response(generator.generate_spec())
+
+@app.get("/docs")
+async def swagger_ui(request):
+    generator = SchemaGenerator(app, title="My API")
+    return Response(generator.serve_swagger_ui(), content_type="text/html")
+
+# Auto-generates docs from validators and models
+# Visit /docs for interactive Swagger UI
+```
+
 ## Documentation
 
-- **[Examples](examples/)** - Quick start examples
-- **[ORM Guide](docs/ORM.md)** - D1 micro-ORM with migrations (v1.6.0+)
-- **[Middleware Guide](docs/MIDDLEWARE.md)** - Flexible middleware system (v1.4.2+)
-- **[Caching Guide](docs/CACHING.md)** - Environment-aware caching (v1.4.3+)
-- **[Security Guide](docs/SECURITY_BEST_PRACTICES.md)** - Critical security patterns
-- **[TOTP/2FA Guide](docs/TOTP.md)** - Two-factor authentication
+- **[Examples](examples/)** - Quick start examples for all features
+- **[ORM Guide](docs/ORM.md)** - D1 micro-ORM with migrations
+- **[Caching Guide](docs/CACHING.md)** - Environment-aware caching
+- **[Middleware Guide](docs/MIDDLEWARE.md)** - Flexible middleware system
+- **[Security Guide](docs/SECURITY_BEST_PRACTICES.md)** - Security patterns, TOTP/2FA
 
 ---
 

@@ -3,7 +3,7 @@
 Quick start examples for all Kinglet features.
 
 ### Core Features
-- **[basic_api.py](basic_api.py)** - Simple REST API with routing
+- **[basic_api.py](basic_api.py)** - REST API with routing, OpenAPI/Swagger docs
 - **[decorators_example.py](decorators_example.py)** - Error handling, validation decorators
 - **[middleware_example.py](middleware_example.py)** - CORS, timing, custom middleware
 
@@ -19,6 +19,9 @@ Quick start examples for all Kinglet features.
 - **[secure_admin_example.py](secure_admin_example.py)** - JWT, geo-restrictions
 - **[authz_example.py](authz_example.py)** - Fine-grained authorization
 - **[totp_example.py](totp_example.py)** - Two-factor authentication
+
+### Email & Integrations
+- **[ses_email_example.py](ses_email_example.py)** - Amazon SES email
 
 ### Media & Advanced
 - **[r2_media_example.py](r2_media_example.py)** - File upload/download
