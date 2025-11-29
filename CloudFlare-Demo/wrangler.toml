@@ -1,7 +1,11 @@
 name = "kinglet-demo"
-main = "src/response_test.py"
+main = "src/worker.py"
 compatibility_flags = ["python_workers"]
 compatibility_date = "2023-12-18"
 
 [vars]
 MESSAGE = "Hello from Kinglet 1.4.2!"
+AWS_REGION = "us-east-1"
+# For real testing, add:
+# AWS_ACCESS_KEY_ID = "AKIA..."
+# Or use: wrangler secret put AWS_SECRET_ACCESS_KEY

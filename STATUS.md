@@ -18,6 +18,10 @@ This is the single source of truth for project roadmap and status.
 - 🟢 Environment-aware caching
 - 🟢 D1-backed cache-aside pattern
 
+## AWS Integration
+
+- 🟢 SES email sending (zero JS required)
+
 ## ORM Features
 
 - 🟢 Micro-ORM for D1
