@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Kinglet on Cloudflare Workers"
 requires-python = ">=3.12"
 dependencies = [
-    "kinglet @ file:///Users/mitchellcurrie/Projects/Kinglet",
+    "kinglet @ git+https://github.com/mitchins/Kinglet.git",
 ]
 
 [dependency-groups]
