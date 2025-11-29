@@ -3,8 +3,8 @@ Kinglet - A lightweight routing framework for Python Workers
 """
 
 # Core framework
-# Import specialized modules for FGA support and TOTP
-from . import authz, totp
+# Import specialized modules for FGA support, TOTP, and SES
+from . import authz, ses, totp
 from .core import Kinglet, Route, Router
 
 # Decorators
@@ -142,7 +142,15 @@ try:
 except ImportError:
     _orm_available = False
 
-__version__ = "1.7.0"
+# OpenAPI (optional import - requires ORM)
+try:
+    from .openapi import SchemaGenerator
+
+    _openapi_available = True
+except ImportError:
+    _openapi_available = False
+
+__version__ = "1.8.0"
 __author__ = "Mitchell Currie"
 
 # Export commonly used items
@@ -250,7 +258,10 @@ __all__ = [
     "LISTING_CREATION_SCHEMA",
     # Modules
     "authz",
+    "ses",
     "totp",
+    # OpenAPI
+    "SchemaGenerator",
 ]
 
 # Only export ORM items if they're available
@@ -269,3 +280,8 @@ if not _orm_available:
         "SchemaManager",
     ]
     __all__ = [item for item in __all__ if item not in orm_items]
+
+# Only export OpenAPI items if available
+if not _openapi_available:
+    openapi_items = ["SchemaGenerator"]
+    __all__ = [item for item in __all__ if item not in openapi_items]
