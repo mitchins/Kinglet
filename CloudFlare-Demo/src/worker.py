@@ -355,6 +355,90 @@ async def test_ses_signing(request):
         }
 
 
+@app.get("/ses/demo")
+async def ses_demo_form(request):
+    """Simple HTML form for testing email sends - LOCAL ONLY"""
+    html = """<!DOCTYPE html>
+<html>
+<head>
+    <title>Kinglet SES Demo</title>
+    <style>
+        body { font-family: system-ui; max-width: 600px; margin: 50px auto; padding: 20px; }
+        h1 { color: #333; }
+        form { background: #f5f5f5; padding: 20px; border-radius: 8px; }
+        label { display: block; margin: 10px 0 5px; font-weight: bold; }
+        input, textarea { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background: #0066cc; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        button:hover { background: #0052a3; }
+        #result { margin-top: 20px; padding: 15px; border-radius: 4px; display: none; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <h1>🐦 Kinglet SES Email Demo</h1>
+    <p>Test sending emails via Amazon SES. <strong>Local testing only!</strong></p>
+
+    <form id="emailForm">
+        <label>From Email (must be verified in SES)</label>
+        <input type="email" name="from" value="noreply@libreplay.me" required>
+
+        <label>To Email</label>
+        <input type="email" name="to" value="mitch@mitchellcurrie.com" required>
+
+        <label>Subject</label>
+        <input type="text" name="subject" value="Hello from Kinglet!" required>
+
+        <label>Message</label>
+        <textarea name="body" rows="4" required>This is a test email sent from Kinglet running on Cloudflare Workers!</textarea>
+
+        <button type="submit">Send Email</button>
+    </form>
+
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('emailForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const result = document.getElementById('result');
+
+            result.style.display = 'block';
+            result.className = '';
+            result.textContent = 'Sending...';
+
+            try {
+                const response = await fetch('/ses/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        from: form.from.value,
+                        to: [form.to.value],
+                        subject: form.subject.value,
+                        body: form.body.value
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    result.className = 'success';
+                    result.textContent = '✅ Email sent! Message ID: ' + data.message_id;
+                } else {
+                    result.className = 'error';
+                    result.textContent = '❌ Error: ' + data.error;
+                }
+            } catch (err) {
+                result.className = 'error';
+                result.textContent = '❌ Request failed: ' + err.message;
+            }
+        });
+    </script>
+</body>
+</html>"""
+    return Response(html, headers={"Content-Type": "text/html"})
+
+
 @app.post("/ses/send")
 async def send_test_email(request):
     """Actually send a test email via SES"""
