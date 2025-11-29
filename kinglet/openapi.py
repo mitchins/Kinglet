@@ -31,6 +31,9 @@ from .validation import (
     Validator,
 )
 
+# Constants
+CONTENT_TYPE_JSON = "application/json"
+
 
 class SchemaGenerator:
     """Generate OpenAPI 3.0 specification from Kinglet application"""
@@ -100,7 +103,7 @@ class SchemaGenerator:
             if request_schema:
                 endpoint["requestBody"] = {
                     "required": True,
-                    "content": {"application/json": {"schema": request_schema}},
+                    "content": {CONTENT_TYPE_JSON: {"schema": request_schema}},
                 }
 
         # Add tags based on path
@@ -123,7 +126,7 @@ class SchemaGenerator:
             "200": {
                 "description": "Successful response",
                 "content": {
-                    "application/json": {"schema": self._infer_response_schema(route)}
+                    CONTENT_TYPE_JSON: {"schema": self._infer_response_schema(route)}
                 },
             }
         }
@@ -172,7 +175,7 @@ class SchemaGenerator:
                 "ValidationError": {
                     "description": "Input validation failed",
                     "content": {
-                        "application/json": {
+                        CONTENT_TYPE_JSON: {
                             "schema": {
                                 "type": "object",
                                 "properties": {
@@ -277,7 +280,7 @@ class SchemaGenerator:
             if not isinstance(validators, list):
                 validators = [validators]
 
-            field_schema = self._validators_to_schema(field_name, validators)
+            field_schema = self._validators_to_schema(validators)
             properties[field_name] = field_schema
 
             # Check if field is required
@@ -291,40 +294,54 @@ class SchemaGenerator:
 
         return openapi_schema
 
-    def _validators_to_schema(
-        self, field_name: str, validators: list[Validator]
-    ) -> dict[str, Any]:
+    def _validators_to_schema(self, validators: list[Validator]) -> dict[str, Any]:
         """Convert list of validators to OpenAPI field schema"""
         schema: dict[str, Any] = {"type": "string"}
 
         for validator in validators:
-            if isinstance(validator, EmailValidator):
-                schema["format"] = "email"
-            elif isinstance(validator, DateValidator):
-                schema["type"] = "string"
-                schema["format"] = "date"
-            elif isinstance(validator, PasswordValidator):
-                if hasattr(validator, "min_length") and validator.min_length:
-                    schema["minLength"] = validator.min_length
-            elif isinstance(validator, LengthValidator):
-                if hasattr(validator, "min_length") and validator.min_length:
-                    schema["minLength"] = validator.min_length
-                if hasattr(validator, "max_length") and validator.max_length:
-                    schema["maxLength"] = validator.max_length
-            elif isinstance(validator, RangeValidator):
-                schema["type"] = "integer"
-                if hasattr(validator, "min_value") and validator.min_value is not None:
-                    schema["minimum"] = validator.min_value
-                if hasattr(validator, "max_value") and validator.max_value is not None:
-                    schema["maximum"] = validator.max_value
-            elif isinstance(validator, ChoicesValidator):
-                if hasattr(validator, "choices"):
-                    schema["enum"] = list(validator.choices)
-            elif isinstance(validator, RegexValidator):
-                if hasattr(validator, "pattern"):
-                    schema["pattern"] = validator.pattern
+            self._apply_validator_to_schema(validator, schema)
 
         return schema
+
+    def _apply_validator_to_schema(
+        self, validator: Validator, schema: dict[str, Any]
+    ) -> None:
+        """Apply a single validator's constraints to the schema"""
+        if isinstance(validator, EmailValidator):
+            schema["format"] = "email"
+        elif isinstance(validator, DateValidator):
+            schema["type"] = "string"
+            schema["format"] = "date"
+        elif isinstance(validator, PasswordValidator):
+            self._apply_length_constraint(validator, schema, "min_length", "minLength")
+        elif isinstance(validator, LengthValidator):
+            self._apply_length_constraint(validator, schema, "min_length", "minLength")
+            self._apply_length_constraint(validator, schema, "max_length", "maxLength")
+        elif isinstance(validator, RangeValidator):
+            schema["type"] = "integer"
+            self._apply_range_constraint(validator, schema)
+        elif isinstance(validator, ChoicesValidator):
+            if hasattr(validator, "choices"):
+                schema["enum"] = list(validator.choices)
+        elif isinstance(validator, RegexValidator):
+            if hasattr(validator, "pattern"):
+                schema["pattern"] = validator.pattern
+
+    def _apply_length_constraint(
+        self, validator: Validator, schema: dict[str, Any], attr: str, schema_key: str
+    ) -> None:
+        """Apply a length constraint from validator to schema"""
+        if hasattr(validator, attr) and getattr(validator, attr):
+            schema[schema_key] = getattr(validator, attr)
+
+    def _apply_range_constraint(
+        self, validator: Validator, schema: dict[str, Any]
+    ) -> None:
+        """Apply min/max range constraints from validator to schema"""
+        if hasattr(validator, "min_value") and validator.min_value is not None:
+            schema["minimum"] = validator.min_value
+        if hasattr(validator, "max_value") and validator.max_value is not None:
+            schema["maximum"] = validator.max_value
 
     def _infer_response_schema(self, route: Route) -> dict[str, Any]:
         """Infer response schema from handler return type annotation"""
@@ -353,77 +370,94 @@ class SchemaGenerator:
 
     def _model_to_schema(self, model_class) -> dict[str, Any]:
         """Convert ORM Model to OpenAPI schema"""
-        # Check cache first
         model_name = model_class.__name__
+
+        # Check cache first
         if model_name in self._components_cache:
             return {"$ref": f"#/components/schemas/{model_name}"}
 
-        properties = {}
-        required = []
-
-        # Get fields from model
-        if hasattr(model_class, "_fields"):
-            for field_name, field_obj in model_class._fields.items():
-                # Skip if field is excluded from serialization
-                if hasattr(model_class, "_serializer_config"):
-                    config = model_class._serializer_config
-                    if config.exclude and field_name in config.exclude:
-                        continue
-                    if (
-                        config.write_only_fields
-                        and field_name in config.write_only_fields
-                    ):
-                        continue
-                    if config.include and field_name not in config.include:
-                        continue
-
-                properties[field_name] = self._field_to_schema(field_obj)
-
-                if not field_obj.null and field_obj.default is None:
-                    required.append(field_name)
+        properties, required = self._extract_model_properties(model_class)
 
         schema = {"type": "object", "properties": properties}
-
         if required:
             schema["required"] = required
 
-        # Cache the schema
+        # Cache and return reference
         self._components_cache[model_name] = schema
-
-        # Return reference
         return {"$ref": f"#/components/schemas/{model_name}"}
+
+    def _extract_model_properties(
+        self, model_class
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Extract properties and required fields from a model class"""
+        properties: dict[str, Any] = {}
+        required: list[str] = []
+
+        if not hasattr(model_class, "_fields"):
+            return properties, required
+
+        serializer_config = getattr(model_class, "_serializer_config", None)
+
+        for field_name, field_obj in model_class._fields.items():
+            if self._should_skip_field(field_name, serializer_config):
+                continue
+
+            properties[field_name] = self._field_to_schema(field_obj)
+
+            if not field_obj.null and field_obj.default is None:
+                required.append(field_name)
+
+        return properties, required
+
+    def _should_skip_field(self, field_name: str, config) -> bool:
+        """Check if a field should be excluded from the schema"""
+        if config is None:
+            return False
+        if config.exclude and field_name in config.exclude:
+            return True
+        if config.write_only_fields and field_name in config.write_only_fields:
+            return True
+        if config.include and field_name not in config.include:
+            return True
+        return False
 
     def _field_to_schema(self, field: Field) -> dict[str, Any]:
         """Convert ORM Field to OpenAPI schema property"""
-        schema: dict[str, Any] = {}
-
-        if isinstance(field, StringField):
-            schema["type"] = "string"
-            if field.max_length:
-                schema["maxLength"] = field.max_length
-        elif isinstance(field, IntegerField):
-            schema["type"] = "integer"
-            if hasattr(field, "min_value") and field.min_value is not None:
-                schema["minimum"] = field.min_value
-            if hasattr(field, "max_value") and field.max_value is not None:
-                schema["maximum"] = field.max_value
-        elif isinstance(field, FloatField):
-            schema["type"] = "number"
-            if hasattr(field, "min_value") and field.min_value is not None:
-                schema["minimum"] = field.min_value
-            if hasattr(field, "max_value") and field.max_value is not None:
-                schema["maximum"] = field.max_value
-        elif isinstance(field, BooleanField):
-            schema["type"] = "boolean"
-        elif isinstance(field, DateTimeField):
-            schema["type"] = "string"
-            schema["format"] = "date-time"
-        elif isinstance(field, JSONField):
-            schema["type"] = "object"
-        else:
-            schema["type"] = "string"
+        schema = self._get_base_field_schema(field)
 
         if field.default is not None:
             schema["default"] = field.default
 
+        return schema
+
+    def _get_base_field_schema(self, field: Field) -> dict[str, Any]:
+        """Get the base schema for a field based on its type"""
+        if isinstance(field, StringField):
+            return self._string_field_schema(field)
+        if isinstance(field, IntegerField):
+            return self._numeric_field_schema(field, "integer")
+        if isinstance(field, FloatField):
+            return self._numeric_field_schema(field, "number")
+        if isinstance(field, BooleanField):
+            return {"type": "boolean"}
+        if isinstance(field, DateTimeField):
+            return {"type": "string", "format": "date-time"}
+        if isinstance(field, JSONField):
+            return {"type": "object"}
+        return {"type": "string"}
+
+    def _string_field_schema(self, field: StringField) -> dict[str, Any]:
+        """Generate schema for a string field"""
+        schema: dict[str, Any] = {"type": "string"}
+        if field.max_length:
+            schema["maxLength"] = field.max_length
+        return schema
+
+    def _numeric_field_schema(self, field: Field, type_name: str) -> dict[str, Any]:
+        """Generate schema for numeric fields (integer or number)"""
+        schema: dict[str, Any] = {"type": type_name}
+        if hasattr(field, "min_value") and field.min_value is not None:
+            schema["minimum"] = field.min_value
+        if hasattr(field, "max_value") and field.max_value is not None:
+            schema["maximum"] = field.max_value
         return schema

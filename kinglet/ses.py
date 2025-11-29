@@ -79,16 +79,11 @@ async def send_email(
         access_key = _get_env_var(env, "AWS_ACCESS_KEY_ID")
         secret_key = _get_env_var(env, "AWS_SECRET_ACCESS_KEY")
 
-        if not all([aws_region, access_key, secret_key]):
+        if not aws_region or not access_key or not secret_key:
             return EmailResult(
                 success=False,
                 error="Missing AWS credentials (AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)",
             )
-
-        # Type narrowing - we know these are strings now
-        assert aws_region is not None
-        assert access_key is not None
-        assert secret_key is not None
 
         # Build SES API request
         url = f"https://email.{aws_region}.amazonaws.com/v2/email/outbound-emails"
