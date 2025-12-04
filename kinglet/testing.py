@@ -563,7 +563,8 @@ class MockD1Database:
         Execute raw SQL directly (for schema creation)
 
         Supports multiple statements separated by semicolons.
-        Does not support parameter binding.
+        Does not support parameter binding. All statements are executed
+        atomically - if any statement fails, all are rolled back.
 
         Note:
             Statement splitting uses simple semicolon detection. Semicolons
@@ -582,6 +583,9 @@ class MockD1Database:
         count = 0
 
         try:
+            # Use explicit transaction for atomic exec (enables DDL rollback)
+            cursor.execute("BEGIN")
+
             # Split and execute each statement
             for statement in sql.split(";"):
                 statement = statement.strip()
@@ -595,6 +599,8 @@ class MockD1Database:
             return D1ExecResult(count=count, duration=duration)
 
         except sqlite3.Error as e:
+            # Rollback to avoid partial writes - D1 exec is atomic
+            self._conn.rollback()
             raise D1DatabaseError(f"exec() failed: {e}") from e
 
     async def _execute_sql(self, sql: str, params: list) -> list[dict]:
