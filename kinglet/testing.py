@@ -623,22 +623,24 @@ class MockD1Database:
             cursor = self._conn.cursor()
             converted_params = self._convert_params(params)
 
-            try:
-                cursor.execute(sql, converted_params)
-                op = self._operation(sql)
-                if op == "SELECT":
-                    return self._handle_select(cursor)
-                if op == "INSERT":
-                    return self._handle_insert(cursor, sql)
-                if op in ("UPDATE", "DELETE"):
-                    return self._handle_write(cursor)
-                return self._handle_ddl()
-            except sqlite3.Error as e:  # pragma: no cover - error path
-                raise e
+            cursor.execute(sql, converted_params)
+            op = self._operation(sql)
+            if op == "SELECT":
+                return self._handle_select(cursor)
+            if op == "INSERT":
+                return self._handle_insert(cursor, sql)
+            if op in ("UPDATE", "DELETE"):
+                return self._handle_write(cursor)
+            return self._handle_ddl()
 
         try:
             return await asyncio.to_thread(_do_exec)
         except sqlite3.Error as e:  # pragma: no cover - error path
+            # Ensure transient write transactions are not left open
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
             raise D1DatabaseError(f"SQL error: {e}") from e
 
     def _convert_params(self, params: list) -> list:
@@ -668,8 +670,8 @@ class MockD1Database:
             if table_name:
                 try:
                     safe_table = self._safe_identifier(table_name)
-                    cursor.execute(  # nosec B608: safe_table validated by _safe_identifier
-                        f'SELECT * FROM "{safe_table}" WHERE rowid = ?',
+                    cursor.execute(  # nosec B608: safe_table validated by _safe_identifier  # NOSONAR
+                        f'SELECT * FROM "{safe_table}" WHERE rowid = ?',  # NOSONAR
                         [self._last_row_id],
                     )
                     row = cursor.fetchone()
