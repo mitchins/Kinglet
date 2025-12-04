@@ -38,7 +38,13 @@ from kinglet.testing import (
     MockStreamReader,
     R2Checksums,
     R2HTTPMetadata,
+    R2MockError,
+    R2MultipartAbortedError,
+    R2MultipartCompletedError,
+    R2MultipartUploadError,
+    R2PartNotFoundError,
     R2Range,
+    R2TooManyKeysError,
 )
 
 __all__ = [
@@ -53,4 +59,10 @@ __all__ = [
     "R2HTTPMetadata",
     "R2Checksums",
     "R2Range",
+    "R2MockError",
+    "R2MultipartAbortedError",
+    "R2MultipartCompletedError",
+    "R2MultipartUploadError",
+    "R2PartNotFoundError",
+    "R2TooManyKeysError",
 ]

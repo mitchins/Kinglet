@@ -71,7 +71,18 @@ from .storage import (
 )
 
 # Testing utilities
-from .testing import MockR2Bucket, MockR2Object, MockR2ObjectBody, TestClient
+from .testing import (
+    MockR2Bucket,
+    MockR2Object,
+    MockR2ObjectBody,
+    R2MockError,
+    R2MultipartAbortedError,
+    R2MultipartCompletedError,
+    R2MultipartUploadError,
+    R2PartNotFoundError,
+    R2TooManyKeysError,
+    TestClient,
+)
 
 # Utilities
 from .utils import (
@@ -183,6 +194,12 @@ __all__ = [
     "MockR2Bucket",
     "MockR2Object",
     "MockR2ObjectBody",
+    "R2MockError",
+    "R2MultipartAbortedError",
+    "R2MultipartCompletedError",
+    "R2MultipartUploadError",
+    "R2PartNotFoundError",
+    "R2TooManyKeysError",
     # Middleware
     "Middleware",
     "CorsMiddleware",
