@@ -71,7 +71,7 @@ from .storage import (
 )
 
 # Testing utilities
-from .testing import TestClient
+from .testing import MockR2Bucket, MockR2Object, MockR2ObjectBody, TestClient
 
 # Utilities
 from .utils import (
@@ -150,7 +150,7 @@ try:
 except ImportError:
     _openapi_available = False
 
-__version__ = "1.8.0"
+__version__ = "1.8.1"
 __author__ = "Mitchell Currie"
 
 # Export commonly used items
@@ -180,6 +180,9 @@ __all__ = [
     "arraybuffer_to_bytes",
     # Testing
     "TestClient",
+    "MockR2Bucket",
+    "MockR2Object",
+    "MockR2ObjectBody",
     # Middleware
     "Middleware",
     "CorsMiddleware",

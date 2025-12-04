@@ -504,13 +504,14 @@ wheels = [
 
 [[package]]
 name = "kinglet"
-version = "1.8.0"
+version = "1.8.1"
 source = { editable = "." }
 
 [package.optional-dependencies]
 dev = [
     { name = "bandit" },
     { name = "black" },
+    { name = "httpx" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -521,6 +522,7 @@ dev = [
 ]
 test = [
     { name = "coverage" },
+    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -540,6 +542,8 @@ requires-dist = [
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=22.0" },
     { name = "coverage", marker = "extra == 'test'", specifier = ">=6.0" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
