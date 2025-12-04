@@ -3,18 +3,29 @@ Kinglet Testing Utilities - TestClient and Mock classes
 
 This module provides testing utilities for Kinglet applications:
 - TestClient: Simple sync wrapper for testing without HTTP overhead
+- MockD1Database: In-memory D1 database for unit testing
 - MockR2Bucket: In-memory R2 storage for unit testing
-- MockDatabase: Simple D1 mock for basic testing
 """
 
+import asyncio
 import builtins
 import hashlib
 import io
 import json
+import re
+import sqlite3
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+
+from .storage import (
+    d1_unwrap as _storage_d1_unwrap,
+)
+from .storage import (
+    d1_unwrap_results as _storage_d1_unwrap_results,
+)
 
 
 class TestClient:
@@ -155,7 +166,8 @@ class MockEnv:
 
     def __init__(self, env_dict):
         # Set defaults for common Cloudflare bindings
-        self.DB = env_dict.get("DB", MockDatabase())
+        # Use MockD1Database for full D1 API compatibility
+        self.DB = env_dict.get("DB") or _create_default_mock_db()
         self.ENVIRONMENT = env_dict.get("ENVIRONMENT", "test")
 
         # Add any additional environment variables
@@ -163,8 +175,23 @@ class MockEnv:
             setattr(self, key, value)
 
 
+def _create_default_mock_db():
+    """Create default mock database (deferred to avoid circular import)"""
+    return MockD1Database()
+
+
 class MockDatabase:
-    """Mock D1 database for testing"""
+    """
+    Simple mock D1 database stub for basic testing.
+
+    .. deprecated::
+        Use MockD1Database instead for full D1 API compatibility including
+        proper SQL execution, transactions, and result metadata.
+
+        Example:
+            from kinglet import MockD1Database
+            env = {"DB": MockD1Database()}
+    """
 
     def __init__(self):
         self._data = {}
@@ -215,6 +242,501 @@ class MockResult:
         else:
             self.results = data
             self.meta = {"changes": len(data)}
+
+
+# =============================================================================
+# D1 Mock Implementation - Comprehensive Cloudflare D1 Database Mock
+# =============================================================================
+
+
+class D1MockError(Exception):
+    """Base exception for D1 mock errors"""
+
+    pass
+
+
+class D1DatabaseError(D1MockError):
+    """Raised when a database operation fails"""
+
+    pass
+
+
+class D1PreparedStatementError(D1MockError):
+    """Raised when a prepared statement operation fails"""
+
+    pass
+
+
+@dataclass
+class D1ResultMeta:
+    """Metadata from D1 query execution"""
+
+    duration: float = 0.0
+    last_row_id: int | None = None
+    changes: int = 0
+    rows_read: int = 0
+    rows_written: int = 0
+    size_after: int | None = None
+
+
+class D1Result:
+    """
+    D1 query result matching Cloudflare Workers D1 API
+
+    Provides the same interface as real D1 results including:
+    - results: List of row dicts
+    - success: Boolean status
+    - meta: Execution metadata (duration, last_row_id, changes, etc.)
+    """
+
+    def __init__(
+        self,
+        results: list[dict] | None = None,
+        success: bool = True,
+        meta: D1ResultMeta | None = None,
+        error: str | None = None,
+    ):
+        self.results = results or []
+        self.success = success
+        self.meta = meta or D1ResultMeta()
+        self.error = error
+
+    def to_py(self) -> dict:
+        """Convert to Python dict (mimics JsProxy.to_py())"""
+        return {
+            "results": self.results,
+            "success": self.success,
+            "meta": {
+                "duration": self.meta.duration,
+                "last_row_id": self.meta.last_row_id,
+                "changes": self.meta.changes,
+                "rows_read": self.meta.rows_read,
+                "rows_written": self.meta.rows_written,
+                "size_after": self.meta.size_after,
+            },
+        }
+
+
+@dataclass
+class D1ExecResult:
+    """Result from D1Database.exec() for schema operations"""
+
+    count: int = 0
+    duration: float = 0.0
+
+    def to_py(self) -> dict:
+        """Convert to Python dict"""
+        return {"count": self.count, "duration": self.duration}
+
+
+class MockD1PreparedStatement:
+    """
+    Mock D1 prepared statement matching Cloudflare Workers D1 API
+
+    Supports all D1PreparedStatement methods:
+    - bind(*params): Bind parameters to the statement
+    - first(column?): Execute and return first row or specific column
+    - all(): Execute and return all results with metadata
+    - run(): Execute statement (alias for all())
+    - raw(columnNames?): Execute and return array of arrays
+    """
+
+    def __init__(self, db: "MockD1Database", sql: str):
+        self._db = db
+        self._sql = sql
+        self._params: list = []
+
+    def bind(self, *params) -> "MockD1PreparedStatement":
+        """
+        Bind parameters to the prepared statement
+
+        Supports both positional (?) and ordered (?NNN) parameters.
+        Returns self for method chaining.
+        """
+        self._params = list(params)
+        return self
+
+    async def first(self, column: str | None = None) -> dict | Any | None:
+        """
+        Execute and return the first row
+
+        Args:
+            column: Optional column name to return just that value
+
+        Returns:
+            - If column is specified: The value of that column, or None
+            - If no column: The entire first row as a dict, or None
+        """
+        results = await self._execute()
+
+        if not results:
+            return None
+
+        first_row = results[0]
+
+        if column is not None:
+            if column not in first_row:
+                raise D1PreparedStatementError(
+                    f"D1_ERROR: Column '{column}' does not exist"
+                )
+            return first_row[column]
+
+        return first_row
+
+    async def all(self) -> D1Result:
+        """
+        Execute and return all results with metadata
+
+        Returns:
+            D1Result with results list and metadata
+        """
+        start_time = time.time()
+        results = await self._execute()
+        duration = time.time() - start_time
+
+        sql_upper = self._sql.strip().upper()
+        is_write = sql_upper.startswith(("INSERT", "UPDATE", "DELETE"))
+
+        meta = D1ResultMeta(
+            duration=duration,
+            rows_read=len(results) if not is_write else 0,
+            rows_written=self._db._last_changes if is_write else 0,
+            last_row_id=self._db._last_row_id
+            if sql_upper.startswith("INSERT")
+            else None,
+            changes=self._db._last_changes if is_write else 0,
+        )
+
+        return D1Result(results=results, success=True, meta=meta)
+
+    async def run(self) -> D1Result:
+        """
+        Execute statement (functionally equivalent to all())
+
+        Returns:
+            D1Result with results and metadata
+        """
+        return await self.all()
+
+    async def raw(self, options: dict[str, bool] | None = None) -> list[list]:
+        """
+        Execute and return results as array of arrays
+
+        Args:
+            options: Dict with optional 'columnNames' boolean
+                     If columnNames=True, first row contains column names
+
+        Returns:
+            List of lists (rows as arrays). Returns empty list [] even when
+            columnNames=True if there are no results (no header row is
+            included for empty result sets).
+        """
+        results = await self._execute()
+
+        if not results:
+            return []
+
+        include_column_names = options and options.get("columnNames", False)
+        columns = list(results[0].keys()) if results else []
+
+        raw_results = []
+        if include_column_names:
+            raw_results.append(columns)
+
+        for row in results:
+            raw_results.append([row.get(col) for col in columns])
+
+        return raw_results
+
+    async def _execute(self) -> list[dict]:
+        """Execute the SQL statement and return results"""
+        return await self._db._execute_sql(self._sql, self._params)
+
+
+class MockD1Database:
+    """
+    Mock D1 Database for Unit Testing
+
+    Provides an in-memory SQLite implementation that mimics the
+    Cloudflare Workers D1 API. Enables unit tests to run without
+    requiring actual Cloudflare Workers environment or Miniflare.
+
+    Supported operations:
+    - prepare(query) - Create a prepared statement
+    - batch(statements) - Execute multiple statements atomically
+    - exec(sql) - Execute raw SQL (for schema creation)
+
+    Type Conversion (matching D1):
+    - None → NULL
+    - int/float → INTEGER/REAL
+    - str → TEXT
+    - bool → INTEGER (0/1)
+    - bytes → BLOB
+
+    Usage:
+        from kinglet import MockD1Database
+
+        db = MockD1Database()
+        await db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+
+        stmt = db.prepare("INSERT INTO users (name) VALUES (?)").bind("Alice")
+        result = await stmt.run()
+
+        users = await db.prepare("SELECT * FROM users").all()
+        for user in users.results:
+            print(user["name"])
+    """
+
+    def __init__(self, db_path: str = ":memory:", *, foreign_keys: bool = True):
+        """
+        Initialize mock D1 database
+
+        Args:
+            db_path: SQLite database path (default: in-memory)
+            foreign_keys: Enable foreign key constraints (default: True).
+                         SQLite defaults to OFF; we enable for realistic behavior.
+        """
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        if foreign_keys:
+            self._conn.execute("PRAGMA foreign_keys = ON")
+        self._last_row_id: int | None = None
+        self._last_changes: int = 0
+        self._in_batch: bool = False  # Track batch context for transaction handling
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """
+        Direct access to SQLite connection for backward compatibility
+
+        Note: Prefer using the D1-compatible API (prepare/exec/batch) for
+        portable code. This property is provided for tests that need
+        direct SQLite access for verification.
+        """
+        return self._conn
+
+    def prepare(self, sql: str) -> MockD1PreparedStatement:
+        """
+        Prepare an SQL statement
+
+        Args:
+            sql: SQL query with optional ? placeholders
+
+        Returns:
+            MockD1PreparedStatement for binding and execution
+        """
+        return MockD1PreparedStatement(self, sql)
+
+    async def batch(self, statements: list[MockD1PreparedStatement]) -> list[D1Result]:
+        """
+        Execute multiple statements in a batch
+
+        D1 batch operations are transactional - if any statement fails,
+        the entire batch is rolled back.
+
+        Args:
+            statements: List of prepared statements to execute
+
+        Returns:
+            List of D1Result objects in the same order as input
+        """
+        results = []
+
+        # Set batch mode to prevent individual commits
+        self._in_batch = True
+
+        try:
+            # Explicit BEGIN for clarity (SQLite auto-starts transactions,
+            # but being explicit makes the transactional intent clear)
+            self._conn.execute("BEGIN")
+
+            for stmt in statements:
+                result = await stmt.run()
+                results.append(result)
+
+            # Commit all statements together
+            self._conn.commit()
+
+        except Exception as e:
+            self._conn.rollback()
+            raise D1DatabaseError(f"Batch operation failed: {e}") from e
+        finally:
+            # Always reset batch mode
+            self._in_batch = False
+
+        return results
+
+    async def exec(self, sql: str) -> D1ExecResult:
+        """
+        Execute raw SQL directly (for schema creation)
+
+        Supports multiple statements separated by semicolons.
+        Does not support parameter binding. All statements are executed
+        atomically - if any statement fails, all are rolled back.
+
+        Note:
+            Statement splitting uses simple semicolon detection. Semicolons
+            inside string literals will incorrectly split statements. This
+            is acceptable for typical DDL/fixture SQL but avoid complex
+            string values in exec() calls.
+
+        Args:
+            sql: Raw SQL to execute
+
+        Returns:
+            D1ExecResult with count of executed statements
+        """
+        start_time = time.time()
+
+        def _do_exec() -> int:
+            cursor = self._conn.cursor()
+            count_local = 0
+            try:
+                cursor.execute("BEGIN")
+                for statement in sql.split(";"):
+                    statement = statement.strip()
+                    if statement:
+                        cursor.execute(statement)
+                        count_local += 1
+                self._conn.commit()
+                return count_local
+            except sqlite3.Error as e:  # pragma: no cover - error path
+                self._conn.rollback()
+                raise e
+
+        try:
+            count = await asyncio.to_thread(_do_exec)
+            duration = time.time() - start_time
+            return D1ExecResult(count=count, duration=duration)
+        except sqlite3.Error as e:  # pragma: no cover - error path
+            raise D1DatabaseError(f"exec() failed: {e}") from e
+
+    async def _execute_sql(self, sql: str, params: list) -> list[dict]:
+        """
+        Internal: Execute SQL and return results as list of dicts
+
+        Uses asyncio.to_thread() to avoid blocking the event loop and
+        delegates branches to smaller helpers to reduce complexity.
+        """
+
+        def _do_exec() -> list[dict]:
+            cursor = self._conn.cursor()
+            converted_params = self._convert_params(params)
+
+            cursor.execute(sql, converted_params)
+            op = self._operation(sql)
+            if op == "SELECT":
+                return self._handle_select(cursor)
+            if op == "INSERT":
+                return self._handle_insert(cursor, sql)
+            if op in ("UPDATE", "DELETE"):
+                return self._handle_write(cursor)
+            return self._handle_ddl()
+
+        try:
+            return await asyncio.to_thread(_do_exec)
+        except sqlite3.Error as e:  # pragma: no cover - error path
+            # Ensure transient write transactions are not left open
+            self._conn.rollback()
+            raise D1DatabaseError(f"SQL error: {e}") from e
+
+    def _convert_params(self, params: list) -> list:
+        converted_params: list = []
+        for param in params:
+            if isinstance(param, bool):
+                converted_params.append(1 if param else 0)
+            else:
+                converted_params.append(param)
+        return converted_params
+
+    def _operation(self, sql: str) -> str:
+        return (sql.strip().split()[0] if sql.strip() else "").upper()
+
+    def _handle_select(self, cursor: sqlite3.Cursor) -> list[dict]:
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def _handle_insert(self, cursor: sqlite3.Cursor, sql: str) -> list[dict]:
+        if not self._in_batch:
+            self._conn.commit()
+        self._last_row_id = cursor.lastrowid
+        self._last_changes = cursor.rowcount
+
+        if self._last_row_id:
+            table_name = self._extract_table_name(sql, "INSERT")
+            if table_name:
+                try:
+                    safe_table = self._safe_identifier(table_name)
+                    cursor.execute(  # nosec B608: safe_table validated by _safe_identifier  # NOSONAR
+                        f'SELECT * FROM "{safe_table}" WHERE rowid = ?',  # NOSONAR # nosec
+                        [self._last_row_id],
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        return [dict(row)]
+                except sqlite3.Error:  # pragma: no cover - fallback path
+                    # If fetching the inserted row fails (e.g., table without rowid),
+                    # fall back to returning the last inserted id only.
+                    return [{"id": self._last_row_id}] if self._last_row_id else []
+        return [{"id": self._last_row_id}] if self._last_row_id else []
+
+    def _handle_write(self, cursor: sqlite3.Cursor) -> list[dict]:
+        if not self._in_batch:
+            self._conn.commit()
+        self._last_changes = cursor.rowcount
+        self._last_row_id = None
+        return []
+
+    def _handle_ddl(self) -> list[dict]:
+        if not self._in_batch:
+            self._conn.commit()
+        return []
+
+    def _extract_table_name(self, sql: str, operation: str) -> str | None:
+        """Extract table name from SQL statement"""
+
+        if operation == "INSERT":
+            match = re.search(
+                r"INSERT\s+(?:OR\s+\w+\s+)?INTO\s+[`\"\[]?(\w+)[`\"\]]?",
+                sql,
+                re.IGNORECASE,
+            )
+            return match.group(1) if match else None
+        return None
+
+    def _safe_identifier(self, name: str) -> str:
+        """Validate and return a safe SQL identifier (table/column name)."""
+        if not re.fullmatch(r"[A-Za-z_]\w*", name):
+            raise D1DatabaseError(f"Unsafe SQL identifier: {name}")
+        return name
+
+    def close(self) -> None:
+        """
+        Close the database connection
+
+        Safe to call multiple times (idempotent). After closing,
+        subsequent database operations will raise an error.
+        """
+        if self._conn:
+            self._conn.close()
+            self._conn = None  # type: ignore[assignment]
+
+
+"""Helper functions for D1 result unwrapping (delegate to storage variants)."""
+
+
+def d1_unwrap(obj) -> dict:
+    """Unwrap D1 result to Python dict, supporting mock result types."""
+    if isinstance(obj, D1Result | D1ExecResult):
+        return obj.to_py()
+    return _storage_d1_unwrap(obj)
+
+
+def d1_unwrap_results(results) -> list[dict]:
+    """Unwrap a D1 results container to list[dict], supporting mock types."""
+    if isinstance(results, D1Result):
+        return results.results
+    return _storage_d1_unwrap_results(results)
 
 
 # =============================================================================

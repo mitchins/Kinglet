@@ -72,6 +72,16 @@ from .storage import (
 
 # Testing utilities
 from .testing import (
+    D1DatabaseError,
+    # D1 Database Mock
+    D1ExecResult,
+    D1MockError,
+    D1PreparedStatementError,
+    D1Result,
+    D1ResultMeta,
+    MockD1Database,
+    MockD1PreparedStatement,
+    # R2 Storage Mock
     MockR2Bucket,
     MockR2Object,
     MockR2ObjectBody,
@@ -81,6 +91,7 @@ from .testing import (
     R2MultipartUploadError,
     R2PartNotFoundError,
     R2TooManyKeysError,
+    # Test Client
     TestClient,
 )
 
@@ -189,7 +200,16 @@ __all__ = [
     "r2_list",
     "bytes_to_arraybuffer",
     "arraybuffer_to_bytes",
-    # Testing
+    # Testing - D1 Mock
+    "MockD1Database",
+    "MockD1PreparedStatement",
+    "D1Result",
+    "D1ResultMeta",
+    "D1ExecResult",
+    "D1MockError",
+    "D1DatabaseError",
+    "D1PreparedStatementError",
+    # Testing - R2 Mock
     "TestClient",
     "MockR2Bucket",
     "MockR2Object",
