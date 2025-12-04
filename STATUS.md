@@ -73,8 +73,12 @@ This is the single source of truth for project roadmap and status.
 
 - 🔵 Database migration helpers for field changes
 - 🔵 WebSocket support
-- 🔵 Full blown D1 mocking for downstream clients
+- 🟢 Full blown D1 mocking for downstream clients
     Mock D1 database for testing and development without Cloudflare infrastructure
+    - MockD1Database with full Workers D1 API: prepare, bind, first, all, run, raw, batch, exec
+    - D1Result with metadata (last_row_id, rows_read, rows_written, duration)
+    - Proper type conversion (bool→int, None→NULL)
+    - Compatible with kinglet ORM and d1_unwrap/d1_unwrap_results helpers
 - 🟢 Full blown R2 mocking server for downstream clients
     Mock R2 object storage server for testing and development without Cloudflare infrastructure
     - MockR2Bucket with full Workers R2 API: head, get, put, delete, list
