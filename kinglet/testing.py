@@ -902,21 +902,25 @@ class MockR2ObjectBody(MockR2Object):
 
     async def arrayBuffer(self) -> bytes:
         """Return data as ArrayBuffer (bytes in Python)"""
+        await asyncio.sleep(0)
         self._body_used = True
         return self._data
 
     async def text(self) -> str:
         """Return data as string"""
+        await asyncio.sleep(0)
         self._body_used = True
         return self._data.decode("utf-8")
 
     async def json(self) -> Any:
         """Return data as parsed JSON"""
+        await asyncio.sleep(0)
         self._body_used = True
         return json.loads(self._data.decode("utf-8"))
 
     async def blob(self) -> bytes:
         """Return data as Blob (bytes in Python)"""
+        await asyncio.sleep(0)
         self._body_used = True
         return self._data
 
@@ -935,6 +939,7 @@ class MockReadableStream:
 
     async def read(self) -> bytes:
         """Read all data from stream"""
+        await asyncio.sleep(0)
         return self._data
 
 
@@ -946,6 +951,7 @@ class MockStreamReader:
 
     async def read(self) -> dict[str, Any]:
         """Read next chunk"""
+        await asyncio.sleep(0)
         chunk = self._stream.read(8192)
         if chunk:
             return {"value": chunk, "done": False}
@@ -1002,6 +1008,7 @@ class MockR2MultipartUpload:
         self, partNumber: int, value: bytes | str
     ) -> MockR2UploadedPart:
         """Upload a part to the multipart upload"""
+        await asyncio.sleep(0)
         if self._aborted:
             raise R2MultipartAbortedError("Multipart upload has been aborted")
         if self._completed:
@@ -1017,6 +1024,7 @@ class MockR2MultipartUpload:
 
     async def abort(self) -> None:
         """Abort the multipart upload"""
+        await asyncio.sleep(0)
         self._aborted = True
         self._parts.clear()
         if self.uploadId in self._bucket._multipart_uploads:
@@ -1097,6 +1105,7 @@ class MockR2Bucket:
         Returns:
             MockR2Object with metadata, or None if not found
         """
+        await asyncio.sleep(0)
         if key not in self._objects:
             return None
 
@@ -1126,6 +1135,7 @@ class MockR2Bucket:
         Returns:
             MockR2ObjectBody with body, or None if not found or preconditions not met
         """
+        await asyncio.sleep(0)
         if key not in self._objects:
             return None
 
@@ -1223,6 +1233,7 @@ class MockR2Bucket:
         Returns:
             MockR2Object with metadata, or None if conditional put fails
         """
+        await asyncio.sleep(0)
         options = options or {}
 
         if isinstance(value, str):
@@ -1271,6 +1282,7 @@ class MockR2Bucket:
         Args:
             keys: Single key or list of keys to delete (up to 1000)
         """
+        await asyncio.sleep(0)
         if isinstance(keys, str):
             keys = [keys]
 
@@ -1337,6 +1349,7 @@ class MockR2Bucket:
         Returns:
             MockR2Objects with matching objects
         """
+        await asyncio.sleep(0)
         options = options or {}
         limit = min(options.get("limit", 1000), 1000)
         prefix = options.get("prefix", "")
