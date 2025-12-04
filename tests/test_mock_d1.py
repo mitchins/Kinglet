@@ -519,6 +519,26 @@ class TestD1ErrorHandling:
         with pytest.raises(D1DatabaseError):
             await db.exec("CREATE TABLE ())")  # Invalid syntax
 
+    @pytest.mark.asyncio
+    async def test_exec_rollback_on_partial_failure(self):
+        """Test exec() rolls back all statements on failure (atomic behavior)"""
+        db = MockD1Database()
+
+        # First statement valid, second invalid - should rollback both
+        with pytest.raises(D1DatabaseError):
+            await db.exec("""
+                CREATE TABLE should_not_exist (id INTEGER PRIMARY KEY);
+                CREATE TABLE ())"  -- Invalid syntax
+            """)
+
+        # Verify the first table was NOT created (rolled back)
+        cursor = db.conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='should_not_exist'"
+        )
+        result = cursor.fetchone()
+        assert result is None, "Table should have been rolled back"
+
 
 class TestD1DatabaseClose:
     """Test database cleanup"""
