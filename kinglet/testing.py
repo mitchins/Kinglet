@@ -7,6 +7,7 @@ This module provides testing utilities for Kinglet applications:
 - MockR2Bucket: In-memory R2 storage for unit testing
 """
 
+import asyncio
 import builtins
 import hashlib
 import io
@@ -586,97 +587,109 @@ class MockD1Database:
             D1ExecResult with count of executed statements
         """
         start_time = time.time()
-        cursor = self._conn.cursor()
-        count = 0
+
+        def _do_exec() -> int:
+            cursor = self._conn.cursor()
+            count_local = 0
+            try:
+                cursor.execute("BEGIN")
+                for statement in sql.split(";"):
+                    statement = statement.strip()
+                    if statement:
+                        cursor.execute(statement)
+                        count_local += 1
+                self._conn.commit()
+                return count_local
+            except sqlite3.Error as e:  # pragma: no cover - error path
+                self._conn.rollback()
+                raise e
 
         try:
-            # Use explicit transaction for atomic exec (enables DDL rollback)
-            cursor.execute("BEGIN")
-
-            # Split and execute each statement
-            for statement in sql.split(";"):
-                statement = statement.strip()
-                if statement:
-                    cursor.execute(statement)
-                    count += 1
-
-            self._conn.commit()
+            count = await asyncio.to_thread(_do_exec)
             duration = time.time() - start_time
-
             return D1ExecResult(count=count, duration=duration)
-
-        except sqlite3.Error as e:
-            # Rollback to avoid partial writes - D1 exec is atomic
-            self._conn.rollback()
+        except sqlite3.Error as e:  # pragma: no cover - error path
             raise D1DatabaseError(f"exec() failed: {e}") from e
 
     async def _execute_sql(self, sql: str, params: list) -> list[dict]:
         """
         Internal: Execute SQL and return results as list of dicts
 
-        Handles D1-compatible type conversion:
-        - bool → int (0/1)
-        - None remains None
+        Uses asyncio.to_thread() to avoid blocking the event loop and
+        delegates branches to smaller helpers to reduce complexity.
         """
-        cursor = self._conn.cursor()
 
-        # Convert params for D1 compatibility
-        converted_params = []
+        def _do_exec() -> list[dict]:
+            cursor = self._conn.cursor()
+            converted_params = self._convert_params(params)
+
+            try:
+                cursor.execute(sql, converted_params)
+                op = self._operation(sql)
+                if op == "SELECT":
+                    return self._handle_select(cursor)
+                if op == "INSERT":
+                    return self._handle_insert(cursor, sql)
+                if op in ("UPDATE", "DELETE"):
+                    return self._handle_write(cursor)
+                return self._handle_ddl()
+            except sqlite3.Error as e:  # pragma: no cover - error path
+                raise e
+
+        try:
+            return await asyncio.to_thread(_do_exec)
+        except sqlite3.Error as e:  # pragma: no cover - error path
+            raise D1DatabaseError(f"SQL error: {e}") from e
+
+    def _convert_params(self, params: list) -> list:
+        converted_params: list = []
         for param in params:
             if isinstance(param, bool):
                 converted_params.append(1 if param else 0)
             else:
                 converted_params.append(param)
+        return converted_params
 
-        try:
-            cursor.execute(sql, converted_params)
+    def _operation(self, sql: str) -> str:
+        return (sql.strip().split()[0] if sql.strip() else "").upper()
 
-            sql_upper = sql.strip().upper()
+    def _handle_select(self, cursor: sqlite3.Cursor) -> list[dict]:
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
 
-            if sql_upper.startswith("SELECT"):
-                rows = cursor.fetchall()
-                return [dict(row) for row in rows]
+    def _handle_insert(self, cursor: sqlite3.Cursor, sql: str) -> list[dict]:
+        if not self._in_batch:
+            self._conn.commit()
+        self._last_row_id = cursor.lastrowid
+        self._last_changes = cursor.rowcount
 
-            elif sql_upper.startswith("INSERT"):
-                # Only commit if not in batch mode
-                if not self._in_batch:
-                    self._conn.commit()
-                self._last_row_id = cursor.lastrowid
-                self._last_changes = cursor.rowcount
+        if self._last_row_id:
+            table_name = self._extract_table_name(sql, "INSERT")
+            if table_name:
+                try:
+                    safe_table = self._safe_identifier(table_name)
+                    cursor.execute(
+                        f'SELECT * FROM "{safe_table}" WHERE rowid = ?',
+                        [self._last_row_id],
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        return [dict(row)]
+                except sqlite3.Error:  # pragma: no cover - fallback path
+                    pass
+        return [{"id": self._last_row_id}] if self._last_row_id else []
 
-                # Try to return the inserted row(s)
-                if self._last_row_id:
-                    table_name = self._extract_table_name(sql, "INSERT")
-                    if table_name:
-                        try:
-                            cursor.execute(
-                                f"SELECT * FROM {table_name} WHERE rowid = ?",
-                                [self._last_row_id],
-                            )
-                            row = cursor.fetchone()
-                            if row:
-                                return [dict(row)]
-                        except sqlite3.Error:
-                            pass
-                return [{"id": self._last_row_id}] if self._last_row_id else []
+    def _handle_write(self, cursor: sqlite3.Cursor) -> list[dict]:
+        if not self._in_batch:
+            self._conn.commit()
+        self._last_changes = cursor.rowcount
+        self._last_row_id = None
+        return []
 
-            elif sql_upper.startswith(("UPDATE", "DELETE")):
-                # Only commit if not in batch mode
-                if not self._in_batch:
-                    self._conn.commit()
-                self._last_changes = cursor.rowcount
-                self._last_row_id = None
-                return []
-
-            else:
-                # CREATE, DROP, etc.
-                # Only commit if not in batch mode
-                if not self._in_batch:
-                    self._conn.commit()
-                return []
-
-        except sqlite3.Error as e:
-            raise D1DatabaseError(f"SQL error: {e}") from e
+    def _handle_ddl(self) -> list[dict]:
+        if not self._in_batch:
+            self._conn.commit()
+        return []
 
     def _extract_table_name(self, sql: str, operation: str) -> str | None:
         """Extract table name from SQL statement"""
@@ -689,6 +702,12 @@ class MockD1Database:
             )
             return match.group(1) if match else None
         return None
+
+    def _safe_identifier(self, name: str) -> str:
+        """Validate and return a safe SQL identifier (table/column name)."""
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise D1DatabaseError(f"Unsafe SQL identifier: {name}")
+        return name
 
     def close(self) -> None:
         """
