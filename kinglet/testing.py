@@ -19,6 +19,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from .storage import (
+    d1_unwrap as _storage_d1_unwrap,
+)
+from .storage import (
+    d1_unwrap_results as _storage_d1_unwrap_results,
+)
+
 
 class TestClient:
     """Simple sync wrapper for testing Kinglet apps without HTTP/Wrangler overhead"""
@@ -695,66 +702,21 @@ class MockD1Database:
             self._conn = None  # type: ignore[assignment]
 
 
-# Helper functions for D1 result unwrapping
+"""Helper functions for D1 result unwrapping (delegate to storage variants)."""
+
+
 def d1_unwrap(obj) -> dict:
-    """
-    Unwrap D1 result to Python dict
-
-    Works with both real D1 JsProxy objects and mock results.
-    Matches the error handling behavior of storage.d1_unwrap.
-    """
-    if obj is None:
-        return {}
-
-    # Handle mock D1 result types
+    """Unwrap D1 result to Python dict, supporting mock result types."""
     if isinstance(obj, D1Result | D1ExecResult):
         return obj.to_py()
-
-    # Handle dict-like results from D1 queries
-    if hasattr(obj, "to_py"):
-        try:
-            return obj.to_py()
-        except Exception as e:
-            raise ValueError(f"Failed to unwrap D1 object via .to_py(): {e}") from e
-
-    # Handle dict access pattern
-    if hasattr(obj, "keys"):
-        try:
-            return {key: obj[key] for key in obj.keys()}
-        except Exception as e:
-            raise ValueError(f"Failed to unwrap dict-like object: {e}") from e
-
-    # Handle known dict type
-    if isinstance(obj, dict):
-        return obj
-
-    # Raise error for unsupported types
-    raise ValueError(f"Cannot unwrap D1 object of type {type(obj).__name__}")
+    return _storage_d1_unwrap(obj)
 
 
 def d1_unwrap_results(results) -> list[dict]:
-    """
-    Unwrap D1 results list to Python list of dicts
-
-    Works with both real D1 results and mock results.
-    """
-    if results is None:
-        return []
-
-    # Handle mock D1Result type
+    """Unwrap a D1 results container to list[dict], supporting mock types."""
     if isinstance(results, D1Result):
         return results.results
-
-    # Handle results with .results array
-    if hasattr(results, "results"):
-        return [d1_unwrap(row) for row in results.results]
-
-    # Handle direct list of results
-    if isinstance(results, list):
-        return [d1_unwrap(row) for row in results]
-
-    # Single result
-    return [d1_unwrap(results)]
+    return _storage_d1_unwrap_results(results)
 
 
 # =============================================================================
