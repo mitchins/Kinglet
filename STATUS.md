@@ -75,8 +75,11 @@ This is the single source of truth for project roadmap and status.
 - 🔵 WebSocket support
 - 🔵 Full blown D1 mocking for downstream clients
     Mock D1 database for testing and development without Cloudflare infrastructure
-- 🔵 Full blown R2 mocking server for downstream clients
+- 🟢 Full blown R2 mocking server for downstream clients
     Mock R2 object storage server for testing and development without Cloudflare infrastructure
+    - MockR2Bucket with full Workers R2 API: head, get, put, delete, list
+    - Range requests, conditional operations, multipart uploads
+    - Compatible with kinglet storage helpers (r2_put, r2_get_content_info, etc.)
 
 ## Maintenance
 

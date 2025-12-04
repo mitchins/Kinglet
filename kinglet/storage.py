@@ -291,7 +291,8 @@ async def r2_put(bucket, key: str, content, metadata: dict = None):
     # Automatically convert Python bytes to ArrayBuffer for R2 compatibility
     upload_content = bytes_to_arraybuffer(content)
 
-    return await bucket.put(key, upload_content, **put_options)
+    # Pass options as a single dict to match Workers/Mock signature
+    return await bucket.put(key, upload_content, put_options or None)
 
 
 async def r2_delete(bucket, key: str):

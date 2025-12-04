@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kinglet"
-version = "1.8.0"
+version = "1.8.1"
 description = "A lightweight routing framework for Python Workers"
 readme = "README.md"
 authors = [
@@ -132,4 +132,5 @@ dev = [
     "pytest-cov>=6.2.1",
     "ruff>=0.12.10",
     "httpx>=0.27.0",
+    "keyring>=25.7.0",
 ]
