@@ -637,10 +637,7 @@ class MockD1Database:
             return await asyncio.to_thread(_do_exec)
         except sqlite3.Error as e:  # pragma: no cover - error path
             # Ensure transient write transactions are not left open
-            try:
-                self._conn.rollback()
-            except Exception:
-                pass
+            self._conn.rollback()
             raise D1DatabaseError(f"SQL error: {e}") from e
 
     def _convert_params(self, params: list) -> list:
@@ -671,7 +668,7 @@ class MockD1Database:
                 try:
                     safe_table = self._safe_identifier(table_name)
                     cursor.execute(  # nosec B608: safe_table validated by _safe_identifier  # NOSONAR
-                        f'SELECT * FROM "{safe_table}" WHERE rowid = ?',  # NOSONAR
+                        f'SELECT * FROM "{safe_table}" WHERE rowid = ?',  # NOSONAR # nosec
                         [self._last_row_id],
                     )
                     row = cursor.fetchone()
