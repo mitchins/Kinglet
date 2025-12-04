@@ -222,6 +222,42 @@ class MockResult:
 # =============================================================================
 
 
+class R2MockError(Exception):
+    """Base exception for R2 mock errors"""
+
+    pass
+
+
+class R2MultipartAbortedError(R2MockError):
+    """Raised when attempting to operate on an aborted multipart upload"""
+
+    pass
+
+
+class R2MultipartCompletedError(R2MockError):
+    """Raised when attempting to operate on a completed multipart upload"""
+
+    pass
+
+
+class R2PartNotFoundError(R2MockError):
+    """Raised when a part is not found in a multipart upload"""
+
+    pass
+
+
+class R2TooManyKeysError(R2MockError):
+    """Raised when attempting to delete more than 1000 keys"""
+
+    pass
+
+
+class R2MultipartUploadError(R2MockError):
+    """Raised when a multipart upload fails to complete"""
+
+    pass
+
+
 @dataclass
 class R2HTTPMetadata:
     """HTTP metadata for R2 objects"""
@@ -445,15 +481,15 @@ class MockR2MultipartUpload:
     ) -> MockR2UploadedPart:
         """Upload a part to the multipart upload"""
         if self._aborted:
-            raise Exception("Multipart upload has been aborted")
+            raise R2MultipartAbortedError("Multipart upload has been aborted")
         if self._completed:
-            raise Exception("Multipart upload has been completed")
+            raise R2MultipartCompletedError("Multipart upload has been completed")
 
         if isinstance(value, str):
             value = value.encode("utf-8")
 
         self._parts[partNumber] = value
-        etag = hashlib.md5(value).hexdigest()
+        etag = hashlib.md5(value, usedforsecurity=False).hexdigest()
 
         return MockR2UploadedPart(partNumber=partNumber, etag=etag)
 
@@ -467,16 +503,18 @@ class MockR2MultipartUpload:
     async def complete(self, uploadedParts: list[MockR2UploadedPart]) -> MockR2Object:
         """Complete the multipart upload"""
         if self._aborted:
-            raise Exception("Multipart upload has been aborted")
+            raise R2MultipartAbortedError("Multipart upload has been aborted")
         if self._completed:
-            raise Exception("Multipart upload has already been completed")
+            raise R2MultipartCompletedError(
+                "Multipart upload has already been completed"
+            )
 
         sorted_parts = sorted(uploadedParts, key=lambda p: p.partNumber)
 
         data = b""
         for part in sorted_parts:
             if part.partNumber not in self._parts:
-                raise Exception(f"Part {part.partNumber} not found")
+                raise R2PartNotFoundError(f"Part {part.partNumber} not found")
             data += self._parts[part.partNumber]
 
         options = {}
@@ -494,7 +532,7 @@ class MockR2MultipartUpload:
             del self._bucket._multipart_uploads[self.uploadId]
 
         if result is None:
-            raise Exception("Failed to complete multipart upload")
+            raise R2MultipartUploadError("Failed to complete multipart upload")
         return result
 
 
@@ -583,7 +621,6 @@ class MockR2Bucket:
             if suffix is not None:
                 data = data[-suffix:]
                 offset = max(0, len(stored["data"]) - suffix)
-                length = len(data)
             elif length is not None:
                 data = data[offset : offset + length]
             else:
@@ -594,14 +631,15 @@ class MockR2Bucket:
         # Handle conditional requests (onlyIf)
         if options and "onlyIf" in options:
             cond = options["onlyIf"]
-            if "etagMatches" in cond:
-                if stored["etag"] != cond["etagMatches"]:
-                    # Precondition failed: return None (like real R2 API for 304/412)
-                    return None
-            if "etagDoesNotMatch" in cond:
-                if stored["etag"] == cond["etagDoesNotMatch"]:
-                    # Precondition failed: return None (like real R2 API for 304/412)
-                    return None
+            if "etagMatches" in cond and stored["etag"] != cond["etagMatches"]:
+                # Precondition failed: return None (like real R2 API for 304/412)
+                return None
+            if (
+                "etagDoesNotMatch" in cond
+                and stored["etag"] == cond["etagDoesNotMatch"]
+            ):
+                # Precondition failed: return None (like real R2 API for 304/412)
+                return None
 
         return MockR2ObjectBody(
             key=key,
@@ -615,6 +653,35 @@ class MockR2Bucket:
             checksums=stored.get("checksums"),
             storage_class=stored.get("storageClass", "Standard"),
             range_info=range_info,
+        )
+
+    def _check_conditional_put(self, key: str, options: dict[str, Any]) -> bool:
+        """Check if conditional put should proceed. Returns False if preconditions fail."""
+        if "onlyIf" not in options:
+            return True
+
+        cond = options["onlyIf"]
+        existing = self._objects.get(key)
+
+        if "etagMatches" in cond:
+            if not existing or existing["etag"] != cond["etagMatches"]:
+                return False
+        if "etagDoesNotMatch" in cond:
+            if existing and existing["etag"] == cond["etagDoesNotMatch"]:
+                return False
+        return True
+
+    def _parse_http_metadata(self, options: dict[str, Any]) -> R2HTTPMetadata | None:
+        """Parse HTTP metadata from options"""
+        if "httpMetadata" not in options:
+            return None
+        hm = options["httpMetadata"]
+        return R2HTTPMetadata(
+            contentType=hm.get("contentType"),
+            contentLanguage=hm.get("contentLanguage"),
+            contentDisposition=hm.get("contentDisposition"),
+            contentEncoding=hm.get("contentEncoding"),
+            cacheControl=hm.get("cacheControl"),
         )
 
     async def put(
@@ -642,31 +709,12 @@ class MockR2Bucket:
             value = b""
 
         # Handle conditional put
-        if "onlyIf" in options:
-            cond = options["onlyIf"]
-            existing = self._objects.get(key)
+        if not self._check_conditional_put(key, options):
+            return None
 
-            if "etagMatches" in cond:
-                if not existing or existing["etag"] != cond["etagMatches"]:
-                    return None
-            if "etagDoesNotMatch" in cond:
-                if existing and existing["etag"] == cond["etagDoesNotMatch"]:
-                    return None
-
-        md5_hash = hashlib.md5(value).hexdigest()
-        checksums = R2Checksums(md5=hashlib.md5(value).digest())
-
-        http_metadata = None
-        if "httpMetadata" in options:
-            hm = options["httpMetadata"]
-            http_metadata = R2HTTPMetadata(
-                contentType=hm.get("contentType"),
-                contentLanguage=hm.get("contentLanguage"),
-                contentDisposition=hm.get("contentDisposition"),
-                contentEncoding=hm.get("contentEncoding"),
-                cacheControl=hm.get("cacheControl"),
-            )
-
+        md5_hash = hashlib.md5(value, usedforsecurity=False).hexdigest()
+        checksums = R2Checksums(md5=hashlib.md5(value, usedforsecurity=False).digest())
+        http_metadata = self._parse_http_metadata(options)
         version = str(uuid.uuid4())
         uploaded = datetime.now(UTC)
 
@@ -705,11 +753,57 @@ class MockR2Bucket:
             keys = [keys]
 
         if len(keys) > 1000:
-            raise Exception("Cannot delete more than 1000 keys at once")
+            raise R2TooManyKeysError("Cannot delete more than 1000 keys at once")
 
         for key in keys:
             if key in self._objects:
                 del self._objects[key]
+
+    def _filter_keys_by_cursor(self, keys: list[str], cursor: str | None) -> list[str]:
+        """Filter keys to start after the cursor position"""
+        if not cursor:
+            return keys
+        for i, k in enumerate(keys):
+            if k > cursor:
+                return keys[i:]
+        return []
+
+    def _apply_delimiter(
+        self, keys: list[str], prefix: str, delimiter: str
+    ) -> tuple[list[str], list[str]]:
+        """Apply delimiter to extract delimited prefixes and filter keys"""
+        seen_prefixes: set[str] = set()
+        delimited_prefixes: list[str] = []
+        filtered_keys: list[str] = []
+
+        for key in keys:
+            remaining = key[len(prefix) :] if prefix else key
+            delim_pos = remaining.find(delimiter)
+            if delim_pos >= 0:
+                dir_prefix = prefix + remaining[: delim_pos + 1]
+                if dir_prefix not in seen_prefixes:
+                    seen_prefixes.add(dir_prefix)
+                    delimited_prefixes.append(dir_prefix)
+            else:
+                filtered_keys.append(key)
+
+        return filtered_keys, delimited_prefixes
+
+    def _build_object_for_list(self, key: str, include: list[str]) -> MockR2Object:
+        """Build a MockR2Object for list results with optional metadata"""
+        stored = self._objects[key]
+        return MockR2Object(
+            key=key,
+            size=stored["size"],
+            etag=stored["etag"],
+            uploaded=stored["uploaded"],
+            http_metadata=stored.get("httpMetadata")
+            if "httpMetadata" in include
+            else None,
+            custom_metadata=stored.get("customMetadata")
+            if "customMetadata" in include
+            else None,
+        )
 
     async def list(self, options: dict[str, Any] | None = None) -> MockR2Objects:
         """
@@ -728,60 +822,28 @@ class MockR2Bucket:
         delimiter = options.get("delimiter")
         include = options.get("include", [])
 
+        # Get all keys sorted and filtered by prefix
         all_keys = sorted(self._objects.keys())
-
         if prefix:
             all_keys = [k for k in all_keys if k.startswith(prefix)]
 
-        if cursor:
-            start_idx = 0
-            for i, k in enumerate(all_keys):
-                if k > cursor:
-                    start_idx = i
-                    break
-            all_keys = all_keys[start_idx:]
+        # Apply cursor filtering
+        all_keys = self._filter_keys_by_cursor(all_keys, cursor)
 
-        delimited_prefixes = []
+        # Apply delimiter
+        delimited_prefixes: list[str] = []
         if delimiter:
-            seen_prefixes = set()
-            filtered_keys = []
-            for key in all_keys:
-                remaining = key[len(prefix) :] if prefix else key
-                delim_pos = remaining.find(delimiter)
-                if delim_pos >= 0:
-                    dir_prefix = prefix + remaining[: delim_pos + 1]
-                    if dir_prefix not in seen_prefixes:
-                        seen_prefixes.add(dir_prefix)
-                        delimited_prefixes.append(dir_prefix)
-                else:
-                    filtered_keys.append(key)
-            all_keys = filtered_keys
+            all_keys, delimited_prefixes = self._apply_delimiter(
+                all_keys, prefix, delimiter
+            )
 
+        # Apply pagination
         truncated = len(all_keys) > limit
         result_keys = all_keys[:limit]
         next_cursor = result_keys[-1] if truncated and result_keys else None
 
-        objects = []
-        for key in result_keys:
-            stored = self._objects[key]
-
-            http_metadata = None
-            custom_metadata = None
-            if "httpMetadata" in include:
-                http_metadata = stored.get("httpMetadata")
-            if "customMetadata" in include:
-                custom_metadata = stored.get("customMetadata")
-
-            objects.append(
-                MockR2Object(
-                    key=key,
-                    size=stored["size"],
-                    etag=stored["etag"],
-                    uploaded=stored["uploaded"],
-                    http_metadata=http_metadata,
-                    custom_metadata=custom_metadata,
-                )
-            )
+        # Build result objects
+        objects = [self._build_object_for_list(key, include) for key in result_keys]
 
         return MockR2Objects(
             objects=objects,

@@ -14,6 +14,9 @@ from .mock_r2 import (
     MockR2Object,
     MockR2ObjectBody,
     MockR2Objects,
+    R2MultipartAbortedError,
+    R2MultipartCompletedError,
+    R2TooManyKeysError,
 )
 
 
@@ -147,7 +150,9 @@ class TestMockR2BucketBasicOperations:
         """Test delete() rejects more than 1000 keys"""
         keys = [f"key-{i}" for i in range(1001)]
 
-        with pytest.raises(Exception, match="Cannot delete more than 1000 keys"):
+        with pytest.raises(
+            R2TooManyKeysError, match="Cannot delete more than 1000 keys"
+        ):
             await bucket.delete(keys)
 
 
@@ -475,7 +480,7 @@ class TestMockR2MultipartUpload:
         await upload.abort()
 
         # Trying to upload after abort should fail
-        with pytest.raises(Exception, match="aborted"):
+        with pytest.raises(R2MultipartAbortedError, match="aborted"):
             await upload.uploadPart(2, b"more data")
 
     @pytest.mark.asyncio
@@ -485,7 +490,7 @@ class TestMockR2MultipartUpload:
         part = await upload.uploadPart(1, b"data")
         await upload.abort()
 
-        with pytest.raises(Exception, match="aborted"):
+        with pytest.raises(R2MultipartAbortedError, match="aborted"):
             await upload.complete([part])
 
     @pytest.mark.asyncio
@@ -495,7 +500,7 @@ class TestMockR2MultipartUpload:
         part = await upload.uploadPart(1, b"data")
         await upload.complete([part])
 
-        with pytest.raises(Exception, match="already been completed"):
+        with pytest.raises(R2MultipartCompletedError, match="already been completed"):
             await upload.complete([part])
 
     @pytest.mark.asyncio
