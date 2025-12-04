@@ -555,7 +555,7 @@ class MockR2Bucket:
 
     async def get(
         self, key: str, options: dict[str, Any] | None = None
-    ) -> MockR2ObjectBody | MockR2Object | None:
+    ) -> MockR2ObjectBody | None:
         """
         Get object with body
 
@@ -564,7 +564,7 @@ class MockR2Bucket:
             options: R2GetOptions (onlyIf, range)
 
         Returns:
-            MockR2ObjectBody with body, or None if not found
+            MockR2ObjectBody with body, or None if not found or preconditions not met
         """
         if key not in self._objects:
             return None
@@ -596,24 +596,12 @@ class MockR2Bucket:
             cond = options["onlyIf"]
             if "etagMatches" in cond:
                 if stored["etag"] != cond["etagMatches"]:
-                    return MockR2Object(
-                        key=key,
-                        size=stored["size"],
-                        etag=stored["etag"],
-                        uploaded=stored["uploaded"],
-                        http_metadata=stored.get("httpMetadata"),
-                        custom_metadata=stored.get("customMetadata"),
-                    )
+                    # Precondition failed: return None (like real R2 API for 304/412)
+                    return None
             if "etagDoesNotMatch" in cond:
                 if stored["etag"] == cond["etagDoesNotMatch"]:
-                    return MockR2Object(
-                        key=key,
-                        size=stored["size"],
-                        etag=stored["etag"],
-                        uploaded=stored["uploaded"],
-                        http_metadata=stored.get("httpMetadata"),
-                        custom_metadata=stored.get("customMetadata"),
-                    )
+                    # Precondition failed: return None (like real R2 API for 304/412)
+                    return None
 
         return MockR2ObjectBody(
             key=key,

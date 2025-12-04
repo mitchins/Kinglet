@@ -261,13 +261,12 @@ class TestMockR2BucketConditionalOperations:
 
     @pytest.mark.asyncio
     async def test_conditional_get_etag_no_match(self, bucket):
-        """Test conditional get with non-matching etag"""
+        """Test conditional get with non-matching etag returns None"""
         await bucket.put("cond-test", b"data")
 
-        # Should return object without body when etag doesn't match
+        # Should return None when etag doesn't match (precondition failed)
         obj = await bucket.get("cond-test", {"onlyIf": {"etagMatches": "wrong-etag"}})
-        assert isinstance(obj, MockR2Object)
-        assert not isinstance(obj, MockR2ObjectBody)
+        assert obj is None
 
     @pytest.mark.asyncio
     async def test_conditional_put_etag_matches(self, bucket):
@@ -696,10 +695,9 @@ class TestMockR2Integration:
         etag = result.etag
 
         # Simulate cache check - etag matches, no need to download body
+        # When etagDoesNotMatch condition is met (etag matches), get() returns None
         obj = await bucket.get("cached-data", {"onlyIf": {"etagDoesNotMatch": etag}})
-        # When etag matches (content unchanged), returns R2Object without body
-        assert isinstance(obj, MockR2Object)
-        assert not isinstance(obj, MockR2ObjectBody)
+        assert obj is None  # Precondition not met (304 Not Modified equivalent)
 
         # Update content
         await bucket.put("cached-data", b"new content")
