@@ -668,7 +668,7 @@ class MockD1Database:
             if table_name:
                 try:
                     safe_table = self._safe_identifier(table_name)
-                    cursor.execute(
+                    cursor.execute(  # nosec B608: safe_table validated by _safe_identifier
                         f'SELECT * FROM "{safe_table}" WHERE rowid = ?',
                         [self._last_row_id],
                     )
@@ -676,7 +676,9 @@ class MockD1Database:
                     if row:
                         return [dict(row)]
                 except sqlite3.Error:  # pragma: no cover - fallback path
-                    pass
+                    # If fetching the inserted row fails (e.g., table without rowid),
+                    # fall back to returning the last inserted id only.
+                    return [{"id": self._last_row_id}] if self._last_row_id else []
         return [{"id": self._last_row_id}] if self._last_row_id else []
 
     def _handle_write(self, cursor: sqlite3.Cursor) -> list[dict]:
@@ -705,7 +707,7 @@ class MockD1Database:
 
     def _safe_identifier(self, name: str) -> str:
         """Validate and return a safe SQL identifier (table/column name)."""
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        if not re.fullmatch(r"[A-Za-z_]\w*", name):
             raise D1DatabaseError(f"Unsafe SQL identifier: {name}")
         return name
 
