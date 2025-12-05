@@ -845,8 +845,11 @@ class Manager:
         """Update instances with generated primary key IDs"""
         for instance, result in zip(instances, results, strict=False):
             pk_field = instance._get_pk_field()
+            current_pk = getattr(instance, pk_field.name, None)
+            # Only update ID if it was auto-generated (was None before insert)
             if (
                 pk_field.name == "id"
+                and current_pk is None  # Only set if PK was not already provided
                 and hasattr(result, "meta")
                 and hasattr(result.meta, "last_row_id")
             ):
@@ -1300,10 +1303,13 @@ class Model(metaclass=ModelMeta):
             else:
                 result = await db.prepare(sql).run()
 
-            # Set the auto-generated ID from D1 response
+            # Set the auto-generated ID from D1 response ONLY if PK was not provided
+            # This preserves user-provided UUIDs/nanoids while supporting auto-increment
             pk_field = self._get_pk_field()
+            current_pk = getattr(self, pk_field.name, None)
             if (
                 pk_field.name == "id"
+                and current_pk is None  # Only set if PK was not already provided
                 and hasattr(result, "meta")
                 and hasattr(result.meta, "last_row_id")
             ):
