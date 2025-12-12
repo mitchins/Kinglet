@@ -653,7 +653,13 @@ class MockD1Database:
         return (sql.strip().split()[0] if sql.strip() else "").upper()
 
     def _has_returning_clause(self, sql: str) -> bool:
-        """Check if SQL statement has a RETURNING clause"""
+        """
+        Check if SQL statement has a RETURNING clause
+        
+        Note: Uses simple regex detection that may match RETURNING in string literals
+        or comments. This is acceptable for typical SQL usage in ORM/testing contexts.
+        For production use cases requiring strict parsing, consider using sqlparse.
+        """
         return bool(re.search(r'\bRETURNING\b', sql, re.IGNORECASE))
 
     def _handle_select(self, cursor: sqlite3.Cursor) -> list[dict]:
