@@ -555,5 +555,152 @@ class TestD1DatabaseClose:
         db.close()
 
 
+class TestD1ReturningClause:
+    """Test INSERT/UPDATE/DELETE with RETURNING clause"""
+
+    @pytest.fixture
+    async def db(self):
+        """Create database with test table"""
+        database = MockD1Database()
+        await database.exec("""
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                name TEXT,
+                age INTEGER
+            )
+        """)
+        yield database
+        database.close()
+
+    @pytest.mark.asyncio
+    async def test_insert_with_returning(self, db):
+        """Test INSERT with RETURNING clause returns inserted row"""
+        result = await db.prepare("""
+            INSERT INTO users (email, name, age) 
+            VALUES (?, ?, ?)
+            RETURNING id, email, name, age
+        """).bind("alice@example.com", "Alice", 30).first()
+
+        assert result is not None
+        assert result["email"] == "alice@example.com"
+        assert result["name"] == "Alice"
+        assert result["age"] == 30
+        assert result["id"] == 1
+
+    @pytest.mark.asyncio
+    async def test_insert_or_replace_with_returning(self, db):
+        """Test INSERT OR REPLACE with RETURNING (upsert pattern)"""
+        # First insert
+        result1 = await db.prepare("""
+            INSERT OR REPLACE INTO users (email, name, age)
+            VALUES (?, ?, ?)
+            RETURNING id, email, name, age
+        """).bind("bob@example.com", "Bob", 25).first()
+
+        assert result1 is not None
+        assert result1["name"] == "Bob"
+        assert result1["age"] == 25
+        first_id = result1["id"]
+
+        # Upsert (update based on unique email)
+        result2 = await db.prepare("""
+            INSERT OR REPLACE INTO users (email, name, age)
+            VALUES (?, ?, ?)
+            RETURNING id, email, name, age
+        """).bind("bob@example.com", "Robert", 26).first()
+
+        assert result2 is not None
+        assert result2["name"] == "Robert"
+        assert result2["age"] == 26
+        # ID might change with INSERT OR REPLACE
+        assert result2["id"] is not None
+
+    @pytest.mark.asyncio
+    async def test_update_with_returning(self, db):
+        """Test UPDATE with RETURNING clause"""
+        # Insert initial data
+        await db.prepare(
+            "INSERT INTO users (email, name, age) VALUES (?, ?, ?)"
+        ).bind("charlie@example.com", "Charlie", 35).run()
+
+        # Update with RETURNING
+        result = await db.prepare("""
+            UPDATE users 
+            SET name = ?, age = ?
+            WHERE email = ?
+            RETURNING id, email, name, age
+        """).bind("Charles", 36, "charlie@example.com").first()
+
+        assert result is not None
+        assert result["name"] == "Charles"
+        assert result["age"] == 36
+        assert result["email"] == "charlie@example.com"
+
+    @pytest.mark.asyncio
+    async def test_delete_with_returning(self, db):
+        """Test DELETE with RETURNING clause"""
+        # Insert data
+        await db.prepare(
+            "INSERT INTO users (email, name, age) VALUES (?, ?, ?)"
+        ).bind("delete@example.com", "ToDelete", 40).run()
+
+        # Delete with RETURNING
+        result = await db.prepare("""
+            DELETE FROM users
+            WHERE email = ?
+            RETURNING id, email, name, age
+        """).bind("delete@example.com").first()
+
+        assert result is not None
+        assert result["email"] == "delete@example.com"
+        assert result["name"] == "ToDelete"
+
+        # Verify deletion
+        check = await db.prepare(
+            "SELECT * FROM users WHERE email = ?"
+        ).bind("delete@example.com").first()
+        assert check is None
+
+    @pytest.mark.asyncio
+    async def test_insert_returning_all(self, db):
+        """Test INSERT with RETURNING using all() method"""
+        result = await db.prepare("""
+            INSERT INTO users (email, name, age) 
+            VALUES (?, ?, ?)
+            RETURNING id, email, name
+        """).bind("test@example.com", "Test", 20).all()
+
+        assert isinstance(result.results, list)
+        assert len(result.results) == 1
+        assert result.results[0]["email"] == "test@example.com"
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_multiple_inserts_with_returning_in_batch(self, db):
+        """Test batch operations with RETURNING clauses"""
+        statements = [
+            db.prepare("""
+                INSERT INTO users (email, name, age)
+                VALUES (?, ?, ?)
+                RETURNING id, email, name
+            """).bind("user1@example.com", "User1", 21),
+            db.prepare("""
+                INSERT INTO users (email, name, age)
+                VALUES (?, ?, ?)
+                RETURNING id, email, name
+            """).bind("user2@example.com", "User2", 22),
+        ]
+
+        results = await db.batch(statements)
+
+        assert len(results) == 2
+        assert all(r.success for r in results)
+        assert len(results[0].results) == 1
+        assert results[0].results[0]["email"] == "user1@example.com"
+        assert len(results[1].results) == 1
+        assert results[1].results[0]["email"] == "user2@example.com"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
