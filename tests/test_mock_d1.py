@@ -701,6 +701,89 @@ class TestD1ReturningClause:
         assert len(results[1].results) == 1
         assert results[1].results[0]["email"] == "user2@example.com"
 
+    @pytest.mark.asyncio
+    async def test_insert_returning_metadata_accuracy(self, db):
+        """Test that metadata (changes, rows_written) is accurate for INSERT with RETURNING"""
+        result = await db.prepare("""
+            INSERT INTO users (email, name, age)
+            VALUES (?, ?, ?)
+            RETURNING id, email, name
+        """).bind("metadata@example.com", "Meta", 25).all()
+
+        # Verify metadata is accurate
+        assert result.meta.changes == 1, "changes should be 1 for single INSERT"
+        assert result.meta.rows_written == 1, "rows_written should be 1 for single INSERT"
+        assert result.meta.last_row_id is not None, "last_row_id should be set"
+        assert result.meta.last_row_id > 0, "last_row_id should be positive"
+
+    @pytest.mark.asyncio
+    async def test_update_returning_metadata_accuracy(self, db):
+        """Test that metadata (changes, rows_written) is accurate for UPDATE with RETURNING"""
+        # Insert initial data
+        await db.prepare(
+            "INSERT INTO users (email, name, age) VALUES (?, ?, ?)"
+        ).bind("update@example.com", "Original", 30).run()
+
+        # Update with RETURNING
+        result = await db.prepare("""
+            UPDATE users
+            SET name = ?, age = ?
+            WHERE email = ?
+            RETURNING id, email, name, age
+        """).bind("Updated", 31, "update@example.com").all()
+
+        # Verify metadata is accurate
+        assert result.meta.changes == 1, "changes should be 1 for single UPDATE"
+        assert result.meta.rows_written == 1, "rows_written should be 1 for single UPDATE"
+        assert len(result.results) == 1, "should return exactly one row"
+
+    @pytest.mark.asyncio
+    async def test_delete_returning_metadata_accuracy(self, db):
+        """Test that metadata (changes, rows_written) is accurate for DELETE with RETURNING"""
+        # Insert initial data
+        await db.prepare(
+            "INSERT INTO users (email, name, age) VALUES (?, ?, ?)"
+        ).bind("deleteme@example.com", "ToDelete", 40).run()
+
+        # Delete with RETURNING
+        result = await db.prepare("""
+            DELETE FROM users
+            WHERE email = ?
+            RETURNING id, email, name
+        """).bind("deleteme@example.com").all()
+
+        # Verify metadata is accurate
+        assert result.meta.changes == 1, "changes should be 1 for single DELETE"
+        assert result.meta.rows_written == 1, "rows_written should be 1 for single DELETE"
+        assert len(result.results) == 1, "should return exactly one row with deleted data"
+
+    @pytest.mark.asyncio
+    async def test_update_multiple_rows_returning_metadata(self, db):
+        """Test metadata accuracy for UPDATE affecting multiple rows with RETURNING"""
+        # Insert multiple users
+        await db.prepare(
+            "INSERT INTO users (email, name, age) VALUES (?, ?, ?)"
+        ).bind("user1@test.com", "User1", 25).run()
+        await db.prepare(
+            "INSERT INTO users (email, name, age) VALUES (?, ?, ?)"
+        ).bind("user2@test.com", "User2", 25).run()
+        await db.prepare(
+            "INSERT INTO users (email, name, age) VALUES (?, ?, ?)"
+        ).bind("user3@test.com", "User3", 30).run()
+
+        # Update multiple rows with RETURNING
+        result = await db.prepare("""
+            UPDATE users
+            SET age = ?
+            WHERE age = ?
+            RETURNING id, email, name, age
+        """).bind(26, 25).all()
+
+        # Verify metadata reflects multiple updates
+        assert result.meta.changes == 2, "changes should be 2 for two UPDATEs"
+        assert result.meta.rows_written == 2, "rows_written should be 2 for two UPDATEs"
+        assert len(result.results) == 2, "should return exactly two rows"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
