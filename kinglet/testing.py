@@ -630,7 +630,7 @@ class MockD1Database:
             if op == "INSERT":
                 return self._handle_insert(cursor, sql)
             if op in ("UPDATE", "DELETE"):
-                return self._handle_write(cursor)
+                return self._handle_write(cursor, sql)
             return self._handle_ddl()
 
         try:
@@ -652,11 +652,31 @@ class MockD1Database:
     def _operation(self, sql: str) -> str:
         return (sql.strip().split()[0] if sql.strip() else "").upper()
 
+    def _has_returning_clause(self, sql: str) -> bool:
+        """
+        Check if SQL statement has a RETURNING clause
+        
+        Note: Uses simple regex detection that may match RETURNING in string literals
+        or comments. This is acceptable for typical SQL usage in ORM/testing contexts.
+        For production use cases requiring strict parsing, consider using sqlparse.
+        """
+        return bool(re.search(r'\bRETURNING\b', sql, re.IGNORECASE))
+
     def _handle_select(self, cursor: sqlite3.Cursor) -> list[dict]:
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
     def _handle_insert(self, cursor: sqlite3.Cursor, sql: str) -> list[dict]:
+        # If the INSERT has a RETURNING clause, fetch results before commit
+        if self._has_returning_clause(sql):
+            rows = cursor.fetchall()
+            if not self._in_batch:
+                self._conn.commit()
+            self._last_row_id = cursor.lastrowid
+            self._last_changes = cursor.rowcount
+            return [dict(row) for row in rows]
+
+        # Standard INSERT without RETURNING
         if not self._in_batch:
             self._conn.commit()
         self._last_row_id = cursor.lastrowid
@@ -680,7 +700,17 @@ class MockD1Database:
                     return [{"id": self._last_row_id}] if self._last_row_id else []
         return [{"id": self._last_row_id}] if self._last_row_id else []
 
-    def _handle_write(self, cursor: sqlite3.Cursor) -> list[dict]:
+    def _handle_write(self, cursor: sqlite3.Cursor, sql: str) -> list[dict]:
+        # If the UPDATE/DELETE has a RETURNING clause, fetch results before commit
+        if self._has_returning_clause(sql):
+            rows = cursor.fetchall()
+            if not self._in_batch:
+                self._conn.commit()
+            self._last_changes = cursor.rowcount
+            self._last_row_id = None
+            return [dict(row) for row in rows]
+
+        # Standard UPDATE/DELETE without RETURNING
         if not self._in_batch:
             self._conn.commit()
         self._last_changes = cursor.rowcount
