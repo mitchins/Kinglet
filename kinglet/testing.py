@@ -1487,7 +1487,7 @@ class MockSentEmail:
     reply_to: list[str] | None = None
     region: str | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
-    message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    message_id: str | None = None
     success: bool = True
     error: str | None = None
 
@@ -1624,7 +1624,7 @@ class MockEmailSender:
             bcc=bcc,
             reply_to=reply_to,
             region=region,
-            message_id=message_id or "",
+            message_id=message_id,
             success=success,
             error=error,
         )
