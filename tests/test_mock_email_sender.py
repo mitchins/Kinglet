@@ -20,6 +20,7 @@ class TestMockSentEmail:
             to=["recipient@example.com"],
             subject="Test Subject",
             body_text="Test body",
+            message_id="test-message-id",
         )
         assert email.from_email == "sender@example.com"
         assert email.to == ["recipient@example.com"]
@@ -27,7 +28,17 @@ class TestMockSentEmail:
         assert email.body_text == "Test body"
         assert email.success is True
         assert email.error is None
-        assert email.message_id is not None
+        assert email.message_id == "test-message-id"
+
+    def test_default_message_id(self):
+        """Test that message_id defaults to None"""
+        email = MockSentEmail(
+            from_email="sender@example.com",
+            to=["recipient@example.com"],
+            subject="Test Subject",
+            body_text="Test body",
+        )
+        assert email.message_id is None
 
     def test_with_optional_fields(self):
         """Test MockSentEmail with all optional fields"""
