@@ -74,7 +74,7 @@ class TestImportFallbacks:
         assert hasattr(kinglet, "__author__")
         assert hasattr(kinglet, "__all__")
 
-        assert kinglet.__version__ == "1.8.1"  # Current version
+        assert kinglet.__version__ == "1.8.2"  # Current version
         assert kinglet.__author__ == "Mitchell Currie"
         assert isinstance(kinglet.__all__, list)
         assert len(kinglet.__all__) > 0

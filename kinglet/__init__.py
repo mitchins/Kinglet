@@ -79,22 +79,22 @@ from .testing import (
     D1PreparedStatementError,
     D1Result,
     D1ResultMeta,
+    # Email Mock
+    EmailMockError,
     MockD1Database,
     MockD1PreparedStatement,
+    MockEmailSender,
     # R2 Storage Mock
     MockR2Bucket,
     MockR2Object,
     MockR2ObjectBody,
+    MockSentEmail,
     R2MockError,
     R2MultipartAbortedError,
     R2MultipartCompletedError,
     R2MultipartUploadError,
     R2PartNotFoundError,
     R2TooManyKeysError,
-    # Email Mock
-    EmailMockError,
-    MockEmailSender,
-    MockSentEmail,
     # Test Client
     TestClient,
 )
@@ -176,7 +176,7 @@ try:
 except ImportError:
     _openapi_available = False
 
-__version__ = "1.8.1"
+__version__ = "1.8.2"
 __author__ = "Mitchell Currie"
 
 # Export commonly used items
