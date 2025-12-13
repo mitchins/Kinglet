@@ -91,6 +91,10 @@ from .testing import (
     R2MultipartUploadError,
     R2PartNotFoundError,
     R2TooManyKeysError,
+    # Email Mock
+    EmailMockError,
+    MockEmailSender,
+    MockSentEmail,
     # Test Client
     TestClient,
 )
@@ -220,6 +224,10 @@ __all__ = [
     "R2MultipartUploadError",
     "R2PartNotFoundError",
     "R2TooManyKeysError",
+    # Testing - Email Mock
+    "MockEmailSender",
+    "MockSentEmail",
+    "EmailMockError",
     # Middleware
     "Middleware",
     "CorsMiddleware",

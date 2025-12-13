@@ -22,6 +22,7 @@ Quick start examples for all Kinglet features.
 
 ### Email & Integrations
 - **[ses_email_example.py](ses_email_example.py)** - Amazon SES email
+- **[mock_email_sender_example.py](mock_email_sender_example.py)** - Testing email functionality
 
 ### Media & Advanced
 - **[r2_media_example.py](r2_media_example.py)** - File upload/download

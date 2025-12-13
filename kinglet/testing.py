@@ -5,6 +5,7 @@ This module provides testing utilities for Kinglet applications:
 - TestClient: Simple sync wrapper for testing without HTTP overhead
 - MockD1Database: In-memory D1 database for unit testing
 - MockR2Bucket: In-memory R2 storage for unit testing
+- MockEmailSender: In-memory email sender for unit testing
 """
 
 import asyncio
@@ -1484,3 +1485,293 @@ class MockR2Bucket:
     def object_count(self) -> int:
         """Get number of objects in the bucket (test utility)"""
         return len(self._objects)
+
+
+# =============================================================================
+# Email Mock Implementation - Mock SES Email Sender
+# =============================================================================
+
+
+class EmailMockError(Exception):
+    """Base exception for email mock errors"""
+
+    pass
+
+
+@dataclass
+class MockSentEmail:
+    """
+    Record of a sent email for test verification
+
+    Contains all parameters passed to send_email() plus metadata
+    about when it was sent and whether it succeeded.
+    """
+
+    from_email: str
+    to: list[str]
+    subject: str
+    body_text: str
+    body_html: str | None = None
+    cc: list[str] | None = None
+    bcc: list[str] | None = None
+    reply_to: list[str] | None = None
+    region: str | None = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    message_id: str | None = None
+    success: bool = True
+    error: str | None = None
+
+
+class MockEmailSender:
+    """
+    Mock Email Sender for Unit Testing
+
+    Provides an in-memory email sender that mimics the kinglet.ses.send_email()
+    behavior. Enables unit tests to run without actual AWS SES or email delivery.
+
+    Features:
+    - Records all sent emails for test verification
+    - Supports success/failure simulation
+    - Async callbacks for awaiting email sends
+    - Configurable default behavior (success/fail)
+
+    Usage:
+        from kinglet import MockEmailSender
+        from kinglet.ses import EmailResult
+
+        # Basic usage - automatically succeed
+        sender = MockEmailSender()
+        result = await sender.send_email(
+            from_email="test@example.com",
+            to=["user@example.com"],
+            subject="Test",
+            body_text="Hello"
+        )
+        assert result.success
+        assert len(sender.sent_emails) == 1
+
+        # Force specific emails to fail
+        sender = MockEmailSender()
+        sender.set_failure_for("user@example.com", "Invalid address")
+        result = await sender.send_email(
+            from_email="test@example.com",
+            to=["user@example.com"],
+            subject="Test",
+            body_text="Hello"
+        )
+        assert not result.success
+        assert "Invalid address" in result.error
+
+        # Use with patching in tests
+        with patch("kinglet.ses.send_email", sender.send_email):
+            # Test code that sends emails
+            ...
+    """
+
+    def __init__(self, *, default_success: bool = True):
+        """
+        Initialize mock email sender
+
+        Args:
+            default_success: Whether emails should succeed by default (True)
+                           or fail by default (False)
+        """
+        self.sent_emails: list[MockSentEmail] = []
+        self._default_success = default_success
+        self._failures: dict[str, str] = {}  # email -> error message
+        self._default_error: str | None = None
+
+    async def send_email(
+        self,
+        env=None,
+        *,
+        from_email: str,
+        to: list[str],
+        subject: str,
+        body_text: str,
+        body_html: str | None = None,
+        cc: list[str] | None = None,
+        bcc: list[str] | None = None,
+        reply_to: list[str] | None = None,
+        region: str | None = None,
+    ):
+        """
+        Mock send_email implementation matching kinglet.ses.send_email signature
+
+        Records the email and returns EmailResult based on configured behavior.
+        Note: env parameter is accepted but ignored (for API compatibility).
+
+        Args:
+            env: Ignored (for API compatibility with real send_email)
+            from_email: Sender email address
+            to: List of recipient email addresses
+            subject: Email subject
+            body_text: Plain text email body
+            body_html: Optional HTML email body
+            cc: Optional CC recipients
+            bcc: Optional BCC recipients
+            reply_to: Optional reply-to addresses
+            region: AWS region (recorded but not used)
+
+        Returns:
+            EmailResult from kinglet.ses module
+        """
+        # Import here to avoid circular dependency
+        from .ses import EmailResult
+
+        # Small async delay to simulate network I/O
+        await asyncio.sleep(0)
+
+        # Check if any recipient should fail
+        failure_error = None
+        for recipient in to:
+            if recipient in self._failures:
+                failure_error = self._failures[recipient]
+                break
+
+        # Determine success/failure
+        if failure_error:
+            success = False
+            error = failure_error
+            message_id = None
+        elif not self._default_success:
+            success = False
+            error = self._default_error or "Mock email sender configured to fail"
+            message_id = None
+        else:
+            success = True
+            error = None
+            message_id = str(uuid.uuid4())
+
+        # Record the sent email
+        sent_email = MockSentEmail(
+            from_email=from_email,
+            to=to,
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            cc=cc,
+            bcc=bcc,
+            reply_to=reply_to,
+            region=region,
+            message_id=message_id,
+            success=success,
+            error=error,
+        )
+        self.sent_emails.append(sent_email)
+
+        return EmailResult(success=success, message_id=message_id, error=error)
+
+    def set_failure_for(self, email: str, error: str) -> None:
+        """
+        Configure a specific email address to fail
+
+        Args:
+            email: Email address that should fail
+            error: Error message to return
+        """
+        self._failures[email] = error
+
+    def clear_failures(self) -> None:
+        """Clear all configured failures"""
+        self._failures.clear()
+
+    def set_default_failure(self, error: str | None = None) -> None:
+        """
+        Set all emails to fail by default
+
+        Args:
+            error: Optional custom error message
+        """
+        self._default_success = False
+        self._default_error = error
+
+    def set_default_success(self) -> None:
+        """Set all emails to succeed by default"""
+        self._default_success = True
+        self._default_error = None
+
+    def clear(self) -> None:
+        """Clear all sent emails (test utility)"""
+        self.sent_emails.clear()
+
+    def get_sent_to(self, email: str) -> list[MockSentEmail]:
+        """
+        Get all emails sent to a specific address
+
+        Args:
+            email: Email address to filter by
+
+        Returns:
+            List of MockSentEmail records sent to that address
+        """
+        return [e for e in self.sent_emails if email in e.to]
+
+    def get_by_subject(self, subject: str) -> list[MockSentEmail]:
+        """
+        Get all emails with a specific subject
+
+        Args:
+            subject: Subject line to filter by (exact match)
+
+        Returns:
+            List of MockSentEmail records with that subject
+        """
+        return [e for e in self.sent_emails if e.subject == subject]
+
+    def assert_sent(
+        self,
+        *,
+        to: str | None = None,
+        subject: str | None = None,
+        count: int | None = None,
+    ) -> None:
+        """
+        Assert that emails matching criteria were sent
+
+        Args:
+            to: Optional email address to filter by
+            subject: Optional subject to filter by
+            count: Optional expected count of matching emails.
+                   If not provided, asserts at least one email matches.
+
+        Raises:
+            AssertionError: If assertions fail
+        """
+        emails = self.sent_emails
+
+        if to:
+            emails = [e for e in emails if to in e.to]
+
+        if subject:
+            emails = [e for e in emails if e.subject == subject]
+
+        if count is not None:
+            actual = len(emails)
+            if actual != count:
+                raise AssertionError(
+                    f"Expected {count} emails but found {actual}. "
+                    f"Filters: to={to}, subject={subject}"
+                )
+        else:
+            # If no count specified, assert at least one email matches
+            if len(emails) == 0:
+                raise AssertionError(
+                    f"No emails found matching criteria. "
+                    f"Filters: to={to}, subject={subject}"
+                )
+
+    @property
+    def count(self) -> int:
+        """Get total number of sent emails"""
+        return len(self.sent_emails)
+
+    @property
+    def success_count(self) -> int:
+        """Get number of successfully sent emails"""
+        return sum(1 for e in self.sent_emails if e.success)
+
+    @property
+    def failure_count(self) -> int:
+        """Get number of failed emails"""
+        return sum(1 for e in self.sent_emails if not e.success)
