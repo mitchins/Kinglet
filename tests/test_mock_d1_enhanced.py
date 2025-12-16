@@ -241,7 +241,9 @@ class TestAggregateFunctions:
             "SELECT AVG(points) as avg_points FROM team_members WHERE team_id = ?"
         ).bind(1).first()
 
-        assert result["avg_points"] == pytest.approx(116.67, rel=0.01)
+        # Calculate expected average dynamically
+        expected_avg = sum([150, 120, 80]) / 3
+        assert result["avg_points"] == pytest.approx(expected_avg, rel=0.01)
 
     @pytest.mark.asyncio
     async def test_max_min_aggregates(self, db):
@@ -285,9 +287,10 @@ class TestAggregateFunctions:
         """).all()
 
         assert len(result.results) == 3
-        # Team 1
+        # Team 1 - calculate expected average dynamically
+        expected_avg = sum([150, 120, 80]) / 3
         assert result.results[0]["total"] == 3
-        assert result.results[0]["avg_points"] == pytest.approx(116.67, rel=0.01)
+        assert result.results[0]["avg_points"] == pytest.approx(expected_avg, rel=0.01)
         assert result.results[0]["top_score"] == 95
 
     @pytest.mark.asyncio
