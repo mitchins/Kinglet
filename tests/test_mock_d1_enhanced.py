@@ -609,6 +609,86 @@ class TestTransactionSupport:
         assert len(result.results) == 1
         assert result.results[0]["name"] == "Alice"
 
+    @pytest.mark.asyncio
+    async def test_exec_multiple_calls_in_transaction(self, db):
+        """
+        Test that exec() does not auto-commit when inside an explicit transaction
+        started by a previous exec() call.
+        
+        Regression test: exec("BEGIN"); exec("INSERT..."); exec("ROLLBACK")
+        should properly rollback the insert, not auto-commit it.
+        """
+        await db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+        
+        # Insert initial data
+        await db.prepare("INSERT INTO users (name) VALUES (?)").bind("Initial").run()
+        initial_count = (await db.prepare("SELECT COUNT(*) as count FROM users").first())["count"]
+        assert initial_count == 1
+        
+        # Start explicit transaction via exec
+        await db.exec("BEGIN TRANSACTION")
+        
+        # Insert data via exec (should NOT auto-commit)
+        await db.exec("INSERT INTO users (name) VALUES ('Alice')")
+        
+        # Insert more data via exec (should also NOT auto-commit)
+        await db.exec("INSERT INTO users (name) VALUES ('Bob')")
+        
+        # Rollback via exec
+        await db.exec("ROLLBACK")
+        
+        # Verify rollback worked - should still have only initial row
+        final_count = (await db.prepare("SELECT COUNT(*) as count FROM users").first())["count"]
+        assert final_count == 1, f"Expected 1 row after rollback, got {final_count}"
+
+    @pytest.mark.asyncio
+    async def test_exec_commit_in_transaction(self, db):
+        """Test that exec() properly commits when COMMIT is called"""
+        await db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+        
+        # Start explicit transaction via exec
+        await db.exec("BEGIN TRANSACTION")
+        
+        # Insert data via exec
+        await db.exec("INSERT INTO users (name) VALUES ('Alice')")
+        
+        # Commit via exec
+        await db.exec("COMMIT")
+        
+        # Verify data was committed
+        count = (await db.prepare("SELECT COUNT(*) as count FROM users").first())["count"]
+        assert count == 1
+        
+        # Verify we can now do normal operations (not in transaction anymore)
+        await db.exec("INSERT INTO users (name) VALUES ('Bob')")
+        final_count = (await db.prepare("SELECT COUNT(*) as count FROM users").first())["count"]
+        assert final_count == 2
+
+    @pytest.mark.asyncio  
+    async def test_exec_mixed_with_prepare_in_transaction(self, db):
+        """
+        Test that prepare() statements respect explicit transactions started via exec()
+        """
+        await db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+        
+        # Insert initial data
+        await db.prepare("INSERT INTO users (name) VALUES (?)").bind("Initial").run()
+        
+        # Start explicit transaction via exec
+        await db.exec("BEGIN TRANSACTION")
+        
+        # Mix exec and prepare calls
+        await db.exec("INSERT INTO users (name) VALUES ('Alice')")
+        await db.prepare("INSERT INTO users (name) VALUES (?)").bind("Bob").run()
+        await db.exec("INSERT INTO users (name) VALUES ('Charlie')")
+        
+        # Rollback
+        await db.exec("ROLLBACK")
+        
+        # Verify rollback worked - should still have only initial row
+        final_count = (await db.prepare("SELECT COUNT(*) as count FROM users").first())["count"]
+        assert final_count == 1, f"Expected 1 row after rollback, got {final_count}"
+
 
 class TestDistinctAndLimitOffset:
     """Test DISTINCT, LIMIT, and OFFSET support"""

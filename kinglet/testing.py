@@ -630,9 +630,12 @@ class MockD1Database:
             # Check if any statement is a transaction control statement
             has_transaction_control = any(_is_transaction_control(s) for s in statements)
             
+            # Don't auto-wrap if we're in an explicit transaction or if this call contains transaction control
+            should_auto_wrap = not has_transaction_control and not self._in_explicit_transaction
+            
             try:
-                # Only wrap in BEGIN/COMMIT if there are no transaction control statements
-                if not has_transaction_control:
+                # Only wrap in BEGIN/COMMIT if appropriate
+                if should_auto_wrap:
                     cursor.execute("BEGIN")
                 
                 for statement in statements:
@@ -648,12 +651,12 @@ class MockD1Database:
                     count_local += 1
                 
                 # Only commit if we started a transaction
-                if not has_transaction_control:
+                if should_auto_wrap:
                     self._conn.commit()
                 
                 return count_local
             except sqlite3.Error as e:  # pragma: no cover - error path
-                if not has_transaction_control:
+                if should_auto_wrap:
                     self._conn.rollback()
                 raise e
 
