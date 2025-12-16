@@ -465,7 +465,18 @@ class MockD1Database:
     Supported operations:
     - prepare(query) - Create a prepared statement
     - batch(statements) - Execute multiple statements atomically
-    - exec(sql) - Execute raw SQL (for schema creation)
+    - exec(sql) - Execute raw SQL (for schema creation and transactions)
+
+    Comprehensive SQL Support (via SQLite passthrough):
+    - ✅ Complex WHERE clauses (AND/OR/IN/LIKE/IS NULL/comparison operators)
+    - ✅ Aggregate functions (COUNT/SUM/AVG/MAX/MIN) and GROUP BY/HAVING
+    - ✅ JOIN operations (INNER/LEFT/RIGHT joins with table aliases)
+    - ✅ Subqueries in WHERE and FROM clauses
+    - ✅ Advanced operators (BETWEEN/CASE/COALESCE)
+    - ✅ Transaction support (BEGIN/COMMIT/ROLLBACK)
+    - ✅ DISTINCT, LIMIT, and OFFSET
+    - ✅ Window functions and CTEs (Common Table Expressions)
+    - ✅ All standard SQLite SQL features
 
     Type Conversion (matching D1):
     - None → NULL
@@ -480,12 +491,21 @@ class MockD1Database:
         db = MockD1Database()
         await db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
 
-        stmt = db.prepare("INSERT INTO users (name) VALUES (?)").bind("Alice")
-        result = await stmt.run()
+        # Complex queries work out of the box
+        result = await db.prepare('''
+            SELECT u.name, COUNT(o.id) as order_count
+            FROM users u
+            LEFT JOIN orders o ON u.id = o.user_id
+            WHERE u.status = ? AND u.created_at > ?
+            GROUP BY u.id
+            HAVING COUNT(o.id) > ?
+            ORDER BY order_count DESC
+        ''').bind('active', 1000, 5).all()
 
-        users = await db.prepare("SELECT * FROM users").all()
-        for user in users.results:
-            print(user["name"])
+        # Transaction support
+        await db.exec("BEGIN TRANSACTION")
+        await db.prepare("INSERT INTO users (name) VALUES (?)").bind("Alice").run()
+        await db.exec("COMMIT")
     """
 
     def __init__(self, db_path: str = ":memory:", *, foreign_keys: bool = True):
@@ -504,6 +524,7 @@ class MockD1Database:
         self._last_row_id: int | None = None
         self._last_changes: int = 0
         self._in_batch: bool = False  # Track batch context for transaction handling
+        self._in_explicit_transaction: bool = False  # Track user-managed transactions
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -569,11 +590,15 @@ class MockD1Database:
 
     async def exec(self, sql: str) -> D1ExecResult:
         """
-        Execute raw SQL directly (for schema creation)
+        Execute raw SQL directly (for schema creation and transaction control)
 
         Supports multiple statements separated by semicolons.
         Does not support parameter binding. All statements are executed
         atomically - if any statement fails, all are rolled back.
+
+        Transaction Control:
+            BEGIN TRANSACTION, COMMIT, and ROLLBACK statements are handled
+            specially and not wrapped in an additional transaction.
 
         Note:
             Statement splitting uses simple semicolon detection. Semicolons
@@ -589,20 +614,46 @@ class MockD1Database:
         """
         start_time = time.time()
 
+        def _is_transaction_control(stmt: str) -> bool:
+            """Check if statement is a transaction control statement"""
+            stmt_upper = stmt.upper()
+            return any(stmt_upper.startswith(keyword) for keyword in [
+                "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE"
+            ])
+
         def _do_exec() -> int:
             cursor = self._conn.cursor()
             count_local = 0
+            statements = [s.strip() for s in sql.split(";") if s.strip()]
+            
+            # Check if any statement is a transaction control statement
+            has_transaction_control = any(_is_transaction_control(s) for s in statements)
+            
             try:
-                cursor.execute("BEGIN")
-                for statement in sql.split(";"):
-                    statement = statement.strip()
-                    if statement:
-                        cursor.execute(statement)
-                        count_local += 1
-                self._conn.commit()
+                # Only wrap in BEGIN/COMMIT if there are no transaction control statements
+                if not has_transaction_control:
+                    cursor.execute("BEGIN")
+                
+                for statement in statements:
+                    stmt_upper = statement.upper()
+                    
+                    # Track explicit transaction state
+                    if stmt_upper.startswith("BEGIN"):
+                        self._in_explicit_transaction = True
+                    elif stmt_upper.startswith(("COMMIT", "ROLLBACK")):
+                        self._in_explicit_transaction = False
+                    
+                    cursor.execute(statement)
+                    count_local += 1
+                
+                # Only commit if we started a transaction
+                if not has_transaction_control:
+                    self._conn.commit()
+                
                 return count_local
             except sqlite3.Error as e:  # pragma: no cover - error path
-                self._conn.rollback()
+                if not has_transaction_control:
+                    self._conn.rollback()
                 raise e
 
         try:
@@ -671,14 +722,14 @@ class MockD1Database:
         # If the INSERT has a RETURNING clause, fetch results before commit
         if self._has_returning_clause(sql):
             rows = cursor.fetchall()
-            if not self._in_batch:
+            if not self._in_batch and not self._in_explicit_transaction:
                 self._conn.commit()
             self._last_row_id = cursor.lastrowid
             self._last_changes = cursor.rowcount
             return [dict(row) for row in rows]
 
         # Standard INSERT without RETURNING
-        if not self._in_batch:
+        if not self._in_batch and not self._in_explicit_transaction:
             self._conn.commit()
         self._last_row_id = cursor.lastrowid
         self._last_changes = cursor.rowcount
@@ -705,21 +756,21 @@ class MockD1Database:
         # If the UPDATE/DELETE has a RETURNING clause, fetch results before commit
         if self._has_returning_clause(sql):
             rows = cursor.fetchall()
-            if not self._in_batch:
+            if not self._in_batch and not self._in_explicit_transaction:
                 self._conn.commit()
             self._last_changes = cursor.rowcount
             self._last_row_id = None
             return [dict(row) for row in rows]
 
         # Standard UPDATE/DELETE without RETURNING
-        if not self._in_batch:
+        if not self._in_batch and not self._in_explicit_transaction:
             self._conn.commit()
         self._last_changes = cursor.rowcount
         self._last_row_id = None
         return []
 
     def _handle_ddl(self) -> list[dict]:
-        if not self._in_batch:
+        if not self._in_batch and not self._in_explicit_transaction:
             self._conn.commit()
         return []
 
