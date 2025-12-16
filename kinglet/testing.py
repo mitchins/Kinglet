@@ -508,6 +508,9 @@ class MockD1Database:
         await db.exec("COMMIT")
     """
 
+    # Transaction control keywords for statement detection
+    _TRANSACTION_KEYWORDS = ("BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE")
+
     def __init__(self, db_path: str = ":memory:", *, foreign_keys: bool = True):
         """
         Initialize mock D1 database
@@ -617,9 +620,7 @@ class MockD1Database:
         def _is_transaction_control(stmt: str) -> bool:
             """Check if statement is a transaction control statement"""
             stmt_upper = stmt.upper()
-            return any(stmt_upper.startswith(keyword) for keyword in [
-                "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE"
-            ])
+            return any(stmt_upper.startswith(keyword) for keyword in self._TRANSACTION_KEYWORDS)
 
         def _do_exec() -> int:
             cursor = self._conn.cursor()
