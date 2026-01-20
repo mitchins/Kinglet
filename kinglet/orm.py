@@ -12,7 +12,6 @@ Key differences from Peewee/SQLAlchemy:
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import AsyncGenerator, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -26,10 +25,8 @@ from .orm_errors import (
     ValidationError,
     get_constraint_registry,
 )
+from .sql import quote_ident_sqlite, safe_ident
 from .storage import d1_unwrap, d1_unwrap_results
-
-# Safe SQL identifier validation and quoting
-_IDENT = re.compile(r"^[A-Za-z_]\w*$")
 
 # Error message constants for reuse
 _FIELD_NOT_EXIST_MSG = "Field '{field_name}' does not exist on {model_name}"
@@ -39,9 +36,11 @@ _LIMIT_EXCEED_MSG = "Limit cannot exceed 10000 (D1 safety limit)"
 
 def _qi(name: str) -> str:
     """Quote and validate SQL identifier to prevent injection"""
-    if not _IDENT.fullmatch(name):
-        raise ValueError(f"Unsafe SQL identifier: {name!r}")
-    return f'"{name}"'  # SQLite identifier quoting
+    try:
+        safe_ident(name)  # Validates the identifier
+    except ValueError as e:
+        raise ValueError(f"Unsafe SQL identifier: {name!r}") from e
+    return quote_ident_sqlite(name)
 
 
 class Field:

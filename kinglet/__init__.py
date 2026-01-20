@@ -1,13 +1,19 @@
 """
 Kinglet - A lightweight routing framework for Python Workers
+
+Cold Start Optimization: Heavy modules (ORM, testing, serializers, pagination,
+validation schemas) are lazy-loaded via __getattr__ to reduce Workers cold start.
 """
 
-# Core framework
-# Import specialized modules for FGA support, TOTP, and SES
-from . import authz, ses, totp
+from typing import TYPE_CHECKING
+
+# =============================================================================
+# EAGER IMPORTS - Core framework essentials (always needed, fast to load)
+# =============================================================================
+# Core framework - minimal, always needed
 from .core import Kinglet, Route, Router
 
-# Decorators
+# Decorators - small, commonly used
 from .decorators import (
     geo_restrict,
     require_dev,
@@ -16,39 +22,16 @@ from .decorators import (
     wrap_exceptions,
 )
 
-# Exceptions
+# Exceptions - minimal, always needed
 from .exceptions import DevOnlyError, GeoRestrictedError, HTTPError
 
-# HTTP primitives
+# HTTP primitives - minimal, always needed
 from .http import Request, Response, error_response, generate_request_id
 
-# Middleware
+# Middleware - small, commonly used
 from .middleware import CorsMiddleware, Middleware, TimingMiddleware
 
-# Pagination System
-from .pagination import (
-    CursorPaginator,
-    PageInfo,
-    PaginatedResult,
-    PaginationConfig,
-    PaginationMixin,
-    Paginator,
-    create_pagination_urls,
-    paginate_queryset,
-)
-
-# Serialization System
-from .serializers import (
-    FieldTransforms,
-    ModelSerializer,
-    SerializationContext,
-    SerializerConfig,
-    SerializerMixin,
-    serialize_model,
-    serialize_models,
-)
-
-# Service Layer Utilities
+# Service Layer - commonly used
 from .services import (
     BaseService,
     ServiceException,
@@ -57,7 +40,7 @@ from .services import (
     handle_service_exceptions,
 )
 
-# Storage helpers
+# Storage helpers - minimal, commonly needed for D1/R2
 from .storage import (
     arraybuffer_to_bytes,
     bytes_to_arraybuffer,
@@ -70,36 +53,7 @@ from .storage import (
     r2_put,
 )
 
-# Testing utilities
-from .testing import (
-    D1DatabaseError,
-    # D1 Database Mock
-    D1ExecResult,
-    D1MockError,
-    D1PreparedStatementError,
-    D1Result,
-    D1ResultMeta,
-    # Email Mock
-    EmailMockError,
-    MockD1Database,
-    MockD1PreparedStatement,
-    MockEmailSender,
-    # R2 Storage Mock
-    MockR2Bucket,
-    MockR2Object,
-    MockR2ObjectBody,
-    MockSentEmail,
-    R2MockError,
-    R2MultipartAbortedError,
-    R2MultipartCompletedError,
-    R2MultipartUploadError,
-    R2PartNotFoundError,
-    R2TooManyKeysError,
-    # Test Client
-    TestClient,
-)
-
-# Utilities
+# Utilities - cache helpers are commonly used
 from .utils import (
     AlwaysCachePolicy,
     CacheService,
@@ -113,43 +67,24 @@ from .utils import (
     set_default_cache_policy,
 )
 
-# Validation System
-from .validation import (
-    LISTING_CREATION_SCHEMA,
-    USER_LOGIN_SCHEMA,
-    USER_REGISTRATION_SCHEMA,
-    ChoicesValidator,
-    DateValidator,
-    EmailValidator,
-    LengthValidator,
-    PasswordValidator,
-    RangeValidator,
-    RegexValidator,
-    RequiredValidator,
-    ValidationResult,
-    ValidationSchema,
-    Validator,
-    validate_email,
-    validate_json,
-    validate_password,
-    validate_required_fields,
-    validate_schema,
-)
+# =============================================================================
+# TYPE CHECKING IMPORTS - For static analysis only, no runtime cost
+# =============================================================================
 
-# D1 Cache (optional import)
-try:
+if TYPE_CHECKING:
+    # ORM types
+    # Specialized modules
+    from . import authz, ses, totp
+
+    # D1 Cache types
     from .cache_d1 import (  # noqa: F401
         D1CacheService,
         ensure_cache_table,
         generate_cache_key,
     )
 
-    _d1_available = True
-except ImportError:
-    _d1_available = False
-
-# Micro-ORM (optional import)
-try:
+    # OpenAPI types
+    from .openapi import SchemaGenerator
     from .orm import (
         BooleanField,
         DateTimeField,
@@ -164,19 +99,239 @@ try:
         StringField,
     )
 
-    _orm_available = True
-except ImportError:
-    _orm_available = False
+    # Pagination types
+    from .pagination import (
+        CursorPaginator,
+        PageInfo,
+        PaginatedResult,
+        PaginationConfig,
+        PaginationMixin,
+        Paginator,
+        create_pagination_urls,
+        paginate_queryset,
+    )
 
-# OpenAPI (optional import - requires ORM)
-try:
-    from .openapi import SchemaGenerator
+    # Serialization types
+    from .serializers import (
+        FieldTransforms,
+        ModelSerializer,
+        SerializationContext,
+        SerializerConfig,
+        SerializerMixin,
+        serialize_model,
+        serialize_models,
+    )
 
-    _openapi_available = True
-except ImportError:
-    _openapi_available = False
+    # Testing types
+    from .testing import (
+        D1DatabaseError,
+        D1ExecResult,
+        D1MockError,
+        D1PreparedStatementError,
+        D1Result,
+        D1ResultMeta,
+        EmailMockError,
+        MockD1Database,
+        MockD1PreparedStatement,
+        MockEmailSender,
+        MockR2Bucket,
+        MockR2Object,
+        MockR2ObjectBody,
+        MockSentEmail,
+        R2MockError,
+        R2MultipartAbortedError,
+        R2MultipartCompletedError,
+        R2MultipartUploadError,
+        R2PartNotFoundError,
+        R2TooManyKeysError,
+        TestClient,
+    )
 
-__version__ = "1.8.2"
+    # Validation types
+    from .validation import (
+        LISTING_CREATION_SCHEMA,
+        USER_LOGIN_SCHEMA,
+        USER_REGISTRATION_SCHEMA,
+        ChoicesValidator,
+        DateValidator,
+        EmailValidator,
+        LengthValidator,
+        PasswordValidator,
+        RangeValidator,
+        RegexValidator,
+        RequiredValidator,
+        ValidationResult,
+        ValidationSchema,
+        Validator,
+        validate_email,
+        validate_json,
+        validate_password,
+        validate_required_fields,
+        validate_schema,
+    )
+
+# =============================================================================
+# LAZY LOADING INFRASTRUCTURE
+# =============================================================================
+
+# Module caches for lazy loading (avoid repeated imports)
+_lazy_module_cache: dict = {}
+
+# Availability flags (set on first access)
+_orm_available: bool | None = None
+_d1_available: bool | None = None
+_openapi_available: bool | None = None
+
+# Mapping of lazy-loaded attributes to their module and import name
+_LAZY_IMPORTS = {
+    # ORM (orm.py - 1,722 lines, heavy metaclass setup)
+    "Model": ("orm", "Model"),
+    "Field": ("orm", "Field"),
+    "StringField": ("orm", "StringField"),
+    "IntegerField": ("orm", "IntegerField"),
+    "BooleanField": ("orm", "BooleanField"),
+    "FloatField": ("orm", "FloatField"),
+    "DateTimeField": ("orm", "DateTimeField"),
+    "JSONField": ("orm", "JSONField"),
+    "QuerySet": ("orm", "QuerySet"),
+    "Manager": ("orm", "Manager"),
+    "SchemaManager": ("orm", "SchemaManager"),
+    # Testing (testing.py - 1,778 lines, mock classes with sqlite)
+    "TestClient": ("testing", "TestClient"),
+    "MockD1Database": ("testing", "MockD1Database"),
+    "MockD1PreparedStatement": ("testing", "MockD1PreparedStatement"),
+    "D1Result": ("testing", "D1Result"),
+    "D1ResultMeta": ("testing", "D1ResultMeta"),
+    "D1ExecResult": ("testing", "D1ExecResult"),
+    "D1MockError": ("testing", "D1MockError"),
+    "D1DatabaseError": ("testing", "D1DatabaseError"),
+    "D1PreparedStatementError": ("testing", "D1PreparedStatementError"),
+    "MockR2Bucket": ("testing", "MockR2Bucket"),
+    "MockR2Object": ("testing", "MockR2Object"),
+    "MockR2ObjectBody": ("testing", "MockR2ObjectBody"),
+    "R2MockError": ("testing", "R2MockError"),
+    "R2MultipartAbortedError": ("testing", "R2MultipartAbortedError"),
+    "R2MultipartCompletedError": ("testing", "R2MultipartCompletedError"),
+    "R2MultipartUploadError": ("testing", "R2MultipartUploadError"),
+    "R2PartNotFoundError": ("testing", "R2PartNotFoundError"),
+    "R2TooManyKeysError": ("testing", "R2TooManyKeysError"),
+    "MockEmailSender": ("testing", "MockEmailSender"),
+    "MockSentEmail": ("testing", "MockSentEmail"),
+    "EmailMockError": ("testing", "EmailMockError"),
+    # Pagination (pagination.py - moderate size)
+    "PageInfo": ("pagination", "PageInfo"),
+    "PaginatedResult": ("pagination", "PaginatedResult"),
+    "PaginationConfig": ("pagination", "PaginationConfig"),
+    "Paginator": ("pagination", "Paginator"),
+    "PaginationMixin": ("pagination", "PaginationMixin"),
+    "CursorPaginator": ("pagination", "CursorPaginator"),
+    "create_pagination_urls": ("pagination", "create_pagination_urls"),
+    "paginate_queryset": ("pagination", "paginate_queryset"),
+    # Serialization (serializers.py - moderate size)
+    "ModelSerializer": ("serializers", "ModelSerializer"),
+    "SerializerConfig": ("serializers", "SerializerConfig"),
+    "SerializationContext": ("serializers", "SerializationContext"),
+    "SerializerMixin": ("serializers", "SerializerMixin"),
+    "FieldTransforms": ("serializers", "FieldTransforms"),
+    "serialize_model": ("serializers", "serialize_model"),
+    "serialize_models": ("serializers", "serialize_models"),
+    # Validation (validation.py - 518 lines, schema compilation)
+    "Validator": ("validation", "Validator"),
+    "RequiredValidator": ("validation", "RequiredValidator"),
+    "EmailValidator": ("validation", "EmailValidator"),
+    "LengthValidator": ("validation", "LengthValidator"),
+    "RangeValidator": ("validation", "RangeValidator"),
+    "RegexValidator": ("validation", "RegexValidator"),
+    "PasswordValidator": ("validation", "PasswordValidator"),
+    "ChoicesValidator": ("validation", "ChoicesValidator"),
+    "DateValidator": ("validation", "DateValidator"),
+    "ValidationSchema": ("validation", "ValidationSchema"),
+    "ValidationResult": ("validation", "ValidationResult"),
+    "validate_schema": ("validation", "validate_schema"),
+    "validate_json": ("validation", "validate_json"),
+    "validate_email": ("validation", "validate_email"),
+    "validate_password": ("validation", "validate_password"),
+    "validate_required_fields": ("validation", "validate_required_fields"),
+    # Pre-built validation schemas (defer compilation)
+    "USER_REGISTRATION_SCHEMA": ("validation", "USER_REGISTRATION_SCHEMA"),
+    "USER_LOGIN_SCHEMA": ("validation", "USER_LOGIN_SCHEMA"),
+    "LISTING_CREATION_SCHEMA": ("validation", "LISTING_CREATION_SCHEMA"),
+    # D1 Cache (optional)
+    "D1CacheService": ("cache_d1", "D1CacheService"),
+    "ensure_cache_table": ("cache_d1", "ensure_cache_table"),
+    "generate_cache_key": ("cache_d1", "generate_cache_key"),
+    # OpenAPI (optional, requires ORM)
+    "SchemaGenerator": ("openapi", "SchemaGenerator"),
+    # Specialized modules (import as modules)
+    "authz": (None, "authz"),
+    "ses": (None, "ses"),
+    "totp": (None, "totp"),
+}
+
+
+def _import_module(module_name: str):
+    """Import a submodule and cache it."""
+    if module_name not in _lazy_module_cache:
+        import importlib
+
+        _lazy_module_cache[module_name] = importlib.import_module(
+            f".{module_name}", __name__
+        )
+    return _lazy_module_cache[module_name]
+
+
+def __getattr__(name: str):
+    """
+    Lazy-load heavy modules on first access.
+
+    This reduces cold start time by deferring imports of:
+    - ORM (~1,722 lines with metaclass setup)
+    - Testing (~1,778 lines with SQLite mocks)
+    - Pagination, Serialization, Validation
+    """
+    global _orm_available, _d1_available, _openapi_available
+
+    if name in _LAZY_IMPORTS:
+        module_name, attr_name = _LAZY_IMPORTS[name]
+
+        # Handle module imports (authz, ses, totp)
+        if module_name is None:
+            return _import_module(attr_name)
+
+        # Handle attribute imports from modules
+        try:
+            module = _import_module(module_name)
+            attr = getattr(module, attr_name)
+
+            # Cache in globals for subsequent fast access
+            globals()[name] = attr
+            return attr
+        except ImportError as e:
+            # Track availability for optional modules
+            if module_name == "orm":
+                _orm_available = False
+            elif module_name == "cache_d1":
+                _d1_available = False
+            elif module_name == "openapi":
+                _openapi_available = False
+            raise AttributeError(
+                f"module 'kinglet' has no attribute '{name}' "
+                f"(optional module '{module_name}' not available)"
+            ) from e
+
+    raise AttributeError(f"module 'kinglet' has no attribute '{name}'")
+
+
+def __dir__():
+    """Include lazy-loaded attributes in dir() output."""
+    return list(globals().keys()) + list(_LAZY_IMPORTS.keys())
+
+
+# =============================================================================
+# VERSION AND METADATA
+# =============================================================================
+
+__version__ = "1.8.3"
 __author__ = "Mitchell Currie"
 
 # Export commonly used items
@@ -204,7 +359,7 @@ __all__ = [
     "r2_list",
     "bytes_to_arraybuffer",
     "arraybuffer_to_bytes",
-    # Testing - D1 Mock
+    # Testing - D1 Mock (lazy-loaded)
     "MockD1Database",
     "MockD1PreparedStatement",
     "D1Result",
@@ -213,7 +368,7 @@ __all__ = [
     "D1MockError",
     "D1DatabaseError",
     "D1PreparedStatementError",
-    # Testing - R2 Mock
+    # Testing - R2 Mock (lazy-loaded)
     "TestClient",
     "MockR2Bucket",
     "MockR2Object",
@@ -224,7 +379,7 @@ __all__ = [
     "R2MultipartUploadError",
     "R2PartNotFoundError",
     "R2TooManyKeysError",
-    # Testing - Email Mock
+    # Testing - Email Mock (lazy-loaded)
     "MockEmailSender",
     "MockSentEmail",
     "EmailMockError",
@@ -249,7 +404,7 @@ __all__ = [
     "NeverCachePolicy",
     "set_default_cache_policy",
     "get_default_cache_policy",
-    # Micro-ORM (conditionally exported if available)
+    # Micro-ORM (lazy-loaded, conditionally exported if available)
     "Model",
     "Field",
     "StringField",
@@ -267,7 +422,7 @@ __all__ = [
     "ValidationException",
     "handle_service_exceptions",
     "BaseService",
-    # Serialization
+    # Serialization (lazy-loaded)
     "ModelSerializer",
     "SerializerConfig",
     "SerializationContext",
@@ -275,7 +430,7 @@ __all__ = [
     "FieldTransforms",
     "serialize_model",
     "serialize_models",
-    # Pagination
+    # Pagination (lazy-loaded)
     "PageInfo",
     "PaginatedResult",
     "PaginationConfig",
@@ -284,7 +439,7 @@ __all__ = [
     "CursorPaginator",
     "create_pagination_urls",
     "paginate_queryset",
-    # Validation
+    # Validation (lazy-loaded)
     "Validator",
     "RequiredValidator",
     "EmailValidator",
@@ -304,32 +459,10 @@ __all__ = [
     "USER_REGISTRATION_SCHEMA",
     "USER_LOGIN_SCHEMA",
     "LISTING_CREATION_SCHEMA",
-    # Modules
+    # Modules (lazy-loaded)
     "authz",
     "ses",
     "totp",
-    # OpenAPI
+    # OpenAPI (lazy-loaded)
     "SchemaGenerator",
 ]
-
-# Only export ORM items if they're available
-if not _orm_available:
-    orm_items = [
-        "Model",
-        "Field",
-        "StringField",
-        "IntegerField",
-        "BooleanField",
-        "FloatField",
-        "DateTimeField",
-        "JSONField",
-        "QuerySet",
-        "Manager",
-        "SchemaManager",
-    ]
-    __all__ = [item for item in __all__ if item not in orm_items]
-
-# Only export OpenAPI items if available
-if not _openapi_available:
-    openapi_items = ["SchemaGenerator"]
-    __all__ = [item for item in __all__ if item not in openapi_items]
