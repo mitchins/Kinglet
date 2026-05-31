@@ -126,10 +126,17 @@ async def get_media(request):
 
     # Clean metadata extraction
     info = r2_get_content_info(obj)
+    content_type = info["content_type"]
+    if (
+        content_type == "application/octet-stream"
+        and isinstance(info.get("custom_metadata"), dict)
+        and info["custom_metadata"].get("content_type")
+    ):
+        content_type = info["custom_metadata"]["content_type"]
 
     return {
         "file_id": file_id,
-        "content_type": info["content_type"],
+        "content_type": content_type,
         "size": info["size"],
         "etag": info["etag"],
         "last_modified": info["last_modified"],

@@ -264,7 +264,6 @@ class QuerySet:
                         )
                     )
                 condition = new_qs._build_lookup_condition(field_name, lookup, value)
-                condition = f"{condition} /*{lookup}*/"
             else:
                 # Validate field exists
                 if key not in self._field_names:
@@ -273,7 +272,7 @@ class QuerySet:
                             field_name=key, model_name=self.model_class.__name__
                         )
                     )
-                condition = f"{key} = ?"
+                condition = f"{_qi(key)} = ?"
             new_qs._where_conditions.append((condition, value))
         return new_qs
 
@@ -291,7 +290,6 @@ class QuerySet:
                         )
                     )
                 condition = new_qs._build_lookup_condition(field_name, lookup, value)
-                condition = f"{condition} /*{lookup}*/"
                 # Wrap in NOT for exclude behavior
                 condition = f"NOT ({condition})"
             else:
@@ -302,7 +300,7 @@ class QuerySet:
                             field_name=key, model_name=self.model_class.__name__
                         )
                     )
-                condition = f"NOT ({key} = ?)"
+                condition = f"NOT ({_qi(key)} = ?)"
             new_qs._where_conditions.append((condition, value))
         return new_qs
 
@@ -569,19 +567,20 @@ class QuerySet:
             "lte": "<=",
             "ne": "!=",
         }
+        quoted_field = _qi(field_name)
         if lookup in op_map:
-            return f"{field_name} {op_map[lookup]} ?"
+            return f"{quoted_field} {op_map[lookup]} ?"
         if lookup == "contains":
-            return f"{field_name} LIKE ?"
+            return f"{quoted_field} LIKE ? /*contains*/"
         if lookup == "icontains":
-            return f"LOWER({field_name}) LIKE LOWER(?)"
+            return f"LOWER({quoted_field}) LIKE LOWER(?) /*icontains*/"
         if lookup == "startswith":
-            return f"{field_name} LIKE ?"
+            return f"{quoted_field} LIKE ? /*startswith*/"
         if lookup == "endswith":
-            return f"{field_name} LIKE ?"
+            return f"{quoted_field} LIKE ? /*endswith*/"
         if lookup == "in":
             placeholders = ",".join(["?" for _ in value])
-            return f"{field_name} IN ({placeholders})"
+            return f"{quoted_field} IN ({placeholders})"
         raise ValueError(f"Unsupported lookup: {lookup}")
 
     def _normalize_like_value(self, cond: str, val: Any) -> Any:
@@ -869,12 +868,12 @@ class Manager:
             current_pk = getattr(instance, pk_field.name, None)
             # Only update ID if it was auto-generated (was None before insert)
             if (
-                pk_field.name == "id"
+                isinstance(pk_field, IntegerField)
                 and current_pk is None  # Only set if PK was not already provided
                 and hasattr(result, "meta")
                 and hasattr(result.meta, "last_row_id")
             ):
-                instance.id = result.meta.last_row_id
+                setattr(instance, pk_field.name, result.meta.last_row_id)
             instance._state["saved"] = True
 
     async def bulk_create(self, db, instances: list[Model]) -> list[Model]:
@@ -1307,8 +1306,8 @@ class Model(metaclass=ModelMeta):
         pk_field = self._get_pk_field()
 
         # For auto-increment primary keys, don't include them in INSERT
-        if pk_field.name == "id" and getattr(self, pk_field.name, None) is None:
-            field_data.pop("id", None)
+        if isinstance(pk_field, IntegerField) and getattr(self, pk_field.name, None) is None:
+            field_data.pop(pk_field.name, None)
 
         columns = list(field_data.keys())
         values = list(field_data.values())
@@ -1349,12 +1348,12 @@ class Model(metaclass=ModelMeta):
             pk_field = self._get_pk_field()
             current_pk = getattr(self, pk_field.name, None)
             if (
-                pk_field.name == "id"
+                isinstance(pk_field, IntegerField)
                 and current_pk is None  # Only set if PK was not already provided
                 and hasattr(result, "meta")
                 and hasattr(result.meta, "last_row_id")
             ):
-                self.id = result.meta.last_row_id
+                setattr(self, pk_field.name, result.meta.last_row_id)
 
             self._state["saved"] = True
         except Exception as e:
@@ -1442,9 +1441,11 @@ class Model(metaclass=ModelMeta):
         columns = []
         constraints = []
         table_name = cls._meta.table_name
+        quoted_table = _qi(table_name)
 
         for field_name, field in cls._fields.items():
-            column_def = f"{field_name} {field.get_sql_type()}"
+            quoted_field = _qi(field_name)
+            column_def = f"{quoted_field} {field.get_sql_type()}"
 
             if field.primary_key:
                 if isinstance(field, IntegerField) and field_name == "id":
@@ -1452,7 +1453,7 @@ class Model(metaclass=ModelMeta):
                 else:
                     constraint_name = f"pk_{table_name}_{field_name}"
                     constraints.append(
-                        f"CONSTRAINT {constraint_name} PRIMARY KEY ({field_name})"
+                        f"CONSTRAINT {constraint_name} PRIMARY KEY ({quoted_field})"
                     )
 
             elif not field.null:
@@ -1464,12 +1465,12 @@ class Model(metaclass=ModelMeta):
             if field.unique and not field.primary_key:
                 constraint_name = f"uq_{table_name}_{field_name}"
                 constraints.append(
-                    f"CONSTRAINT {constraint_name} UNIQUE ({field_name})"
+                    f"CONSTRAINT {constraint_name} UNIQUE ({quoted_field})"
                 )
 
         # Combine columns and constraints
         all_definitions = columns + constraints
-        sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(all_definitions)})"
+        sql = f"CREATE TABLE IF NOT EXISTS {quoted_table} ({', '.join(all_definitions)})"
 
         try:
             await db.exec(sql)
@@ -1482,9 +1483,11 @@ class Model(metaclass=ModelMeta):
         columns = []
         constraints = []
         table_name = cls._meta.table_name
+        quoted_table = _qi(table_name)
 
         for field_name, field in cls._fields.items():
-            column_def = f"{field_name} {field.get_sql_type()}"
+            quoted_field = _qi(field_name)
+            column_def = f"{quoted_field} {field.get_sql_type()}"
 
             if field.primary_key:
                 if isinstance(field, IntegerField) and field_name == "id":
@@ -1492,7 +1495,7 @@ class Model(metaclass=ModelMeta):
                 else:
                     constraint_name = f"pk_{table_name}_{field_name}"
                     constraints.append(
-                        f"CONSTRAINT {constraint_name} PRIMARY KEY ({field_name})"
+                        f"CONSTRAINT {constraint_name} PRIMARY KEY ({quoted_field})"
                     )
 
             elif not field.null:
@@ -1504,13 +1507,13 @@ class Model(metaclass=ModelMeta):
             if field.unique and not field.primary_key:
                 constraint_name = f"uq_{table_name}_{field_name}"
                 constraints.append(
-                    f"CONSTRAINT {constraint_name} UNIQUE ({field_name})"
+                    f"CONSTRAINT {constraint_name} UNIQUE ({quoted_field})"
                 )
 
         # Combine columns and constraints
         all_definitions = columns + constraints
         return (
-            f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(all_definitions)});"
+            f"CREATE TABLE IF NOT EXISTS {quoted_table} ({', '.join(all_definitions)});"
         )
 
     def __repr__(self):

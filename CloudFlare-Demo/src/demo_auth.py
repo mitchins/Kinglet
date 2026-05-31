@@ -31,10 +31,11 @@ async def public_endpoint(request):
 async def protected_endpoint(request):
     """Protected endpoint - requires authentication"""
     user = await get_user(request)
+    claims = user.get("claims", {}) if user else {}
     return {
         "message": "You are authenticated",
-        "user_id": user.get("sub") if user else None,
-        "email": user.get("email"),
+        "user_id": user.get("id") if user else None,
+        "email": claims.get("email"),
     }
 
 
@@ -49,7 +50,7 @@ async def manual_auth_check(request):
 
     return {
         "message": "Manual auth successful",
-        "user": user.get("sub"),
+        "user": user.get("id"),
         "method": "manual_check",
     }
 
@@ -59,9 +60,11 @@ async def manual_auth_check(request):
 async def admin_action(request):
     """Admin action with confirmation requirement"""
     user = await get_user(request)
+    claims = user.get("claims", {}) if user else {}
+    email = claims.get("email", "")
 
     # Check admin role (mock check for demo)
-    if not user or not user.get("email", "").endswith("@admin.com"):
+    if not user or not email.endswith("@admin.com"):
         return Response({"error": "Admin access required"}, status=403)
 
     # Require confirmation header for dangerous actions
@@ -77,7 +80,7 @@ async def admin_action(request):
 
     return {
         "success": True,
-        "admin": user.get("email"),
+        "admin": email,
         "message": "Admin action completed",
     }
 

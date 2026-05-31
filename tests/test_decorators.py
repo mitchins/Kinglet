@@ -183,6 +183,28 @@ class TestDevOnlyDecorator:
         assert status == 200
         assert "allowed" in body
 
+    def test_require_field_supports_tuple_types(self):
+        """Test require_field handles tuple type checks."""
+        app = Kinglet()
+
+        from kinglet.decorators import require_field
+
+        @app.post("/games")
+        @require_field("rating", (int, float))
+        async def create_game(request):
+            return {"ok": True}
+
+        client = TestClient(app)
+        status, headers, body = client.request(
+            "POST",
+            "/games",
+            json={"rating": 4.5},
+            headers={"content-type": "application/json"},
+        )
+
+        assert status == 200
+        assert "ok" in body
+
 
 class TestGeoRestriction:
     """Test geo_restrict decorator"""
@@ -374,6 +396,28 @@ class TestValidateJsonBodyErrorCases:
 
         assert response.status == 400
         assert "Invalid JSON body" in response.content["error"]
+
+    def test_validate_json_body_allows_literal_null(self):
+        """Test validate_json_body accepts valid JSON literal null."""
+        import asyncio
+
+        from kinglet.decorators import validate_json_body
+
+        class MockRequest:
+            request_id = "test-id"
+
+            async def json(self):
+                return None
+
+            async def text(self):
+                return "null"
+
+        @validate_json_body
+        async def test_endpoint(request):
+            return {"success": True}
+
+        response = asyncio.run(test_endpoint(MockRequest()))
+        assert response == {"success": True}
 
 
 class TestRequireFieldErrorCases:

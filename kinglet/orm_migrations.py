@@ -476,11 +476,13 @@ class MigrationGenerator:
     @staticmethod
     def _build_create_table_sql_from_schema(model_schema: dict[str, Any]) -> str:
         """Build CREATE TABLE SQL directly from schema-lock data."""
-        table = MigrationGenerator._safe_ident(model_schema["table"])
+        MigrationGenerator._safe_ident(model_schema["table"])
+        table = quote_ident_sqlite(model_schema["table"])
         columns: list[str] = []
 
         for field_name, field_schema in model_schema["fields"].items():
-            column_name = MigrationGenerator._safe_ident(field_name)
+            MigrationGenerator._safe_ident(field_name)
+            column_name = quote_ident_sqlite(field_name)
             sql_type = field_schema["sql_type"]
             parts = [column_name, sql_type]
 

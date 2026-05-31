@@ -61,8 +61,8 @@ def test_custom_primary_key_sql_generation():
     sql = CustomIdModel.get_create_sql()
 
     # Should include the custom id field with correct type and constraint
-    assert "id VARCHAR(50)" in sql
-    assert "CONSTRAINT pk_custom_id_test_id PRIMARY KEY (id)" in sql
+    assert '"id" VARCHAR(50)' in sql
+    assert 'CONSTRAINT pk_custom_id_test_id PRIMARY KEY ("id")' in sql
 
     # Verify it's not using AUTOINCREMENT (that's for integer IDs only)
     assert "AUTOINCREMENT" not in sql
@@ -73,7 +73,7 @@ def test_auto_primary_key_sql_generation():
     sql = AutoIdModel.get_create_sql()
 
     # Should include auto-generated id field with AUTOINCREMENT
-    assert "id INTEGER PRIMARY KEY AUTOINCREMENT" in sql
+    assert '"id" INTEGER PRIMARY KEY AUTOINCREMENT' in sql
 
 
 def test_primary_key_field_access():

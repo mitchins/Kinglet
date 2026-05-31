@@ -104,6 +104,39 @@ class TestKingletApp:
         assert response is not None
 
     @pytest.mark.asyncio
+    async def test_request_constructor_failure_uses_safe_fallback_request(
+        self, app, mock_env, monkeypatch
+    ):
+        """Test fallback request has minimal middleware-safe interface."""
+        import kinglet.core as core_module
+
+        @app.middleware
+        class RequestAttributeMiddleware:
+            async def process_request(self, request):
+                return None
+
+            async def process_response(self, request, response):
+                _ = request.method
+                _ = request.path
+                _ = request.url
+                _ = request.query_params
+                _ = request.header("x-test", "default")
+                return response
+
+        original_request = core_module.Request
+
+        def exploding_request_ctor(*args, **kwargs):
+            raise RuntimeError("constructor boom")
+
+        monkeypatch.setattr(core_module, "Request", exploding_request_ctor)
+        try:
+            response = await app(MockRequest("GET", "http://localhost/"), mock_env)
+        finally:
+            monkeypatch.setattr(core_module, "Request", original_request)
+
+        assert response is not None
+
+    @pytest.mark.asyncio
     async def test_middleware_processing(self, app, mock_env):
         """Test middleware execution"""
 

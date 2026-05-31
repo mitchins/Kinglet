@@ -104,7 +104,9 @@ class ORMErrorMiddleware(Middleware):
         include_trace: bool = False,
     ):
         self.is_prod = is_prod
-        self.error_type_map = error_type_map or ERROR_TYPE_MAP
+        self.error_type_map = (
+            error_type_map if error_type_map is not None else ERROR_TYPE_MAP
+        )
         self.correlation_header = correlation_header
         self.include_trace = include_trace
 

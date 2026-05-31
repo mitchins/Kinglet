@@ -214,7 +214,9 @@ class Request:
                 from js import Uint8Array
 
                 uint8_array = Uint8Array.new(array_buffer)
-                return bytes([uint8_array[i] for i in range(uint8_array.length)])
+                if hasattr(uint8_array, "to_bytes"):
+                    return uint8_array.to_bytes()
+                return bytes(uint8_array)
             except ImportError:
                 # Not in Workers environment - fallback behavior
                 if hasattr(array_buffer, "__iter__"):

@@ -13,6 +13,7 @@ import secrets
 import struct
 import time
 import urllib.parse
+from typing import Any
 
 # Test TOTP secret that generates predictable codes for development/testing
 # This secret will generate "000000" at Unix timestamp 0 (and cyclically)
@@ -297,13 +298,20 @@ def get_totp_encryption_key(env) -> str:
     return totp_key
 
 
-def encrypt_totp_secret(secret: str, encryption_key: str) -> str:
+def _resolve_totp_encryption_key(encryption_key_or_env: str | Any) -> str:
+    if isinstance(encryption_key_or_env, str):
+        return encryption_key_or_env
+    return get_totp_encryption_key(encryption_key_or_env)
+
+
+def encrypt_totp_secret(secret: str, encryption_key: str | Any) -> str:
     """Encrypt TOTP secret for database storage"""
     # Simple XOR encryption for demo (use proper AES in production)
     import hashlib
 
     # Create a consistent key from the encryption key
-    key_hash = hashlib.sha256(encryption_key.encode()).digest()
+    key = _resolve_totp_encryption_key(encryption_key)
+    key_hash = hashlib.sha256(key.encode()).digest()
 
     # XOR each byte of the secret with the key
     secret_bytes = secret.encode()
@@ -317,7 +325,7 @@ def encrypt_totp_secret(secret: str, encryption_key: str) -> str:
     return base64.b64encode(encrypted_bytes).decode()
 
 
-def decrypt_totp_secret(encrypted_secret: str, encryption_key: str) -> str:
+def decrypt_totp_secret(encrypted_secret: str, encryption_key: str | Any) -> str:
     """Decrypt TOTP secret from database"""
     import hashlib
 
@@ -326,7 +334,8 @@ def decrypt_totp_secret(encrypted_secret: str, encryption_key: str) -> str:
         encrypted_bytes = base64.b64decode(encrypted_secret.encode())
 
         # Create the same key
-        key_hash = hashlib.sha256(encryption_key.encode()).digest()
+        key = _resolve_totp_encryption_key(encryption_key)
+        key_hash = hashlib.sha256(key.encode()).digest()
 
         # XOR to decrypt
         decrypted_bytes = bytearray()

@@ -199,8 +199,9 @@ async def get_asset_url(request):
     # Generate appropriate URL based on environment
     try:
         url = asset_url(key, asset_type, request)
-    except:
+    except Exception as e:
         # Fallback if asset_url has issues
+        print(f"asset_url fallback for {asset_type}/{key}: {e}")
         url = f"https://example.com/{asset_type}/{key}"
 
     return {

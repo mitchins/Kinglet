@@ -6,16 +6,21 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+env:
+  WRANGLER_VERSION: 4.94.0
+
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        persist-credentials: false
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
       with:
         enable-cache: true
         cache-dependency-glob: "uv.lock"
@@ -28,12 +33,12 @@ jobs:
         uv sync --all-extras --dev
 
     - name: Set up Node.js (required for wrangler/miniflare)
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
         node-version: '20'
 
     - name: Install wrangler (required for complete test suite)
-      run: npm install -g wrangler
+      run: npm install -g wrangler@${{ env.WRANGLER_VERSION }}
 
     - name: Lint with ruff (strict on production code)
       run: |
@@ -43,14 +48,14 @@ jobs:
 
     - name: Type check with mypy
       run: |
-        uv run mypy kinglet/ || true  # Allow mypy failures for now
+        uv run mypy kinglet/
 
     - name: Run tests
       run: |
         uv run pytest --cov=kinglet --cov-branch --cov-report=xml --cov-report=term-missing
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: false
@@ -61,10 +66,12 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        persist-credentials: false
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
       with:
         enable-cache: true
         cache-dependency-glob: "uv.lock"
@@ -89,12 +96,13 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
+        persist-credentials: false
         fetch-depth: 0  # Shallow clones should be disabled for better analysis
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
       with:
         enable-cache: true
         cache-dependency-glob: "uv.lock"
@@ -107,12 +115,12 @@ jobs:
 
     - name: Run security checks with bandit
       run: |
-        uv run bandit -r kinglet/ -f json -o bandit-report.json || true
-        uv run bandit -r kinglet/ || true  # Also show human-readable output
+        uv run bandit -r kinglet/ -f json -o bandit-report.json
+        uv run bandit -r kinglet/  # Also show human-readable output
 
     - name: Check for known vulnerabilities in dependencies
       run: |
-        uv run safety check || true  # Allow safety failures for now
+        uv run safety check
 
   sonarqube:
     runs-on: ubuntu-latest
@@ -121,12 +129,13 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
+        persist-credentials: false
         fetch-depth: 0  # Shallow clones should be disabled for better analysis
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
       with:
         enable-cache: true
         cache-dependency-glob: "uv.lock"
@@ -138,12 +147,12 @@ jobs:
       run: uv sync --all-extras --dev
 
     - name: Set up Node.js (required for wrangler/miniflare)
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
         node-version: '20'
 
     - name: Install wrangler (required for complete test suite)
-      run: npm install -g wrangler
+      run: npm install -g wrangler@${{ env.WRANGLER_VERSION }}
 
     - name: Run tests with coverage for SonarQube
       run: |
@@ -151,15 +160,15 @@ jobs:
 
     - name: Run security analysis
       run: |
-        uv run bandit -r kinglet/ -f json -o bandit-report.json || true
+        uv run bandit -r kinglet/ -f json -o bandit-report.json
 
     - name: SonarQube Scan
-      uses: SonarSource/sonarqube-scan-action@v6
+      uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     - name: SonarQube Quality Gate check
-      uses: SonarSource/sonarqube-quality-gate-action@v1
+      uses: SonarSource/sonarqube-quality-gate-action@d304d050d930b02a896b0f85935344f023928496
       timeout-minutes: 5
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

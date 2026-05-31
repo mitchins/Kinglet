@@ -291,6 +291,24 @@ class TestORMErrorMiddleware:
         assert result.status == 499
         assert result.content["type"] == "https://errors.kinglet.dev/custom-validation"
 
+    @pytest.mark.asyncio
+    async def test_error_boundary_respects_empty_error_type_map(self):
+        """Test empty error_type_map does not fall back to defaults."""
+        middleware = ORMErrorMiddleware(error_type_map={})
+
+        async def mock_handler(request, env):
+            raise ValidationError("email", "Invalid email")
+
+        wrapped_handler = middleware.create_error_boundary(mock_handler)
+        request = Mock()
+        request.headers = {}
+        env = Mock()
+
+        result = await wrapped_handler(request, env)
+        assert isinstance(result, Response)
+        assert result.status == 500
+        assert result.content["type"] == "https://errors.kinglet.dev/internal"
+
 
 def test_create_global_error_boundary():
     """Test global error boundary factory function"""

@@ -755,7 +755,7 @@ def get_error_mapping(
         (status_code, type_uri, title) tuple
     """
     error_name = error.__class__.__name__
-    mapping = error_type_map or ERROR_TYPE_MAP
+    mapping = error_type_map if error_type_map is not None else ERROR_TYPE_MAP
     return mapping.get(
         error_name, (500, "https://errors.kinglet.dev/internal", "Internal error")
     )

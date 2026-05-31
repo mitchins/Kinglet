@@ -80,7 +80,7 @@ class TestCacheBarnDoor:
         mock_stmt = AsyncMock()
         mock_stmt.bind = Mock(return_value=mock_stmt)
         mock_stmt.first = AsyncMock(return_value=None)
-        mock_db.prepare = AsyncMock(return_value=mock_stmt)
+        mock_db.prepare = Mock(return_value=mock_stmt)
 
         result = await cache.get("test_key")
 
@@ -99,7 +99,7 @@ class TestCacheBarnDoor:
         mock_stmt = AsyncMock()
         mock_stmt.bind = Mock(return_value=mock_stmt)
         mock_stmt.run = AsyncMock(return_value=Mock())
-        mock_db.prepare = AsyncMock(return_value=mock_stmt)
+        mock_db.prepare = Mock(return_value=mock_stmt)
 
         # Test string content
         result = await cache.set("key1", "string_value")
@@ -121,8 +121,8 @@ class TestCacheBarnDoor:
         # Mock database operations
         mock_stmt = AsyncMock()
         mock_stmt.bind = Mock(return_value=mock_stmt)
-        mock_stmt.run = AsyncMock(return_value=Mock(changes=1))
-        mock_db.prepare = AsyncMock(return_value=mock_stmt)
+        mock_stmt.run = AsyncMock(return_value=Mock(meta=Mock(changes=1)))
+        mock_db.prepare = Mock(return_value=mock_stmt)
 
         result = await cache.delete("test_key")
         assert isinstance(result, bool)
@@ -136,8 +136,8 @@ class TestCacheBarnDoor:
         # Mock database operations
         mock_stmt = AsyncMock()
         mock_stmt.bind = Mock(return_value=mock_stmt)
-        mock_stmt.run = AsyncMock(return_value=Mock(changes=5))
-        mock_db.prepare = AsyncMock(return_value=mock_stmt)
+        mock_stmt.run = AsyncMock(return_value=Mock(meta=Mock(changes=5)))
+        mock_db.prepare = Mock(return_value=mock_stmt)
 
         result = await cache.clear_expired()
         assert isinstance(result, int)
@@ -151,8 +151,8 @@ class TestCacheBarnDoor:
         # Mock database operations
         mock_stmt = AsyncMock()
         mock_stmt.bind = Mock(return_value=mock_stmt)
-        mock_stmt.run = AsyncMock(return_value=Mock(changes=3))
-        mock_db.prepare = AsyncMock(return_value=mock_stmt)
+        mock_stmt.run = AsyncMock(return_value=Mock(meta=Mock(changes=3)))
+        mock_db.prepare = Mock(return_value=mock_stmt)
 
         result = await cache.invalidate_pattern("/api/users/%")
         assert isinstance(result, int)
@@ -178,7 +178,7 @@ class TestCacheBarnDoor:
         mock_stmt = AsyncMock()
         mock_stmt.bind = Mock(return_value=mock_stmt)
         mock_stmt.first = AsyncMock(return_value=mock_result)
-        mock_db.prepare = AsyncMock(return_value=mock_stmt)
+        mock_db.prepare = Mock(return_value=mock_stmt)
 
         result = await cache.get_stats()
         assert isinstance(result, dict)
@@ -274,7 +274,7 @@ class TestCacheIntegrationBarnDoor:
         # First call: cache miss
         mock_stmt.first = AsyncMock(return_value=None)
         mock_stmt.run = AsyncMock(return_value=Mock())
-        mock_db.prepare = AsyncMock(return_value=mock_stmt)
+        mock_db.prepare = Mock(return_value=mock_stmt)
 
         # Try to get (should miss)
         result = await cache.get("test_key")

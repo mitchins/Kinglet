@@ -2,6 +2,8 @@
 Tests for kinglet.storage module
 """
 
+import sys
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from kinglet.storage import (
@@ -175,6 +177,42 @@ class TestR2MetadataIntegration:
         # Reverse conversion
         converted_back = arraybuffer_to_bytes(result)
         assert converted_back == test_data
+
+    def test_bytes_arraybuffer_js_bridge(self, monkeypatch):
+        """Test bytes/arraybuffer conversion uses JS bulk helpers when present."""
+
+        class FakeArrayBuffer:
+            def __init__(self, size):
+                self.data = bytearray(size)
+
+            @classmethod
+            def new(cls, size):
+                return cls(size)
+
+        class FakeUint8Array:
+            def __init__(self, array_buffer):
+                self._buffer = array_buffer
+
+            @classmethod
+            def new(cls, array_buffer):
+                return cls(array_buffer)
+
+            def assign(self, data):
+                self._buffer.data[:] = data
+
+            def to_bytes(self):
+                return bytes(self._buffer.data)
+
+        monkeypatch.setitem(
+            sys.modules,
+            "js",
+            SimpleNamespace(ArrayBuffer=FakeArrayBuffer, Uint8Array=FakeUint8Array),
+        )
+
+        test_data = b"bulk-bytes"
+        result = bytes_to_arraybuffer(test_data)
+        assert bytes(result.data) == test_data
+        assert arraybuffer_to_bytes(result) == test_data
 
     def test_r2_list_function(self):
         """Test r2_list function with mock data"""

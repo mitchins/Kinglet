@@ -3,6 +3,8 @@ Tests for Kinglet Request wrapper
 """
 
 import json
+import sys
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -144,6 +146,42 @@ class TestRequest:
 
         request = Request(GetOnlyRequest(), mock_env)
         assert request.header("x-api-key") == "secret"
+
+    @pytest.mark.asyncio
+    async def test_request_bytes_uses_js_bulk_conversion(self, mock_env, monkeypatch):
+        """Test Request.bytes uses Uint8Array.to_bytes when available."""
+
+        class FakeUint8Array:
+            def __init__(self, array_buffer):
+                self._array_buffer = array_buffer
+
+            @classmethod
+            def new(cls, array_buffer):
+                return cls(array_buffer)
+
+            def to_bytes(self):
+                return bytes(self._array_buffer)
+
+        monkeypatch.setitem(
+            sys.modules,
+            "js",
+            SimpleNamespace(Uint8Array=FakeUint8Array),
+        )
+
+        class RawRequest:
+            def __init__(self):
+                self.method = "POST"
+                self.url = "http://localhost/"
+                self.headers = MockHeaders({})
+
+            async def arrayBuffer(self):
+                return bytearray(b"abc123")
+
+            async def text(self):
+                return ""
+
+        request = Request(RawRequest(), mock_env)
+        assert await request.bytes() == b"abc123"
 
     @pytest.mark.asyncio
     async def test_request_body(self, mock_env):

@@ -351,15 +351,19 @@ class Kinglet:
         except Exception as e:
             status_code = getattr(e, "status_code", 500)
             if kinglet_request is None:
-                kinglet_request = type(
-                    "FallbackRequest",
-                    (),
-                    {
-                        "request_id": "unknown",
-                        "headers": {},
-                        "env": type("Env", (), {})(),
-                    },
-                )()
+                class FallbackRequest:
+                    request_id = "unknown"
+                    headers = {}
+                    env = type("Env", (), {})()
+                    method = "GET"
+                    path = "/"
+                    url = "/"
+                    query_params = {}
+
+                    def header(self, name, default=None):
+                        return self.headers.get(name, default)
+
+                kinglet_request = FallbackRequest()
 
             # Try custom error handler first
             custom_response = await self._handle_custom_error(

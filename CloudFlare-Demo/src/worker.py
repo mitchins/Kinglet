@@ -244,22 +244,22 @@ async def get_file(request):
                 info = r2_get_content_info(obj)
 
                 # For binary files, return stream directly
-                if info["type"] and "image" in info["type"]:
+                if info["content_type"] and "image" in info["content_type"]:
                     from workers import Response as WorkersResponse
 
                     return WorkersResponse(
                         obj.body,
                         headers={
-                            "Content-Type": info["type"],
+                            "Content-Type": info["content_type"],
                             "Content-Length": str(info["size"]),
                         },
                     )
 
                 # For text files, return content
                 content = await obj.text()
-                return Response(content, headers={"Content-Type": info["type"]})
-    except:
-        pass
+                return Response(content, headers={"Content-Type": info["content_type"]})
+    except Exception as e:
+        print(f"R2 file lookup failed for {key}: {e}")
 
     return Response({"error": f"File '{key}' not found"}, status=404)
 
