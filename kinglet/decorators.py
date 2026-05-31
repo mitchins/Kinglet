@@ -67,7 +67,7 @@ def require_dev():
     def decorator(handler: Callable):
         @functools.wraps(handler)
         async def wrapped(request):
-            env_name = getattr(request.env, "ENVIRONMENT", "production")
+            env_name = str(getattr(request.env, "ENVIRONMENT", "production")).lower()
 
             if env_name not in ["development", "dev", "test"]:
                 # Security: In production, make dev endpoints a complete blackhole
@@ -126,8 +126,20 @@ def validate_json_body(handler: Callable):
     async def wrapped(request):
         try:
             body = await request.json()
-            # Check for None or empty dict (both considered "empty" for validation)
-            if body is None or body == {}:
+            if body is None:
+                raw_text = await request.text()
+                content_type = str(request.header("content-type", "")).lower()
+                stripped = raw_text.strip() if raw_text else ""
+                if stripped in {"", "{}", "[]"}:
+                    return Response.error(
+                        "Request body cannot be empty", 400, request.request_id
+                    )
+                if stripped or "application/json" in content_type:
+                    return Response.error("Invalid JSON body", 400, request.request_id)
+                return Response.error(
+                    "Request body cannot be empty", 400, request.request_id
+                )
+            if body == {}:
                 return Response.error(
                     "Request body cannot be empty", 400, request.request_id
                 )

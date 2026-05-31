@@ -395,6 +395,7 @@ class TestMigrationGenerator:
         assert len(migrations) == 1
         assert "create_orders" in migrations[0].version
         assert migrations[0].description == "Create table orders"
+        assert migrations[0].sql.startswith("CREATE TABLE IF NOT EXISTS orders")
 
     def test_generate_add_column_not_null_without_default(self):
         """Test generating ALTER TABLE for NOT NULL column without default"""

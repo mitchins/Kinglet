@@ -168,11 +168,17 @@ def generate_totp_code(
     # Pack time step as big-endian 64-bit integer
     time_bytes = struct.pack(">Q", time_step)
 
-    # TOTP HMAC – interoperability note:
-    # - HOTP (RFC 4226) specifies HMAC-SHA1; TOTP (RFC 6238) permits SHA-1/256/512.
-    # - SHA-1 collision attacks do not affect HMAC's PRF security; safe in this construction.
-    # - Using SHA-1 here preserves compatibility with common authenticators and existing otpauth URIs.
-    hmac_hash = hmac.new(key, time_bytes, hashlib.sha1).digest()  # NOSONAR
+    digest_map = {
+        "sha1": hashlib.sha1,
+        "sha256": hashlib.sha256,
+        "sha512": hashlib.sha512,
+    }
+    digest = digest_map.get(str(algorithm).lower())
+    if digest is None:
+        raise ValueError(
+            "Invalid algorithm. Supported values: 'sha1', 'sha256', 'sha512'"
+        )
+    hmac_hash = hmac.new(key, time_bytes, digest).digest()
 
     # Dynamic truncation (RFC 4226)
     offset = hmac_hash[-1] & 0x0F

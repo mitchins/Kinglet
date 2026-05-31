@@ -17,6 +17,24 @@ def generate_request_id() -> str:
     return secrets.token_hex(8)
 
 
+class _DictEnvAdapter:
+    """Adapter to support attribute-style env access for dict inputs."""
+
+    def __init__(self, data: dict[str, Any]):
+        self._data = dict(data)
+
+    def __getattr__(self, key: str) -> Any:
+        if key in self._data:
+            return self._data[key]
+        raise AttributeError(key)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+
 class Request:
     """
     Kinglet Request object that wraps Workers request with convenience methods
@@ -24,7 +42,12 @@ class Request:
 
     def __init__(self, raw_request, env=None, path_params=None):
         self._raw = raw_request
-        self.env = env or type("Env", (), {})()
+        if env is None:
+            self.env = type("Env", (), {})()
+        elif isinstance(env, dict):
+            self.env = _DictEnvAdapter(env)
+        else:
+            self.env = env
         self.path_params = path_params or {}
         self.request_id = generate_request_id()
 
@@ -100,7 +123,22 @@ class Request:
 
     def header(self, name: str, default: str = None) -> str:
         """Get header value (case-insensitive)"""
-        return self._headers.get(name.lower(), default)
+        header_name = name.lower()
+        value = self._headers.get(header_name)
+        if value is not None:
+            return value
+
+        # Fallback: in Workers-style runtimes headers may only expose .get()
+        headers_obj = getattr(self._raw, "headers", None)
+        if headers_obj is not None and hasattr(headers_obj, "get"):
+            try:
+                fallback = headers_obj.get(name)
+                if fallback is not None:
+                    return fallback
+            except Exception:
+                pass
+
+        return default
 
     @property
     def query_params(self) -> dict[str, str]:

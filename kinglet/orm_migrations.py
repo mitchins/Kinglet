@@ -474,6 +474,29 @@ class MigrationGenerator:
             return str(default)
 
     @staticmethod
+    def _build_create_table_sql_from_schema(model_schema: dict[str, Any]) -> str:
+        """Build CREATE TABLE SQL directly from schema-lock data."""
+        table = MigrationGenerator._safe_ident(model_schema["table"])
+        columns: list[str] = []
+
+        for field_name, field_schema in model_schema["fields"].items():
+            column_name = MigrationGenerator._safe_ident(field_name)
+            sql_type = field_schema["sql_type"]
+            parts = [column_name, sql_type]
+
+            if field_schema.get("primary_key"):
+                parts.append("PRIMARY KEY")
+            elif not field_schema.get("null", True):
+                parts.append("NOT NULL")
+
+            if field_schema.get("unique") and not field_schema.get("primary_key"):
+                parts.append("UNIQUE")
+
+            columns.append(" ".join(parts))
+
+        return f"CREATE TABLE IF NOT EXISTS {table} ({', '.join(columns)});"
+
+    @staticmethod
     def detect_changes(old_lock: dict, new_lock: dict) -> list[Migration]:
         """Detect changes and generate migrations"""
         migrations = []
@@ -485,12 +508,13 @@ class MigrationGenerator:
         # Check for new models (create tables)
         for model_name, model_schema in new_models.items():
             if model_name not in old_models:
-                # Generate CREATE TABLE
-                # This would need the actual Model class for full SQL
+                create_sql = MigrationGenerator._build_create_table_sql_from_schema(
+                    model_schema
+                )
                 migrations.append(
                     Migration(
                         version=f"{version_timestamp}_create_{model_schema['table']}",
-                        sql=f"-- CREATE TABLE {model_schema['table']} (generated separately)",
+                        sql=create_sql,
                         description=f"Create table {model_schema['table']}",
                     )
                 )

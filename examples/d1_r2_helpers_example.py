@@ -85,7 +85,12 @@ async def upload_media(request):
     # })
 
     # Simple one-liner
-    await r2_put(request.env.STORAGE, file_id, body_bytes, content_type)
+    await r2_put(
+        request.env.STORAGE,
+        file_id,
+        body_bytes,
+        {"content_type": content_type},
+    )
 
     # Generate environment-aware URL
     file_url = asset_url(request, file_id, "media")
@@ -150,17 +155,10 @@ async def list_media(request):
     limit = request.query_int("limit", 100)
 
     # List R2 objects with optional prefix
-    result = await r2_list(request.env.STORAGE, prefix, limit)
+    raw_result = await request.env.STORAGE.list({"prefix": prefix, "limit": limit})
+    result = r2_list(raw_result)
 
-    # Extract file list (actual implementation depends on R2 list response format)
-    files = []
-    if hasattr(result, "objects"):
-        for obj in result.objects:
-            files.append(
-                {"key": obj.key, "size": obj.size, "last_modified": obj.uploaded}
-            )
-
-    return {"files": files, "prefix": prefix}
+    return {"files": result, "prefix": prefix}
 
 
 @app.get("/api/export/games")

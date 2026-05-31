@@ -327,6 +327,7 @@ class Kinglet:
 
     async def __call__(self, request, env):
         """ASGI-compatible entry point for Workers"""
+        kinglet_request = None
         try:
             # Wrap the raw request
             kinglet_request = Request(request, env)
@@ -349,6 +350,16 @@ class Kinglet:
 
         except Exception as e:
             status_code = getattr(e, "status_code", 500)
+            if kinglet_request is None:
+                kinglet_request = type(
+                    "FallbackRequest",
+                    (),
+                    {
+                        "request_id": "unknown",
+                        "headers": {},
+                        "env": type("Env", (), {})(),
+                    },
+                )()
 
             # Try custom error handler first
             custom_response = await self._handle_custom_error(

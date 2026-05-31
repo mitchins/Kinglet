@@ -249,6 +249,48 @@ class TestORMErrorMiddleware:
         assert isinstance(result, Response)
         assert "trace" in result.content
 
+    @pytest.mark.asyncio
+    async def test_error_boundary_supports_one_arg_handlers(self):
+        """Test error boundary wrapper supports Kinglet one-arg route handlers."""
+        middleware = ORMErrorMiddleware()
+
+        async def one_arg_handler(request):
+            raise ValidationError("email", "Invalid email")
+
+        wrapped_handler = middleware.create_error_boundary(one_arg_handler)
+        request = Mock()
+        request.headers = {}
+
+        result = await wrapped_handler(request)
+        assert isinstance(result, Response)
+        assert result.status == 422
+
+    @pytest.mark.asyncio
+    async def test_error_boundary_uses_custom_error_type_map(self):
+        """Test custom error_type_map is applied for ORM problem responses."""
+        middleware = ORMErrorMiddleware(
+            error_type_map={
+                "ValidationError": (
+                    499,
+                    "https://errors.kinglet.dev/custom-validation",
+                    "Custom validation title",
+                )
+            }
+        )
+
+        async def mock_handler(request, env):
+            raise ValidationError("email", "Invalid email")
+
+        wrapped_handler = middleware.create_error_boundary(mock_handler)
+        request = Mock()
+        request.headers = {}
+        env = Mock()
+
+        result = await wrapped_handler(request, env)
+        assert isinstance(result, Response)
+        assert result.status == 499
+        assert result.content["type"] == "https://errors.kinglet.dev/custom-validation"
+
 
 def test_create_global_error_boundary():
     """Test global error boundary factory function"""

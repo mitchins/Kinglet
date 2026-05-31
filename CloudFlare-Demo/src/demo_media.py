@@ -76,7 +76,7 @@ async def list_files(request):
             files = []
 
             for obj in result.objects:
-                metadata = r2_get_metadata(obj)
+                metadata = r2_get_metadata(obj, "customMetadata", {})
                 files.append(
                     {
                         "key": obj.key,
@@ -119,14 +119,15 @@ async def get_file(request):
             info = r2_get_content_info(obj)
 
             # For binary files, return stream directly
-            if info["type"] and ("image" in info["type"] or "pdf" in info["type"]):
+            content_type = info.get("content_type") or info.get("type")
+            if content_type and ("image" in content_type or "pdf" in content_type):
                 try:
                     from workers import Response as WorkersResponse
 
                     return WorkersResponse(
                         obj.body,
                         headers={
-                            "Content-Type": info["type"],
+                            "Content-Type": content_type,
                             "Content-Length": str(info["size"]),
                             "Cache-Control": "public, max-age=3600",
                         },
@@ -137,7 +138,7 @@ async def get_file(request):
                     return Response(
                         content,
                         headers={
-                            "Content-Type": info["type"],
+                            "Content-Type": content_type,
                             "Content-Length": str(info["size"]),
                         },
                     )
@@ -145,7 +146,7 @@ async def get_file(request):
             # For text files, return content
             content = await obj.text()
             return Response(
-                content, headers={"Content-Type": info["type"] or "text/plain"}
+                content, headers={"Content-Type": content_type or "text/plain"}
             )
         else:
             return Response(

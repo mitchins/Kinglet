@@ -133,7 +133,10 @@ class ORMErrorMiddleware(Middleware):
         """Handle ORM-specific errors"""
         instance = self._get_correlation_instance(request)
         problem, status, headers = orm_problem_response(
-            error, instance=instance, is_prod=self.is_prod
+            error,
+            instance=instance,
+            is_prod=self.is_prod,
+            error_type_map=self.error_type_map,
         )
         self._add_trace_if_enabled(problem)
         return Response(problem, status=status, headers=headers)
@@ -179,8 +182,10 @@ class ORMErrorMiddleware(Middleware):
                 return {"user": user.to_dict()}
         """
 
-        async def error_boundary_wrapper(request, env):
+        async def error_boundary_wrapper(request, env=None):
             try:
+                if env is None:
+                    return await handler(request)
                 return await handler(request, env)
             except ORMError as e:
                 return self._handle_orm_error(request, e)

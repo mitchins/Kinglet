@@ -26,6 +26,13 @@ app = Kinglet()
 app.add_middleware(CorsMiddleware(allow_origin="*"))
 
 
+def _env_get(env, key, default=None):
+    """Read env values from either dict-like or attribute-style bindings."""
+    if isinstance(env, dict):
+        return env.get(key, default)
+    return getattr(env, key, default)
+
+
 # Test models
 class Game(Model):
     title = StringField(max_length=200, null=False)
@@ -56,7 +63,9 @@ async def migrate_database(request):
     """Initialize database schema"""
     # Simple security - in production use proper auth
     auth_header = request.header("Authorization", "")
-    expected_token = request.env.get("MIGRATION_TOKEN", "dev-secret-123")
+    expected_token = _env_get(request.env, "MIGRATION_TOKEN")
+    if not expected_token:
+        return {"error": "MIGRATION_TOKEN not configured"}, 500
 
     if auth_header != f"Bearer {expected_token}":
         return {"error": "Unauthorized"}, 401
@@ -83,7 +92,7 @@ async def get_schema_sql(request):
             "wrangler": 'npx wrangler d1 execute TEST_DB --command="'
             + sql.replace('"', '\\"')
             + '"',
-            "curl": f"curl -X POST http://localhost:8787/migrate -H 'Authorization: Bearer {request.env.get('MIGRATION_TOKEN', 'dev-secret-123')}'",
+            "curl": "curl -X POST http://localhost:8787/migrate -H 'Authorization: Bearer <MIGRATION_TOKEN>'",
         },
     }
 
@@ -475,7 +484,7 @@ async def health_check(request):
             "POST /demo/bulk-delete": "Bulk delete demo (single DELETE query)",
         },
         "setup": {
-            "1": "POST /migrate with Authorization: Bearer dev-secret-123",
+            "1": "POST /migrate with Authorization: Bearer <MIGRATION_TOKEN>",
             "2": "POST /demo/seed to create sample data",
             "3": "GET /games to see results",
         },

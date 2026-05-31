@@ -54,8 +54,8 @@ async def test_create_or_update_builds_sql_and_returns_instance():
     assert inst.email == "u@example.com"
     # created flag true (no pk provided)
     assert created is True
-    # Ensure SQL contains INSERT OR REPLACE and RETURNING
-    assert "INSERT OR REPLACE" in db.last_sql
+    # Ensure SQL uses non-destructive UPSERT and RETURNING
+    assert "ON CONFLICT" in db.last_sql
     assert "RETURNING" in db.last_sql
 
 

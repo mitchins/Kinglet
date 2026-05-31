@@ -14,6 +14,24 @@ from .http import Response  # Import directly from http module
 from .totp import DummyOTPProvider, set_otp_provider  # TOTP support
 
 
+def _env_get(req, key: str, default=None):
+    """Read an env value from either dict-like or attribute-style bindings."""
+    env = getattr(req, "env", None)
+    if isinstance(env, dict):
+        return env.get(key, default)
+    return getattr(env, key, default)
+
+
+def _env_flag(req, key: str, default: bool = False) -> bool:
+    """Parse boolean-like env flags safely."""
+    val = _env_get(req, key, default)
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in {"1", "true", "yes", "on"}
+    return default
+
+
 # ---------- JWT (HS256) minimal ----------
 def _b64url_decode(s: str) -> bytes:
     s += "=" * (-len(s) % 4)
@@ -46,7 +64,7 @@ def _extract_bearer_user(req, env_key: str) -> dict | None:
         return None
 
     token = auth.split(" ", 1)[1].strip()
-    secret = getattr(req.env, env_key, None)
+    secret = _env_get(req, env_key, None)
     if not secret:
         return None
 
@@ -61,7 +79,14 @@ def _extract_bearer_user(req, env_key: str) -> dict | None:
 
 
 def _extract_cloudflare_user(req) -> dict | None:
-    """Extract user from Cloudflare Access JWT"""
+    """Extract user from Cloudflare Access JWT payload.
+
+    This fallback is intentionally gated behind ALLOW_UNVERIFIED_CF_ACCESS_JWT.
+    Use only in trusted edge setups where upstream Access verification is enforced.
+    """
+    if not _env_flag(req, "ALLOW_UNVERIFIED_CF_ACCESS_JWT", False):
+        return None
+
     access_jwt = getattr(req, "header", lambda *_: None)(
         "cf-access-jwt-assertion"
     ) or getattr(req, "header", lambda *_: None)("cf-access-jwt")

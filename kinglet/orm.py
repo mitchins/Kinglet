@@ -47,12 +47,16 @@ def _qi(name: str) -> str:
 class Field:
     """Base field class for model attributes"""
 
-    def __init__(self, default=None, null=True, unique=False, primary_key=False):
+    def __init__(
+        self, default=None, null=True, unique=False, primary_key=False, **kwargs
+    ):
         self.default = default
         self.null = null
         self.unique = unique
         self.primary_key = primary_key
         self.name = None  # Set by ModelMeta
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def to_python(self, value: Any) -> Any:
         """Convert database value to Python value"""
@@ -260,6 +264,7 @@ class QuerySet:
                         )
                     )
                 condition = new_qs._build_lookup_condition(field_name, lookup, value)
+                condition = f"{condition} /*{lookup}*/"
             else:
                 # Validate field exists
                 if key not in self._field_names:
@@ -286,6 +291,7 @@ class QuerySet:
                         )
                     )
                 condition = new_qs._build_lookup_condition(field_name, lookup, value)
+                condition = f"{condition} /*{lookup}*/"
                 # Wrap in NOT for exclude behavior
                 condition = f"NOT ({condition})"
             else:
@@ -585,12 +591,27 @@ class QuerySet:
 
         s = str(val)
 
-        if self._is_startswith_condition(cond):
+        lookup = None
+        if "/*" in cond and "*/" in cond:
+            lookup = cond.rsplit("/*", 1)[1].split("*/", 1)[0].strip()
+        elif "--" in cond:
+            lookup = cond.rsplit("--", 1)[1].strip()
+
+        if lookup == "startswith":
             return self._ensure_ends_with_percent(s)
 
-        if "endswith" in cond:
+        if lookup == "endswith":
             return self._ensure_starts_with_percent(s)
 
+        if lookup in {"contains", "icontains"}:
+            return self._ensure_surrounded_with_percent(s)
+
+        # Backward compatibility for callers/tests that directly set conditions
+        # with marker comments.
+        if self._is_startswith_condition(cond):
+            return self._ensure_ends_with_percent(s)
+        if "endswith" in cond:
+            return self._ensure_starts_with_percent(s)
         if self._is_contains_condition(cond):
             return self._ensure_surrounded_with_percent(s)
 
@@ -910,7 +931,7 @@ class Manager:
 
         except UniqueViolationError:
             # Only on conflict, fetch the existing record
-            instance = await self.get(db, **kwargs)
+            instance = await self.filter(db, **kwargs).first()
             if instance:
                 return instance, False
             else:
@@ -941,22 +962,42 @@ class Manager:
             validated.pop("id", None)
         return validated
 
-    def _build_upsert_sql(self, data: dict) -> tuple[str, list]:
+    def _build_upsert_sql(
+        self, data: dict[str, Any], unique_fields: list[str]
+    ) -> tuple[str, list]:
         cols = list(data.keys())
         vals = list(data.values())
         value_exprs: list[str] = []
         bind_vals: list = []
+        table = _qi(self.model_class._meta.table_name)
         for v in vals:
             if v is None:
                 value_exprs.append("NULL")
             else:
                 value_exprs.append("?")
                 bind_vals.append(v)
+
+        if not unique_fields:
+            raise ValueError("At least one unique field is required for upsert")
+
+        conflict_target = ", ".join(_qi(f) for f in unique_fields)
+        update_fields = [f for f in cols if f not in unique_fields and f != "id"]
+        if update_fields:
+            update_exprs = ", ".join(
+                f"{_qi(f)} = excluded.{_qi(f)}" for f in update_fields
+            )
+            conflict_action = f"DO UPDATE SET {update_exprs}"
+        else:
+            conflict_action = "DO NOTHING"
+
         returning_fields = list(self.model_class._fields.keys())
+        quoted_columns = ", ".join(_qi(c) for c in cols)
+        quoted_returning_fields = ", ".join(_qi(f) for f in returning_fields)
         sql = f"""
-            INSERT OR REPLACE INTO {self.model_class._meta.table_name}
-            ({', '.join(cols)}) VALUES ({', '.join(value_exprs)})
-            RETURNING {', '.join(returning_fields)}
+            INSERT INTO {table}
+            ({quoted_columns}) VALUES ({', '.join(value_exprs)})
+            ON CONFLICT({conflict_target}) {conflict_action}
+            RETURNING {quoted_returning_fields}
         """
         return sql, bind_vals
 
@@ -967,7 +1008,7 @@ class Manager:
             db.prepare(sql).bind(*bind_values) if bind_values else db.prepare(sql)
         ).first()
         if not result:
-            raise ValueError("INSERT OR REPLACE with RETURNING returned no rows")
+            raise ValueError("UPSERT with RETURNING returned no rows")
         row_data = d1_unwrap(result)
         instance = self.model_class._from_db(row_data)
         pk_field = self.model_class._get_pk_field_static()
@@ -1004,7 +1045,7 @@ class Manager:
                 create_data.update(defaults)
 
             validated_data = self._prepare_validated_data_for_create(create_data)
-            sql, bind_values = self._build_upsert_sql(validated_data)
+            sql, bind_values = self._build_upsert_sql(validated_data, unique_fields)
 
             try:
                 return await self._run_upsert_returning(db, sql, bind_values, kwargs)
@@ -1495,7 +1536,7 @@ class D1Transaction:
         """Add a statement to the transaction batch"""
         if self.executed:
             raise RuntimeError("Transaction already executed")
-        stmt = await self.db.prepare(sql)
+        stmt = self.db.prepare(sql)
         if params:
             stmt = stmt.bind(*params)
         self.statements.append(stmt)
@@ -1538,7 +1579,7 @@ async def transaction(db) -> AsyncGenerator[D1Transaction, None]:
         if txn.statements and not txn.executed:
             await txn.execute()
     except Exception:
-        await txn.rollback()
+        txn.rollback()
         raise
 
 
@@ -1658,7 +1699,7 @@ class BatchOperations:
         # Prepare statements
         statements = []
         for op in self.operations:
-            stmt = await self.db.prepare(op["sql"])
+            stmt = self.db.prepare(op["sql"])
             stmt = stmt.bind(*op["params"])
             statements.append(stmt)
 

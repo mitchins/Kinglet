@@ -23,6 +23,16 @@ class MockHeaders:
         return self._headers.get(key.lower(), default)
 
 
+class MockHeadersGetOnly:
+    """Mock headers object exposing get() but not items()."""
+
+    def __init__(self, headers_dict):
+        self._headers = {k.lower(): v for k, v in headers_dict.items()}
+
+    def get(self, key, default=None):
+        return self._headers.get(key.lower(), default)
+
+
 class MockWorkerRequest:
     """Mock Workers request object"""
 
@@ -64,6 +74,14 @@ class TestRequest:
         assert request.path == "/api/test"
         assert request.url == "http://localhost/api/test"
         assert request.env == mock_env
+
+    def test_dict_env_supports_attribute_and_get(self):
+        """Test dict env values are available via attribute and .get()."""
+        raw_request = MockWorkerRequest("GET", "http://localhost/api/test")
+        request = Request(raw_request, {"ENVIRONMENT": "development", "DB": "mock-db"})
+
+        assert request.env.ENVIRONMENT == "development"
+        assert request.env.get("DB") == "mock-db"
 
     def test_url_parsing(self, mock_env):
         """Test URL component parsing"""
@@ -111,6 +129,21 @@ class TestRequest:
         # Test default values
         assert request.header("nonexistent") is None
         assert request.header("nonexistent", "default") == "default"
+
+    def test_header_fallback_get_for_custom_headers(self, mock_env):
+        """Test custom headers are still readable when only headers.get() exists."""
+
+        class GetOnlyRequest:
+            def __init__(self):
+                self.method = "GET"
+                self.url = "http://localhost/"
+                self.headers = MockHeadersGetOnly({"X-Api-Key": "secret"})
+
+            async def text(self):
+                return ""
+
+        request = Request(GetOnlyRequest(), mock_env)
+        assert request.header("x-api-key") == "secret"
 
     @pytest.mark.asyncio
     async def test_request_body(self, mock_env):

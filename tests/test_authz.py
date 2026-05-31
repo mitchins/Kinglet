@@ -143,6 +143,8 @@ class TestGetUser:
     async def test_get_user_cf_access_header(self):
         """Test extracting user from Cloudflare Access JWT"""
         mock_request = MagicMock()
+        mock_request.env = MagicMock()
+        mock_request.env.ALLOW_UNVERIFIED_CF_ACCESS_JWT = True
         mock_request.header = MagicMock(
             side_effect=lambda header, default="": {
                 "authorization": "",
@@ -153,6 +155,22 @@ class TestGetUser:
         result = await get_user(mock_request)
         assert result is not None
         assert result["id"] == "user-cf-123"
+
+    @pytest.mark.asyncio
+    async def test_get_user_cf_access_header_disabled_by_default(self):
+        """Test Cloudflare Access fallback is disabled unless explicitly enabled."""
+        mock_request = MagicMock()
+        mock_request.env = MagicMock()
+        mock_request.env.ALLOW_UNVERIFIED_CF_ACCESS_JWT = False
+        mock_request.header = MagicMock(
+            side_effect=lambda header, default="": {
+                "authorization": "",
+                "cf-access-jwt-assertion": "header.eyJzdWIiOiJ1c2VyLWNmLTEyMyJ9.signature",
+            }.get(header.lower(), default)
+        )
+
+        result = await get_user(mock_request)
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_get_user_missing_jwt_secret(self):
