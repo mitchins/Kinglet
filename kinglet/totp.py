@@ -7,7 +7,6 @@ Implements RFC 6238 TOTP algorithm for session elevation
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import hmac
 import secrets
@@ -369,11 +368,11 @@ def decrypt_totp_secret(
                 nonce, ciphertext = encrypted_bytes[:12], encrypted_bytes[12:]
                 decrypted_bytes = AESGCM(key_bytes).decrypt(nonce, ciphertext, None)
                 return decrypted_bytes.decode()
-            except (InvalidTag, UnicodeDecodeError, ValueError):
+            except (InvalidTag, ValueError):
                 pass
 
         return _decrypt_totp_secret_legacy(encrypted_bytes, key)
-    except (ValueError, RuntimeError, UnicodeDecodeError, binascii.Error, TypeError) as e:
+    except (InvalidTag, ValueError, RuntimeError, TypeError) as e:
         raise ValueError("Failed to decrypt TOTP secret") from e
 
 

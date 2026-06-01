@@ -1591,7 +1591,7 @@ class D1Transaction:
         self.statements = []
         self.executed = False
 
-    async def add_statement(self, sql: str, params: list[Any] = None) -> None:
+    def add_statement(self, sql: str, params: list[Any] | None = None) -> None:
         """Add a statement to the transaction batch"""
         if self.executed:
             raise RuntimeError("Transaction already executed")
@@ -1628,8 +1628,8 @@ async def transaction(db) -> AsyncGenerator[D1Transaction, None]:
 
     Usage:
         async with transaction(db) as txn:
-            await txn.add_statement("INSERT INTO games (...) VALUES (?)", [...])
-            await txn.add_statement("UPDATE users SET ... WHERE id = ?", [...])
+            txn.add_statement("INSERT INTO games (...) VALUES (?)", [...])
+            txn.add_statement("UPDATE users SET ... WHERE id = ?", [...])
             # Both execute together in D1 batch
     """
     txn = D1Transaction(db)

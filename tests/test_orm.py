@@ -782,7 +782,7 @@ class TestD1Transaction:
 
         # Adding statement after execute should raise error
         with pytest.raises(RuntimeError, match="Transaction already executed"):
-            await txn.add_statement("INSERT INTO test VALUES (?)", ["value"])
+            txn.add_statement("INSERT INTO test VALUES (?)", ["value"])
 
 
 class TestQuerySetAdvanced:
