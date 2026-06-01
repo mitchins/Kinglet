@@ -73,7 +73,7 @@ class MigrationTracker:
             safe_ident(cls.MIGRATIONS_TABLE)  # Validate table name
             quoted_table = quote_ident_sqlite(cls.MIGRATIONS_TABLE)
             result = await db.prepare(
-                f"SELECT version FROM {quoted_table} ORDER BY applied_at"  # nosec B608: identifier validated+quoted
+                f"SELECT version FROM {quoted_table} ORDER BY applied_at"
             ).all()
 
             if hasattr(result, "results"):
@@ -90,7 +90,7 @@ class MigrationTracker:
         quoted_table = quote_ident_sqlite(cls.MIGRATIONS_TABLE)
         result = (
             await db.prepare(
-                f"SELECT version FROM {quoted_table} WHERE version = ?"  # nosec B608: identifier validated+quoted; values parameterized
+                f"SELECT version FROM {quoted_table} WHERE version = ?"
             )
             .bind(version)
             .first()
@@ -108,7 +108,7 @@ class MigrationTracker:
             INSERT INTO {quoted_table}
             (version, checksum, description, applied_at, sql_hash)
             VALUES (?, ?, ?, ?, ?)
-        """  # nosec B608: identifier validated+quoted; values parameterized
+        """
             )
             .bind(
                 migration.version,
@@ -190,7 +190,7 @@ class MigrationTracker:
                 FROM {quoted_table}
                 ORDER BY applied_at DESC
                 LIMIT 1
-            """  # nosec B608: identifier validated+quoted
+            """
             ).first()
 
             if result:
@@ -214,7 +214,7 @@ class MigrationTracker:
                 SELECT version, checksum, description, applied_at
                 FROM {quoted_table}
                 ORDER BY applied_at DESC
-            """  # nosec B608: identifier validated+quoted
+            """
             ).all()
 
             migrations = []
@@ -412,13 +412,13 @@ class MigrationGenerator:
         """Generate multi-step migration for NOT NULL columns without defaults"""
         # Step 1: Add column as nullable
         sql = f"-- Adding NOT NULL column {field_name} requires multi-step migration\n"
-        sql += f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type};\n"  # nosec B608
+        sql += f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type};\n"
 
         # Step 2: Get appropriate default value for backfill
         default_value = MigrationGenerator._get_field_default_value(field)
 
         sql += "-- Backfill with appropriate values\n"
-        sql += f"UPDATE {table} SET {field_name} = {default_value} WHERE {field_name} IS NULL;\n"  # nosec B608
+        sql += f"UPDATE {table} SET {field_name} = {default_value} WHERE {field_name} IS NULL;\n"
 
         # Step 3: Add NOT NULL constraint note
         sql += "-- Note: In SQLite/D1, you may need to recreate the table to add NOT NULL constraint"
@@ -430,7 +430,7 @@ class MigrationGenerator:
         table: str, field_name: str, sql_type: str, field
     ) -> str:
         """Generate simple ADD COLUMN migration for nullable or columns with defaults"""
-        sql = f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type}"  # nosec B608
+        sql = f"ALTER TABLE {table} ADD COLUMN {field_name} {sql_type}"
 
         if field.default is not None:
             default_val = MigrationGenerator._get_default_sql_value(

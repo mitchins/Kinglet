@@ -62,7 +62,7 @@ class D1CacheService:
                     SET hit_count = hit_count + 1
                     WHERE cache_key = ? AND expires_at > ?
                     RETURNING content, created_at, hit_count
-                """  # nosec B608: identifier validated via _safe_table(); values parameterized
+                """
                 stmt = self.db.prepare(sql)
                 result = await stmt.bind(cache_key, current_time).first()
 
@@ -81,7 +81,7 @@ class D1CacheService:
                     SELECT content, created_at
                     FROM {tn}
                     WHERE cache_key = ? AND expires_at > ?
-                """  # nosec B608: identifier validated via _safe_table(); values parameterized
+                """
                 stmt = self.db.prepare(sql)
                 result = await stmt.bind(cache_key, current_time).first()
 
@@ -134,7 +134,7 @@ class D1CacheService:
         """Delete specific cache entry"""
         try:
             tn = self._safe_table()
-            sql = f"DELETE FROM {tn} WHERE cache_key = ?"  # nosec B608: identifier validated via _safe_table(); value parameterized
+            sql = f"DELETE FROM {tn} WHERE cache_key = ?"
             stmt = self.db.prepare(sql)
             result = await stmt.bind(cache_key).run()
             return getattr(getattr(result, "meta", None), "changes", 0) > 0
@@ -147,7 +147,7 @@ class D1CacheService:
         try:
             current_time = int(time.time())
             tn = self._safe_table()
-            sql = f"DELETE FROM {tn} WHERE expires_at <= ?"  # nosec B608: identifier validated via _safe_table(); value parameterized
+            sql = f"DELETE FROM {tn} WHERE expires_at <= ?"
             stmt = self.db.prepare(sql)
             result = await stmt.bind(current_time).run()
             return getattr(getattr(result, "meta", None), "changes", 0)
@@ -159,7 +159,7 @@ class D1CacheService:
         """Invalidate cache entries matching a pattern (e.g., '/api/games/%')"""
         try:
             tn = self._safe_table()
-            sql = f"DELETE FROM {tn} WHERE cache_key LIKE ?"  # nosec B608: identifier validated via _safe_table(); value parameterized
+            sql = f"DELETE FROM {tn} WHERE cache_key LIKE ?"
             stmt = self.db.prepare(sql)
             result = await stmt.bind(pattern).run()
             return getattr(getattr(result, "meta", None), "changes", 0)
@@ -179,7 +179,7 @@ class D1CacheService:
                     AVG(hit_count) as avg_hits_per_entry,
                     COUNT(*) FILTER (WHERE expires_at <= ?) as expired_entries
                 FROM {tn}
-            """  # nosec B608: identifier validated via _safe_table(); value parameterized
+            """
             stmt = self.db.prepare(sql)
 
             current_time = int(time.time())

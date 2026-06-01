@@ -62,9 +62,9 @@ async def admin_action(request):
     user = await get_user(request)
     claims = user.get("claims", {}) if user else {}
     email = claims.get("email", "")
+    role = claims.get("role")
 
-    # Check admin role (mock check for demo)
-    if not user or not email.endswith("@admin.com"):
+    if not user or role != "admin":
         return Response({"error": "Admin access required"}, status=403)
 
     # Require confirmation header for dangerous actions

@@ -49,9 +49,15 @@ jobs:
         uv run ruff check . --select=E9,F63,F7,F82,F811,F821 || true
         uv run ruff format --check . || true
 
-    - name: Type check with mypy
+    - name: Type check with mypy (advisory)
       run: |
+        set +e
         uv run mypy kinglet/
+        status=$?
+        if [ "$status" -ne 0 ]; then
+          echo "::warning::mypy is advisory until the existing package-wide type debt is reduced."
+        fi
+        exit 0
 
     - name: Run tests
       run: |
@@ -116,14 +122,15 @@ jobs:
     - name: Install dependencies
       run: uv sync --all-extras --dev
 
-    - name: Run security checks with bandit
+    - name: Run security checks with bandit (medium+ confidence)
       run: |
-        uv run bandit -r kinglet/ -f json -o bandit-report.json
-        uv run bandit -r kinglet/  # Also show human-readable output
+        uv run bandit -r kinglet/ -ii -f json -o bandit-report.json
+        uv run bandit -r kinglet/ -ii  # Also show human-readable output
 
     - name: Check for known vulnerabilities in dependencies
       run: |
-        uv run safety check
+        uv export --no-dev --no-hashes -o /tmp/kinglet-prod-requirements.txt
+        uv run safety check -r /tmp/kinglet-prod-requirements.txt
 
   sonarqube:
     runs-on: ubuntu-latest

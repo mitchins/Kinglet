@@ -21,6 +21,7 @@ from kinglet.authz import (
     get_user,
     r2_media_owner,
     require_auth,
+    require_elevated_session,
     require_owner,
     require_participant,
     verify_jwt_hs256,
@@ -500,6 +501,33 @@ class TestRequireOwnerDecorator:
         finally:
             kinglet.authz.get_user = original_get_user
 
+    @pytest.mark.asyncio
+    async def test_admin_override_supports_dict_env(self):
+        """Test admin override with dict-backed env bindings."""
+
+        async def load_resource(req, rid):
+            return {"owner_id": "owner-123"}
+
+        @require_owner(load_resource, allow_admin_env="TEST_ADMIN_IDS")
+        async def handler(req, obj):
+            return {"admin_access": True, "resource": obj}
+
+        mock_request = MagicMock()
+        mock_request.path_param = MagicMock(return_value="resource-123")
+        mock_request.env = {"TEST_ADMIN_IDS": "admin-1,admin-2,admin-3"}
+
+        import kinglet.authz
+
+        original_get_user = kinglet.authz.get_user
+        kinglet.authz.get_user = AsyncMock(return_value={"id": "admin-2", "claims": {}})
+
+        try:
+            result = await handler(mock_request)
+            assert result["admin_access"] is True
+            assert result["resource"]["owner_id"] == "owner-123"
+        finally:
+            kinglet.authz.get_user = original_get_user
+
 
 class TestRequireParticipantDecorator:
     """Test @require_participant decorator"""
@@ -558,6 +586,32 @@ class TestRequireParticipantDecorator:
             result = await handler(mock_request)
             assert isinstance(result, Response)
             assert result.status == 403
+        finally:
+            kinglet.authz.get_user = original_get_user
+
+
+class TestRequireElevatedSessionDecorator:
+    """Test @require_elevated_session decorator"""
+
+    @pytest.mark.asyncio
+    async def test_totp_disabled_supports_dict_env(self):
+        @require_elevated_session
+        async def handler(req):
+            return {"user": req.state.user["id"]}
+
+        mock_request = MagicMock()
+        mock_request.env = {"TOTP_ENABLED": "false"}
+
+        import kinglet.authz
+
+        original_get_user = kinglet.authz.get_user
+        kinglet.authz.get_user = AsyncMock(
+            return_value={"id": "user-123", "claims": {}}
+        )
+
+        try:
+            result = await handler(mock_request)
+            assert result["user"] == "user-123"
         finally:
             kinglet.authz.get_user = original_get_user
 

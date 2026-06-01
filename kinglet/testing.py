@@ -743,7 +743,7 @@ class MockD1Database:
             if table_name:
                 try:
                     safe_table = self._safe_identifier(table_name)
-                    cursor.execute(  # nosec B608: safe_table validated by _safe_identifier  # NOSONAR
+                    cursor.execute(  # nosec B608
                         f'SELECT * FROM "{safe_table}" WHERE rowid = ?',  # NOSONAR # nosec
                         [self._last_row_id],
                     )

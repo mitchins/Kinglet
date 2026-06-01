@@ -21,7 +21,14 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # Test TOTP secret that generates predictable codes for development/testing
 # This secret will generate "000000" at Unix timestamp 0 (and cyclically)
-TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXP"  # nosec B105: Test-only predictable secret for development
+TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXP"  # nosec B105
+
+
+def _env_get(env_source: Any, key: str, default=None):
+    """Read env values from either dict-like or attribute-style bindings."""
+    if isinstance(env_source, dict):
+        return env_source.get(key, default)
+    return getattr(env_source, key, default)
 
 
 class OTPProvider:
@@ -292,10 +299,10 @@ def create_elevated_jwt(
 def get_totp_encryption_key(env) -> str:
     """Get TOTP encryption key from environment variables"""
     # Primary key for TOTP secret encryption in database
-    totp_key = getattr(env, "TOTP_ENCRYPTION_KEY", None)
+    totp_key = _env_get(env, "TOTP_ENCRYPTION_KEY", None)
     if not totp_key:
         # Fallback to JWT secret if TOTP key not set
-        totp_key = getattr(env, "JWT_SECRET", None)
+        totp_key = _env_get(env, "JWT_SECRET", None)
 
     if not totp_key:
         raise RuntimeError(
@@ -304,9 +311,8 @@ def get_totp_encryption_key(env) -> str:
 
     # In production, this should be a different key from JWT_SECRET
     # for defense in depth
-    if getattr(env, "MODE", None) == "prod" and totp_key == getattr(
-        env, "JWT_SECRET", None
-    ):
+    mode = str(_env_get(env, "MODE", "")).strip().lower()
+    if mode == "prod" and totp_key == _env_get(env, "JWT_SECRET", None):
         raise RuntimeError("TOTP_ENCRYPTION_KEY must differ from JWT_SECRET in prod")
 
     return totp_key
@@ -323,6 +329,16 @@ def _derive_totp_aead_key(encryption_key: str) -> bytes:
     return hashlib.sha256(encryption_key.encode()).digest()
 
 
+def _decrypt_totp_secret_legacy(encrypted_bytes: bytes, encryption_key: str) -> str:
+    """Decrypt legacy XOR-based ciphertexts for backward compatibility."""
+    key_hash = hashlib.sha256(encryption_key.encode()).digest()
+    decrypted_bytes = bytearray()
+    for i, byte in enumerate(encrypted_bytes):
+        key_byte = key_hash[i % len(key_hash)]
+        decrypted_bytes.append(byte ^ key_byte)
+    return decrypted_bytes.decode()
+
+
 def encrypt_totp_secret(secret: str, encryption_key: str | Any) -> str:
     """Encrypt TOTP secret for database storage"""
     key = _resolve_totp_encryption_key(encryption_key)
@@ -332,21 +348,32 @@ def encrypt_totp_secret(secret: str, encryption_key: str | Any) -> str:
     return base64.b64encode(nonce + ciphertext).decode()
 
 
-def decrypt_totp_secret(encrypted_secret: str, encryption_key: str | Any) -> str:
+def decrypt_totp_secret(
+    encrypted_secret: str | bytes, encryption_key: str | Any
+) -> str:
     """Decrypt TOTP secret from database"""
     try:
-        encrypted_bytes = base64.b64decode(encrypted_secret.encode())
-        if len(encrypted_bytes) < 13:
+        encoded_secret = (
+            encrypted_secret.encode()
+            if isinstance(encrypted_secret, str)
+            else encrypted_secret
+        )
+        encrypted_bytes = base64.b64decode(encoded_secret)
+        if len(encrypted_bytes) < 8:
             raise ValueError("Encrypted TOTP secret is too short")
-
         key = _resolve_totp_encryption_key(encryption_key)
         key_bytes = _derive_totp_aead_key(key)
-        nonce, ciphertext = encrypted_bytes[:12], encrypted_bytes[12:]
-        decrypted_bytes = AESGCM(key_bytes).decrypt(nonce, ciphertext, None)
-        return decrypted_bytes.decode()
-    except (ValueError, InvalidTag, UnicodeDecodeError, binascii.Error) as e:
-        raise ValueError("Failed to decrypt TOTP secret") from e
-    except Exception as e:
+
+        if len(encrypted_bytes) >= 28:
+            try:
+                nonce, ciphertext = encrypted_bytes[:12], encrypted_bytes[12:]
+                decrypted_bytes = AESGCM(key_bytes).decrypt(nonce, ciphertext, None)
+                return decrypted_bytes.decode()
+            except (InvalidTag, UnicodeDecodeError, ValueError):
+                pass
+
+        return _decrypt_totp_secret_legacy(encrypted_bytes, key)
+    except (ValueError, RuntimeError, UnicodeDecodeError, binascii.Error, TypeError) as e:
         raise ValueError("Failed to decrypt TOTP secret") from e
 
 
@@ -354,7 +381,7 @@ def decrypt_totp_secret(encrypted_secret: str, encryption_key: str | Any) -> str
 def test_totp_implementation():
     """Test TOTP implementation with known values"""
     # Test with a known secret
-    test_secret = "JBSWY3DPEHPK3PXP"  # nosec B105: Test-only predictable secret for development
+    test_secret = "JBSWY3DPEHPK3PXP"  # nosec B105
 
     # Generate code for current time
     current_code = generate_totp_code(test_secret)

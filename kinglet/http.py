@@ -135,7 +135,7 @@ class Request:
                 fallback = headers_obj.get(name)
                 if fallback is not None:
                     return fallback
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
         return default
@@ -211,7 +211,7 @@ class Request:
             array_buffer = await self._raw.arrayBuffer()
             # Convert ArrayBuffer to Python bytes
             try:
-                from js import Uint8Array
+                from js import Uint8Array  # type: ignore[import-not-found]
 
                 uint8_array = Uint8Array.new(array_buffer)
                 if hasattr(uint8_array, "to_bytes"):

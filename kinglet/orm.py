@@ -48,8 +48,13 @@ class Field:
     """Base field class for model attributes"""
 
     def __init__(
-        self, default=None, null=True, unique=False, primary_key=False, **kwargs
-    ):
+        self,
+        default: Any = None,
+        null: bool = True,
+        unique: bool = False,
+        primary_key: bool = False,
+        **kwargs: Any,
+    ) -> None:
         self.default = default
         self.null = null
         self.unique = unique
@@ -506,7 +511,7 @@ class QuerySet:
         No additional overhead vs raw SQL
         """
         table = _qi(self.model_class._meta.table_name)
-        base_sql = f"SELECT COUNT(*) as count FROM {table}"  # nosec B608: identifier validated+quoted; values parameterized
+        base_sql = f"SELECT COUNT(*) as count FROM {table}"
         where_clause, params = self._build_where_clause()
         if where_clause:
             sql = f"{base_sql} WHERE {where_clause}"
@@ -532,7 +537,7 @@ class QuerySet:
         """
         where_clause, params = self._build_where_clause()
         table = _qi(self.model_class._meta.table_name)
-        base_sql = f"SELECT 1 FROM {table}"  # nosec B608: identifier validated+quoted; values parameterized
+        base_sql = f"SELECT 1 FROM {table}"
 
         if where_clause:
             sql = f"{base_sql} WHERE {where_clause} LIMIT 1"
@@ -669,7 +674,7 @@ class QuerySet:
             select_fields = ", ".join(_qi(f) for f in self.model_class._fields.keys())
 
         table = _qi(self.model_class._meta.table_name)
-        sql = f"SELECT {select_fields} FROM {table}"  # nosec B608: identifier validated+quoted; values parameterized
+        sql = f"SELECT {select_fields} FROM {table}"
         params = []
 
         # WHERE clause
@@ -680,7 +685,7 @@ class QuerySet:
 
         # ORDER BY clause
         if self._order_by:
-            sql += f" ORDER BY {', '.join(self._order_by)}"  # nosec B608: field names already validated+quoted in order_by()
+            sql += f" ORDER BY {', '.join(self._order_by)}"
 
         # LIMIT clause
         if self._limit_count:
@@ -710,7 +715,7 @@ class QuerySet:
         Returns count of deleted rows
         """
         table = _qi(self.model_class._meta.table_name)
-        base_sql = f"DELETE FROM {table}"  # nosec B608: identifier validated+quoted; values parameterized
+        base_sql = f"DELETE FROM {table}"
         where_clause, params = self._build_where_clause()
 
         if where_clause:
@@ -760,7 +765,7 @@ class QuerySet:
 
         # Build complete query
         table = _qi(self.model_class._meta.table_name)
-        base_sql = f"UPDATE {table} SET {', '.join(set_clauses)}"  # nosec B608: identifier validated+quoted; values parameterized
+        base_sql = f"UPDATE {table} SET {', '.join(set_clauses)}"
         where_clause, where_params = self._build_where_clause()
 
         if where_clause:
@@ -854,7 +859,7 @@ class Manager:
         table = _qi(self.model_class._meta.table_name)
         quoted_fields = ", ".join(_qi(field) for field in field_names)
         base_sql = (
-            f"INSERT INTO {table} ({quoted_fields}) VALUES ({', '.join(placeholders)})"  # nosec B608: identifier validated+quoted; values parameterized
+            f"INSERT INTO {table} ({quoted_fields}) VALUES ({', '.join(placeholders)})"
         )
 
         statements = []
@@ -982,34 +987,52 @@ class Manager:
             raise ValueError("At least one unique field is required for upsert")
 
         conflict_target = ", ".join(_qi(f) for f in unique_fields)
-        update_fields = [f for f in cols if f not in unique_fields and f != "id"]
+        pk_name = self.model_class._get_pk_field_static().name
+        update_fields = [f for f in cols if f not in unique_fields and f != pk_name]
         if update_fields:
             update_exprs = ", ".join(
                 f"{_qi(f)} = excluded.{_qi(f)}" for f in update_fields
             )
-            conflict_action = f"DO UPDATE SET {update_exprs}"
+            # update_exprs is built only from model field names validated and quoted via _qi.
+            conflict_action = f"DO UPDATE SET {update_exprs}"  # nosec B608
         else:
             conflict_action = "DO NOTHING"
 
         returning_fields = list(self.model_class._fields.keys())
         quoted_columns = ", ".join(_qi(c) for c in cols)
         quoted_returning_fields = ", ".join(_qi(f) for f in returning_fields)
-        sql = f"""
+        # All identifiers in this statement are model-derived, validated, and quoted.
+        sql = (  # nosec B608
+            f"""
             INSERT INTO {table}
             ({quoted_columns}) VALUES ({', '.join(value_exprs)})
             ON CONFLICT({conflict_target}) {conflict_action}
             RETURNING {quoted_returning_fields}
         """
+        )
         return sql, bind_vals
 
     async def _run_upsert_returning(
-        self, db, sql: str, bind_values: list, kwargs: dict[str, Any]
+        self,
+        db,
+        sql: str,
+        bind_values: list,
+        kwargs: dict[str, Any],
+        unique_fields: list[str],
     ) -> tuple[Model, bool]:
         result = await (
             db.prepare(sql).bind(*bind_values) if bind_values else db.prepare(sql)
         ).first()
         if not result:
-            raise ValueError("UPSERT with RETURNING returned no rows")
+            lookup_kwargs = {
+                field_name: kwargs[field_name]
+                for field_name in unique_fields
+                if field_name in kwargs
+            }
+            existing = await self.get_queryset(db).filter(**lookup_kwargs).first()
+            if existing is None:
+                raise ValueError("UPSERT with RETURNING returned no rows")
+            return existing, False
         row_data = d1_unwrap(result)
         instance = self.model_class._from_db(row_data)
         pk_field = self.model_class._get_pk_field_static()
@@ -1049,7 +1072,9 @@ class Manager:
             sql, bind_values = self._build_upsert_sql(validated_data, unique_fields)
 
             try:
-                return await self._run_upsert_returning(db, sql, bind_values, kwargs)
+                return await self._run_upsert_returning(
+                    db, sql, bind_values, kwargs, unique_fields
+                )
             except Exception as e:
                 raise D1ErrorClassifier.classify_error(e) from e
 
@@ -1244,11 +1269,32 @@ class Model(metaclass=ModelMeta):
 
             setattr(self, field_name, value)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__setattr__(self, name, value)
+
+        state = self.__dict__.get("_state")
+        fields = getattr(type(self), "_fields", {})
+        if (
+            not state
+            or state.get("_loading_from_db")
+            or name not in fields
+            or not state.get("saved")
+        ):
+            return
+
+        loaded_fields = state.get("loaded_fields")
+        if isinstance(loaded_fields, set):
+            loaded_fields.add(name)
+
     @classmethod
     def _from_db(cls, row_data: dict[str, Any]) -> Model:
         """Create model instance from database row"""
         instance = cls.__new__(cls)
-        instance._state = {"saved": True, "loaded_fields": set(row_data.keys())}
+        instance._state = {
+            "saved": True,
+            "loaded_fields": set(row_data.keys()),
+            "_loading_from_db": True,
+        }
 
         for field_name, field in cls._fields.items():
             raw_value = row_data.get(field_name)
@@ -1258,6 +1304,7 @@ class Model(metaclass=ModelMeta):
                 value = None
             setattr(instance, field_name, value)
 
+        instance._state.pop("_loading_from_db", None)
         return instance
 
     def _prepare_save_field_data(self) -> dict[str, Any]:
@@ -1265,7 +1312,11 @@ class Model(metaclass=ModelMeta):
         field_data = {}
         loaded_fields = self._state.get("loaded_fields")
         for field_name, field in self._fields.items():
-            if self._state["saved"] and loaded_fields is not None and field_name not in loaded_fields:
+            if (
+                self._state["saved"]
+                and loaded_fields is not None
+                and field_name not in loaded_fields
+            ):
                 continue
             value = getattr(self, field_name, None)
 
@@ -1303,7 +1354,7 @@ class Model(metaclass=ModelMeta):
         bind_values.append(pk_value)
         table = _qi(self._meta.table_name)
         pk_col = _qi(pk_field.name)
-        sql = f"UPDATE {table} SET {', '.join(set_clauses)} WHERE {pk_col} = ?"  # nosec B608: identifier validated+quoted; values parameterized
+        sql = f"UPDATE {table} SET {', '.join(set_clauses)} WHERE {pk_col} = ?"
         return sql, bind_values
 
     def _build_insert_sql(self, field_data: dict[str, Any]) -> tuple[str, list[Any]]:
@@ -1330,7 +1381,7 @@ class Model(metaclass=ModelMeta):
 
         table = _qi(self._meta.table_name)
         quoted_columns = ", ".join(_qi(col) for col in columns)
-        sql = f"INSERT INTO {table} ({quoted_columns}) VALUES ({', '.join(value_expressions)})"  # nosec B608: identifier validated+quoted; values parameterized
+        sql = f"INSERT INTO {table} ({quoted_columns}) VALUES ({', '.join(value_expressions)})"
         return sql, bind_values
 
     async def _execute_update(self, db, sql: str, bind_values: list[Any]) -> None:
@@ -1401,7 +1452,7 @@ class Model(metaclass=ModelMeta):
 
         table = _qi(self._meta.table_name)
         pk_col = _qi(pk_field.name)
-        sql = f"DELETE FROM {table} WHERE {pk_col} = ?"  # nosec B608: identifier validated+quoted; values parameterized
+        sql = f"DELETE FROM {table} WHERE {pk_col} = ?"
         try:
             await db.prepare(sql).bind(pk_value).run()
             self._state["saved"] = False
@@ -1632,7 +1683,7 @@ class BatchOperations:
         table = _qi(model_class._meta.table_name)
         quoted_columns = ", ".join(_qi(col) for col in columns)
         sql = (
-            f"INSERT INTO {table} ({quoted_columns}) VALUES ({', '.join(placeholders)})"  # nosec B608: identifier validated+quoted; values parameterized
+            f"INSERT INTO {table} ({quoted_columns}) VALUES ({', '.join(placeholders)})"
         )
 
         self.operations.append(
@@ -1678,7 +1729,7 @@ class BatchOperations:
         params.append(pk_value)
         table = _qi(instance._meta.table_name)
         pk_col = _qi(pk_field.name)
-        sql = f"UPDATE {table} SET {', '.join(set_clauses)} WHERE {pk_col} = ?"  # nosec B608: identifier validated+quoted; values parameterized
+        sql = f"UPDATE {table} SET {', '.join(set_clauses)} WHERE {pk_col} = ?"
 
         self.operations.append(
             {"type": "update", "instance": instance, "sql": sql, "params": params}
@@ -1692,7 +1743,7 @@ class BatchOperations:
 
         table = _qi(instance._meta.table_name)
         pk_col = _qi(pk_field.name)
-        sql = f"DELETE FROM {table} WHERE {pk_col} = ?"  # nosec B608: identifier validated+quoted; values parameterized
+        sql = f"DELETE FROM {table} WHERE {pk_col} = ?"
 
         self.operations.append(
             {"type": "delete", "instance": instance, "sql": sql, "params": [pk_value]}
