@@ -438,6 +438,10 @@ class TestMigrationGenerator:
         assert "DEFAULT 'test'" in sql
         assert "multi-step migration" not in sql
 
+        field = StringField(default="O'Brien", null=False)
+        sql = MigrationGenerator.generate_add_column("users", "owner", field)
+        assert "DEFAULT 'O''Brien'" in sql
+
         # Test with integer default
         field = IntegerField(default=42)
         sql = MigrationGenerator.generate_add_column("products", "stock", field)

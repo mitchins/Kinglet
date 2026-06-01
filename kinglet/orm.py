@@ -579,6 +579,8 @@ class QuerySet:
         if lookup == "endswith":
             return f"{quoted_field} LIKE ? /*endswith*/"
         if lookup == "in":
+            if not value:
+                return "0 = 1"
             placeholders = ",".join(["?" for _ in value])
             return f"{quoted_field} IN ({placeholders})"
         raise ValueError(f"Unsupported lookup: {lookup}")
@@ -1246,7 +1248,7 @@ class Model(metaclass=ModelMeta):
     def _from_db(cls, row_data: dict[str, Any]) -> Model:
         """Create model instance from database row"""
         instance = cls.__new__(cls)
-        instance._state = {"saved": True}
+        instance._state = {"saved": True, "loaded_fields": set(row_data.keys())}
 
         for field_name, field in cls._fields.items():
             raw_value = row_data.get(field_name)
@@ -1261,7 +1263,10 @@ class Model(metaclass=ModelMeta):
     def _prepare_save_field_data(self) -> dict[str, Any]:
         """Prepare and validate field data for saving"""
         field_data = {}
+        loaded_fields = self._state.get("loaded_fields")
         for field_name, field in self._fields.items():
+            if self._state["saved"] and loaded_fields is not None and field_name not in loaded_fields:
+                continue
             value = getattr(self, field_name, None)
 
             # Handle auto fields

@@ -69,10 +69,10 @@ class D1CacheService:
                 if result:
                     result_dict = d1_unwrap(result)
                     return {
+                        **json.loads(result_dict.get("content", "{}")),
                         "_cached_at": result_dict.get("created_at"),
                         "_cache_hit": True,
                         "_hit_count": result_dict.get("hit_count"),
-                        **json.loads(result_dict.get("content", "{}")),
                     }
             else:
                 # Read-only cache lookup (no write operations)
@@ -88,9 +88,9 @@ class D1CacheService:
                 if result:
                     result_dict = d1_unwrap(result)
                     return {
+                        **json.loads(result_dict.get("content", "{}")),
                         "_cached_at": result_dict.get("created_at"),
                         "_cache_hit": True,
-                        **json.loads(result_dict.get("content", "{}")),
                     }
 
             return None

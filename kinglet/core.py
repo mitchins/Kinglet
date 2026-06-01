@@ -299,6 +299,14 @@ class Kinglet:
 
         try:
             response = await self.error_handlers[status_code](request, exception)
+            try:
+                from workers import Response as WorkersResponse
+
+                if isinstance(response, WorkersResponse):
+                    return response
+            except ImportError:
+                pass
+
             if not isinstance(response, Response):
                 response = Response(response)
 

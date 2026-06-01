@@ -469,7 +469,8 @@ class MigrationGenerator:
         elif isinstance(default, bool):
             return "1" if default else "0"
         elif isinstance(default, str):
-            return f"'{default}'"
+            escaped = default.replace("'", "''")
+            return f"'{escaped}'"
         else:
             return str(default)
 

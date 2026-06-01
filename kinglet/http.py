@@ -296,17 +296,18 @@ class Request:
             Parsed JSON as Python dict (default) or raw JsProxy object
         """
         cache_key = f"_json_cache_{convert}"
-        cached_value = getattr(self, cache_key, None)
+        cache_set_key = f"_json_cache_set_{convert}"
 
-        if cached_value is None:
+        if not getattr(self, cache_set_key, False):
             if hasattr(self._raw, "json"):
                 cached_value = await self._parse_workers_json(convert)
             else:
                 cached_value = await self._parse_text_json()
 
             setattr(self, cache_key, cached_value)
+            setattr(self, cache_set_key, True)
 
-        return cached_value
+        return getattr(self, cache_key)
 
 
 class Response:

@@ -187,6 +187,45 @@ class TestKingletApp:
         assert app.error_handlers[404] == not_found_handler
 
     @pytest.mark.asyncio
+    async def test_custom_error_handler_can_return_workers_response(
+        self, app, mock_env, monkeypatch
+    ):
+        """Test custom error handlers can return WorkersResponse directly."""
+        import sys
+        import types
+
+        from kinglet.exceptions import HTTPError
+
+        WorkersResponse = type(
+            "Response",
+            (),
+            {
+                "__module__": "workers",
+                "__init__": lambda self, content=None, status=200: setattr(
+                    self, "content", content
+                )
+                or setattr(self, "status", status),
+            },
+        )
+        fake_workers = types.ModuleType("workers")
+        fake_workers.Response = WorkersResponse
+        monkeypatch.setitem(sys.modules, "workers", fake_workers)
+
+        @app.exception_handler(404)
+        async def not_found_handler(request, _exc):
+            return WorkersResponse({"error": "Custom not found"}, status=404)
+
+        @app.get("/boom")
+        async def boom(request):
+            raise HTTPError(404, "missing")
+
+        mock_request = MockRequest("GET", "http://localhost/boom")
+        response = await app(mock_request, mock_env)
+
+        assert isinstance(response, WorkersResponse)
+        assert response.status == 404
+
+    @pytest.mark.asyncio
     async def test_automatic_response_conversion(self, app, mock_env):
         """Test that various return types are converted to Response objects"""
 

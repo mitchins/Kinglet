@@ -17,7 +17,7 @@ Binary Upload Utilities:
 
 from workers import Response as WorkersResponse
 
-from kinglet import Kinglet, Router
+from kinglet import Kinglet, Response, Router
 
 app = Kinglet()
 router = Router()
@@ -56,7 +56,7 @@ async def get_media(request):
     # Fetch from R2
     obj = await request.env.STORAGE.get(media_id)
     if not obj:
-        return {"error": "Not found"}, 404
+        return Response({"error": "Not found"}, status=404)
 
     # Extract content type
     content_type = "application/octet-stream"

@@ -565,6 +565,9 @@ wheels = [
 name = "kinglet"
 version = "1.8.2"
 source = { editable = "." }
+dependencies = [
+    { name = "cryptography" },
+]
 
 [package.optional-dependencies]
 dev = [
@@ -602,6 +605,7 @@ requires-dist = [
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=22.0" },
     { name = "coverage", marker = "extra == 'test'", specifier = ">=6.0" },
+    { name = "cryptography", specifier = ">=46.0.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },

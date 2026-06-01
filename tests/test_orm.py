@@ -195,6 +195,26 @@ class TestModelInstance:
         assert game._state["saved"] is True
 
     @pytest.mark.asyncio
+    async def test_partial_projection_does_not_overwrite_missing_fields(self):
+        row_data = {"id": 1, "title": "Projected Game"}
+        game = SampleGame._from_db(row_data)
+        game.title = "Updated Projected Game"
+
+        db = Mock()
+        stmt = Mock()
+        stmt.bind = Mock(return_value=stmt)
+        stmt.run = AsyncMock(return_value=Mock())
+        db.prepare = Mock(return_value=stmt)
+
+        await game.save(db)
+
+        sql = db.prepare.call_args[0][0]
+        assert '"description"' not in sql
+        assert '"is_published"' not in sql
+        assert '"metadata"' not in sql
+        assert '"title" = ?' in sql
+
+    @pytest.mark.asyncio
     async def test_save_supports_custom_primary_key(self):
         game = CustomPkGame(title="Test Game")
         db = Mock()

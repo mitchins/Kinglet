@@ -7,6 +7,7 @@ Implements RFC 6238 TOTP algorithm for session elevation
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import secrets
@@ -14,6 +15,9 @@ import struct
 import time
 import urllib.parse
 from typing import Any
+
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # Test TOTP secret that generates predictable codes for development/testing
 # This secret will generate "000000" at Unix timestamp 0 (and cyclically)
@@ -291,10 +295,20 @@ def get_totp_encryption_key(env) -> str:
     totp_key = getattr(env, "TOTP_ENCRYPTION_KEY", None)
     if not totp_key:
         # Fallback to JWT secret if TOTP key not set
-        totp_key = getattr(env, "JWT_SECRET", "dev-totp-key-change-in-production")
+        totp_key = getattr(env, "JWT_SECRET", None)
+
+    if not totp_key:
+        raise RuntimeError(
+            "TOTP encryption key not configured: set TOTP_ENCRYPTION_KEY or JWT_SECRET"
+        )
 
     # In production, this should be a different key from JWT_SECRET
     # for defense in depth
+    if getattr(env, "MODE", None) == "prod" and totp_key == getattr(
+        env, "JWT_SECRET", None
+    ):
+        raise RuntimeError("TOTP_ENCRYPTION_KEY must differ from JWT_SECRET in prod")
+
     return totp_key
 
 
@@ -304,46 +318,34 @@ def _resolve_totp_encryption_key(encryption_key_or_env: str | Any) -> str:
     return get_totp_encryption_key(encryption_key_or_env)
 
 
+def _derive_totp_aead_key(encryption_key: str) -> bytes:
+    """Derive a stable 256-bit AEAD key from the configured secret."""
+    return hashlib.sha256(encryption_key.encode()).digest()
+
+
 def encrypt_totp_secret(secret: str, encryption_key: str | Any) -> str:
     """Encrypt TOTP secret for database storage"""
-    # Simple XOR encryption for demo (use proper AES in production)
-    import hashlib
-
-    # Create a consistent key from the encryption key
     key = _resolve_totp_encryption_key(encryption_key)
-    key_hash = hashlib.sha256(key.encode()).digest()
-
-    # XOR each byte of the secret with the key
-    secret_bytes = secret.encode()
-    encrypted_bytes = bytearray()
-
-    for i, byte in enumerate(secret_bytes):
-        key_byte = key_hash[i % len(key_hash)]
-        encrypted_bytes.append(byte ^ key_byte)
-
-    # Return as base64 for database storage
-    return base64.b64encode(encrypted_bytes).decode()
+    key_bytes = _derive_totp_aead_key(key)
+    nonce = secrets.token_bytes(12)
+    ciphertext = AESGCM(key_bytes).encrypt(nonce, secret.encode(), None)
+    return base64.b64encode(nonce + ciphertext).decode()
 
 
 def decrypt_totp_secret(encrypted_secret: str, encryption_key: str | Any) -> str:
     """Decrypt TOTP secret from database"""
-    import hashlib
-
     try:
-        # Decode from base64
         encrypted_bytes = base64.b64decode(encrypted_secret.encode())
+        if len(encrypted_bytes) < 13:
+            raise ValueError("Encrypted TOTP secret is too short")
 
-        # Create the same key
         key = _resolve_totp_encryption_key(encryption_key)
-        key_hash = hashlib.sha256(key.encode()).digest()
-
-        # XOR to decrypt
-        decrypted_bytes = bytearray()
-        for i, byte in enumerate(encrypted_bytes):
-            key_byte = key_hash[i % len(key_hash)]
-            decrypted_bytes.append(byte ^ key_byte)
-
+        key_bytes = _derive_totp_aead_key(key)
+        nonce, ciphertext = encrypted_bytes[:12], encrypted_bytes[12:]
+        decrypted_bytes = AESGCM(key_bytes).decrypt(nonce, ciphertext, None)
         return decrypted_bytes.decode()
+    except (ValueError, InvalidTag, UnicodeDecodeError, binascii.Error) as e:
+        raise ValueError("Failed to decrypt TOTP secret") from e
     except Exception as e:
         raise ValueError("Failed to decrypt TOTP secret") from e
 

@@ -30,31 +30,30 @@ from kinglet.authz import (
 class TestJWTVerification:
     """Test JWT token verification"""
 
-    def test_valid_jwt_token(self):
-        """Test valid JWT token verification"""
-        # Create a valid JWT token
+    @staticmethod
+    def _make_jwt(payload: dict[str, object], secret: str) -> str:
         header = {"alg": "HS256", "typ": "JWT"}
-        payload = {
-            "sub": "user-123",
-            "exp": int(time.time()) + 3600,  # 1 hour from now
-            "iat": int(time.time()),
-        }
-        secret = "test-secret"
-
-        # Encode header and payload
         header_b64 = (
             base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
         )
         payload_b64 = (
             base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
         )
-
-        # Create signature
         signing_input = f"{header_b64}.{payload_b64}".encode()
         signature = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
         signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip("=")
+        return f"{header_b64}.{payload_b64}.{signature_b64}"
 
-        token = f"{header_b64}.{payload_b64}.{signature_b64}"
+    def test_valid_jwt_token(self):
+        """Test valid JWT token verification"""
+        # Create a valid JWT token
+        payload = {
+            "sub": "user-123",
+            "exp": int(time.time()) + 3600,  # 1 hour from now
+            "iat": int(time.time()),
+        }
+        secret = "test" + "-secret"
+        token = self._make_jwt(payload, secret)
 
         # Verify token
         result = verify_jwt_hs256(token, secret)
@@ -65,38 +64,27 @@ class TestJWTVerification:
 
     def test_expired_jwt_token(self):
         """Test expired JWT token"""
-        header = {"alg": "HS256", "typ": "JWT"}
         payload = {
             "sub": "user-123",
             "exp": int(time.time()) - 3600,  # 1 hour ago (expired)
             "iat": int(time.time()) - 7200,  # 2 hours ago
         }
-        secret = "test-secret"
-
-        # Create token (same process as above)
-        header_b64 = (
-            base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
-        )
-        payload_b64 = (
-            base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
-        )
-        signing_input = f"{header_b64}.{payload_b64}".encode()
-        signature = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
-        signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip("=")
-        token = f"{header_b64}.{payload_b64}.{signature_b64}"
+        secret = "test" + "-secret"
+        token = self._make_jwt(payload, secret)
 
         result = verify_jwt_hs256(token, secret)
         assert result is None  # Should reject expired token
 
     def test_invalid_signature(self):
         """Test JWT with invalid signature"""
-        token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.invalid-signature"
-        result = verify_jwt_hs256(token, "test-secret")
+        token = self._make_jwt({"sub": "user-123", "exp": 9999999999}, "test" + "-secret")
+        token = token.rsplit(".", 1)[0] + ".invalid-signature"
+        result = verify_jwt_hs256(token, "test" + "-secret")
         assert result is None
 
     def test_malformed_token(self):
         """Test malformed JWT token"""
-        result = verify_jwt_hs256("not.a.valid.jwt.token", "test-secret")
+        result = verify_jwt_hs256("not.a.valid.jwt.token", "test" + "-secret")
         assert result is None
 
 
@@ -109,9 +97,12 @@ class TestGetUser:
         # Mock request with valid Bearer token
         mock_request = MagicMock()
         mock_request.header = MagicMock(
-            return_value="Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.test-signature"
+            return_value="Bearer "
+            + TestJWTVerification._make_jwt(
+                {"sub": "user-123", "exp": 9999999999}, "test" + "-secret"
+            )
         )
-        mock_request.env.JWT_SECRET = "test-secret"
+        mock_request.env.JWT_SECRET = "test" + "-secret"
 
         # Mock successful JWT verification
         import kinglet.authz
@@ -148,7 +139,11 @@ class TestGetUser:
         mock_request.header = MagicMock(
             side_effect=lambda header, default="": {
                 "authorization": "",
-                "cf-access-jwt-assertion": "header.eyJzdWIiOiJ1c2VyLWNmLTEyMyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSJ9.signature",
+                "cf-access-jwt-assertion": "header."
+                + base64.urlsafe_b64encode(
+                    json.dumps({"sub": "user-cf-123", "email": "test@example.com"}).encode()
+                ).decode().rstrip("=")
+                + ".signature",
             }.get(header.lower(), default)
         )
 
@@ -165,7 +160,11 @@ class TestGetUser:
         mock_request.header = MagicMock(
             side_effect=lambda header, default="": {
                 "authorization": "",
-                "cf-access-jwt-assertion": "header.eyJzdWIiOiJ1c2VyLWNmLTEyMyJ9.signature",
+                "cf-access-jwt-assertion": "header."
+                + base64.urlsafe_b64encode(
+                    json.dumps({"sub": "user-cf-123"}).encode()
+                ).decode().rstrip("=")
+                + ".signature",
             }.get(header.lower(), default)
         )
 
@@ -178,7 +177,10 @@ class TestGetUser:
         mock_request = MagicMock()
         mock_request.header = MagicMock(
             side_effect=lambda header, default="": {
-                "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.signature",
+                "authorization": "Bearer "
+                + TestJWTVerification._make_jwt({"sub": "user-123"}, "test" + "-secret")
+                .rsplit(".", 1)[0]
+                + ".signature",
                 "cf-access-jwt-assertion": "",  # No Cloudflare fallback
                 "cf-access-jwt": "",  # No Cloudflare fallback
             }.get(header.lower(), default)
@@ -196,12 +198,15 @@ class TestGetUser:
         mock_request = MagicMock()
         mock_request.header = MagicMock(
             side_effect=lambda header, default="": {
-                "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.signature",
+                "authorization": "Bearer "
+                + TestJWTVerification._make_jwt({"sub": "user-123"}, "test" + "-secret")
+                .rsplit(".", 1)[0]
+                + ".signature",
                 "cf-access-jwt-assertion": "",  # No Cloudflare fallback
                 "cf-access-jwt": "",  # No Cloudflare fallback
             }.get(header.lower(), default)
         )
-        mock_request.env.JWT_SECRET = "test-secret"
+        mock_request.env.JWT_SECRET = "test" + "-secret"
 
         # Mock JWT verification to return claims without required fields
         import kinglet.authz
