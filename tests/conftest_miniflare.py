@@ -4,6 +4,7 @@ Miniflare integration for CloudFlare Workers testing
 
 import asyncio
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -12,6 +13,15 @@ import httpx
 import pytest
 
 from . import _version_guard  # noqa: F401
+
+
+def _resolve_wrangler_command() -> list[str]:
+    """Prefer a globally installed wrangler binary, fallback to npx."""
+    if shutil.which("wrangler"):
+        return ["wrangler"]
+    if shutil.which("npx"):
+        return ["npx", "wrangler"]
+    raise FileNotFoundError("Neither wrangler nor npx is available")
 
 
 class MiniflareManager:
@@ -112,8 +122,7 @@ export default {
         try:
             # Start wrangler dev (includes Miniflare)
             cmd = [
-                "npx",
-                "wrangler",
+                *_resolve_wrangler_command(),
                 "dev",
                 "--config",
                 str(config_path),

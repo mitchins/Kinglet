@@ -745,7 +745,9 @@ ERROR_TYPE_MAP = {
 }
 
 
-def get_error_mapping(error: ORMError) -> tuple[int, str, str]:
+def get_error_mapping(
+    error: ORMError, error_type_map: dict[str, tuple[int, str, str]] | None = None
+) -> tuple[int, str, str]:
     """
     Get HTTP status, type URI, and title for an ORM error
 
@@ -753,7 +755,8 @@ def get_error_mapping(error: ORMError) -> tuple[int, str, str]:
         (status_code, type_uri, title) tuple
     """
     error_name = error.__class__.__name__
-    return ERROR_TYPE_MAP.get(
+    mapping = error_type_map if error_type_map is not None else ERROR_TYPE_MAP
+    return mapping.get(
         error_name, (500, "https://errors.kinglet.dev/internal", "Internal error")
     )
 
@@ -764,6 +767,7 @@ def orm_problem_response(
     instance: str | None = None,
     extra: dict | None = None,
     is_prod: bool = False,
+    error_type_map: dict[str, tuple[int, str, str]] | None = None,
 ) -> tuple[dict, int, dict]:
     """
     Generate RFC7807 problem+json response for ORM errors
@@ -777,7 +781,7 @@ def orm_problem_response(
     Returns:
         (problem_dict, status_code, headers) tuple for Kinglet responses
     """
-    status, type_uri, title = get_error_mapping(error)
+    status, type_uri, title = get_error_mapping(error, error_type_map=error_type_map)
 
     problem = to_problem_json(
         error,

@@ -14,6 +14,24 @@ from .http import Response  # Import directly from http module
 from .totp import DummyOTPProvider, set_otp_provider  # TOTP support
 
 
+def _env_get(env_source, key: str, default=None):
+    """Read env values from request objects or raw env bindings."""
+    env = getattr(env_source, "env", env_source)
+    if isinstance(env, dict):
+        return env.get(key, default)
+    return getattr(env, key, default)
+
+
+def _env_flag(env_source, key: str, default: bool = False) -> bool:
+    """Parse boolean-like env flags safely."""
+    val = _env_get(env_source, key, default)
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in {"1", "true", "yes", "on"}
+    return default
+
+
 # ---------- JWT (HS256) minimal ----------
 def _b64url_decode(s: str) -> bytes:
     s += "=" * (-len(s) % 4)
@@ -46,7 +64,7 @@ def _extract_bearer_user(req, env_key: str) -> dict | None:
         return None
 
     token = auth.split(" ", 1)[1].strip()
-    secret = getattr(req.env, env_key, None)
+    secret = _env_get(req, env_key, None)
     if not secret:
         return None
 
@@ -61,7 +79,14 @@ def _extract_bearer_user(req, env_key: str) -> dict | None:
 
 
 def _extract_cloudflare_user(req) -> dict | None:
-    """Extract user from Cloudflare Access JWT"""
+    """Extract user from Cloudflare Access JWT payload.
+
+    This fallback is intentionally gated behind ALLOW_UNVERIFIED_CF_ACCESS_JWT.
+    Use only in trusted edge setups where upstream Access verification is enforced.
+    """
+    if not _env_flag(req, "ALLOW_UNVERIFIED_CF_ACCESS_JWT", False):
+        return None
+
     access_jwt = getattr(req, "header", lambda *_: None)(
         "cf-access-jwt-assertion"
     ) or getattr(req, "header", lambda *_: None)("cf-access-jwt")
@@ -111,7 +136,7 @@ async def d1_load_owner_public(d1, table: str, rid: str) -> dict | None:
 
     safe_ident(table)
     quoted_table = quote_ident_sqlite(table)
-    sql = f"SELECT owner_id, public FROM {quoted_table} WHERE id=? LIMIT 1"  # nosec B608: identifier validated+quoted; values parameterized
+    sql = f"SELECT owner_id, public FROM {quoted_table} WHERE id=? LIMIT 1"
     row = (await d1.prepare(sql).bind(rid).first()) or None
     if not row:
         return None
@@ -202,7 +227,7 @@ def require_owner(
                 req.state.user = user
                 return await handler(req, obj=rec)
             # optional admin escape hatch (comma-separated IDs in env)
-            admin_ids = (getattr(req.env, allow_admin_env, "") or "").split(",")
+            admin_ids = (_env_get(req, allow_admin_env, "") or "").split(",")
             if uid in {a.strip() for a in admin_ids if a.strip()}:
                 return await handler(req, obj=rec)
             return Response({"error": "forbidden"}, status=403)
@@ -230,7 +255,7 @@ def require_participant(
                 req.state = getattr(req, "state", type("S", (), {})())
                 req.state.user = user
                 return await handler(req)
-            admin_ids = (getattr(req.env, allow_admin_env, "") or "").split(",")
+            admin_ids = (_env_get(req, allow_admin_env, "") or "").split(",")
             if uid in {a.strip() for a in admin_ids if a.strip()}:
                 return await handler(req)
             return Response({"error": "forbidden"}, status=403)
@@ -252,7 +277,7 @@ def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
             return Response({"error": AUTH_REQUIRED}, status=401)
 
         # Check if TOTP is enabled in this environment
-        totp_enabled = getattr(req.env, "TOTP_ENABLED", "true").lower() == "true"
+        totp_enabled = _env_flag(req, "TOTP_ENABLED", True)
         if not totp_enabled:
             # TOTP disabled - just require basic auth (already validated above)
             req.state = getattr(req, "state", type("S", (), {})())
@@ -336,7 +361,7 @@ def require_elevated_claim(claim_name: str, claim_value: Any = True):
             claims = user.get("claims", {})
 
             # Check if TOTP is enabled in this environment
-            totp_enabled = getattr(req.env, "TOTP_ENABLED", "true").lower() == "true"
+            totp_enabled = _env_flag(req, "TOTP_ENABLED", True)
 
             # Check elevation first (only if TOTP enabled)
             if totp_enabled and not claims.get("elevated", False):
@@ -373,7 +398,7 @@ def require_elevated_claim(claim_name: str, claim_value: Any = True):
 
 def configure_otp_provider(env) -> None:
     """Configure OTP provider based on TOTP_ENABLED environment variable"""
-    totp_enabled = getattr(env, "TOTP_ENABLED", "true").lower() == "true"
+    totp_enabled = _env_flag(env, "TOTP_ENABLED", True)
     if not totp_enabled:
         # Use dummy provider for development/testing
         set_otp_provider(DummyOTPProvider())

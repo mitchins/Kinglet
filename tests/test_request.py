@@ -3,6 +3,8 @@ Tests for Kinglet Request wrapper
 """
 
 import json
+import sys
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -18,6 +20,16 @@ class MockHeaders:
 
     def items(self):
         return self._headers.items()
+
+    def get(self, key, default=None):
+        return self._headers.get(key.lower(), default)
+
+
+class MockHeadersGetOnly:
+    """Mock headers object exposing get() but not items()."""
+
+    def __init__(self, headers_dict):
+        self._headers = {k.lower(): v for k, v in headers_dict.items()}
 
     def get(self, key, default=None):
         return self._headers.get(key.lower(), default)
@@ -65,6 +77,14 @@ class TestRequest:
         assert request.url == "http://localhost/api/test"
         assert request.env == mock_env
 
+    def test_dict_env_supports_attribute_and_get(self):
+        """Test dict env values are available via attribute and .get()."""
+        raw_request = MockWorkerRequest("GET", "http://localhost/api/test")
+        request = Request(raw_request, {"ENVIRONMENT": "development", "DB": "mock-db"})
+
+        assert request.env.ENVIRONMENT == "development"
+        assert request.env.get("DB") == "mock-db"
+
     def test_url_parsing(self, mock_env):
         """Test URL component parsing"""
         raw_request = MockWorkerRequest(
@@ -111,6 +131,98 @@ class TestRequest:
         # Test default values
         assert request.header("nonexistent") is None
         assert request.header("nonexistent", "default") == "default"
+
+    def test_header_fallback_get_for_custom_headers(self, mock_env):
+        """Test custom headers are still readable when only headers.get() exists."""
+
+        class GetOnlyRequest:
+            def __init__(self):
+                self.method = "GET"
+                self.url = "http://localhost/"
+                self.headers = MockHeadersGetOnly({"X-Api-Key": "secret"})
+
+            async def text(self):
+                return ""
+
+        request = Request(GetOnlyRequest(), mock_env)
+        assert request.header("x-api-key") == "secret"
+
+    @pytest.mark.asyncio
+    async def test_request_bytes_uses_js_bulk_conversion(self, mock_env, monkeypatch):
+        """Test Request.bytes uses Uint8Array.to_bytes when available."""
+
+        class FakeUint8Array:
+            def __init__(self, array_buffer):
+                self._array_buffer = array_buffer
+
+            @classmethod
+            def new(cls, array_buffer):
+                return cls(array_buffer)
+
+            def to_bytes(self):
+                return bytes(self._array_buffer)
+
+        monkeypatch.setitem(
+            sys.modules,
+            "js",
+            SimpleNamespace(Uint8Array=FakeUint8Array),
+        )
+
+        class RawRequest:
+            def __init__(self):
+                self.method = "POST"
+                self.url = "http://localhost/"
+                self.headers = MockHeaders({})
+
+            async def arrayBuffer(self):
+                return bytearray(b"abc123")
+
+            async def text(self):
+                return ""
+
+        request = Request(RawRequest(), mock_env)
+        assert await request.bytes() == b"abc123"
+
+    @pytest.mark.asyncio
+    async def test_request_bytes_falls_back_when_bytes_uint8array_fails(
+        self, mock_env, monkeypatch
+    ):
+        """Test Request.bytes falls back to iterable conversion for Uint8Array."""
+
+        class FakeUint8Array:
+            def __init__(self, array_buffer):
+                self._array_buffer = array_buffer
+
+            @classmethod
+            def new(cls, array_buffer):
+                return cls(array_buffer)
+
+            def __bytes__(self):
+                raise TypeError("bytes() unsupported for this Uint8Array bridge")
+
+            def __iter__(self):
+                return iter(self._array_buffer)
+
+        monkeypatch.setitem(
+            sys.modules,
+            "js",
+            SimpleNamespace(Uint8Array=FakeUint8Array),
+        )
+
+        class RawRequest:
+            def __init__(self):
+                self.method = "POST"
+                self.url = "http://localhost/"
+                self.headers = MockHeaders({})
+
+            async def arrayBuffer(self):
+                return bytearray(b"abc123")
+
+            async def text(self):
+                return ""
+
+        request = Request(RawRequest(), mock_env)
+        assert await request.bytes() == b"abc123"
 
     @pytest.mark.asyncio
     async def test_request_body(self, mock_env):

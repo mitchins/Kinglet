@@ -17,6 +17,24 @@ def generate_request_id() -> str:
     return secrets.token_hex(8)
 
 
+class _DictEnvAdapter:
+    """Adapter to support attribute-style env access for dict inputs."""
+
+    def __init__(self, data: dict[str, Any]):
+        self._data = dict(data)
+
+    def __getattr__(self, key: str) -> Any:
+        if key in self._data:
+            return self._data[key]
+        raise AttributeError(key)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+
 class Request:
     """
     Kinglet Request object that wraps Workers request with convenience methods
@@ -24,7 +42,12 @@ class Request:
 
     def __init__(self, raw_request, env=None, path_params=None):
         self._raw = raw_request
-        self.env = env or type("Env", (), {})()
+        if env is None:
+            self.env = type("Env", (), {})()
+        elif isinstance(env, dict):
+            self.env = _DictEnvAdapter(env)
+        else:
+            self.env = env
         self.path_params = path_params or {}
         self.request_id = generate_request_id()
 
@@ -100,7 +123,22 @@ class Request:
 
     def header(self, name: str, default: str = None) -> str:
         """Get header value (case-insensitive)"""
-        return self._headers.get(name.lower(), default)
+        header_name = name.lower()
+        value = self._headers.get(header_name)
+        if value is not None:
+            return value
+
+        # Fallback: in Workers-style runtimes headers may only expose .get()
+        headers_obj = getattr(self._raw, "headers", None)
+        if headers_obj is not None and hasattr(headers_obj, "get"):
+            try:
+                fallback = headers_obj.get(name)
+                if fallback is not None:
+                    return fallback
+            except (AttributeError, TypeError):
+                pass
+
+        return default
 
     @property
     def query_params(self) -> dict[str, str]:
@@ -166,24 +204,43 @@ class Request:
                 self._text_cache = ""
         return self._text_cache
 
+    def _uint8_array_to_bytes(self, uint8_array) -> bytes:
+        if hasattr(uint8_array, "to_bytes"):
+            return uint8_array.to_bytes()
+
+        try:
+            return bytes(uint8_array)
+        except (TypeError, ValueError):
+            if hasattr(uint8_array, "__iter__"):
+                try:
+                    return bytes(list(uint8_array))
+                except (TypeError, ValueError):
+                    return b""
+            return b""
+
+    def _array_buffer_fallback_to_bytes(self, array_buffer) -> bytes:
+        if hasattr(array_buffer, "__iter__"):
+            try:
+                return bytes(array_buffer)
+            except (TypeError, ValueError):
+                return b""
+        return b""
+
+    def _workers_array_buffer_to_bytes(self, array_buffer) -> bytes:
+        try:
+            from js import Uint8Array  # type: ignore[import-not-found]
+
+            uint8_array = Uint8Array.new(array_buffer)
+            return self._uint8_array_to_bytes(uint8_array)
+        except (ImportError, TypeError, ValueError):
+            return self._array_buffer_fallback_to_bytes(array_buffer)
+
     async def bytes(self) -> bytes:
         """Get request body as bytes for binary data"""
         # Check if raw request has arrayBuffer() method (Workers runtime)
         if hasattr(self._raw, "arrayBuffer"):
             array_buffer = await self._raw.arrayBuffer()
-            # Convert ArrayBuffer to Python bytes
-            try:
-                from js import Uint8Array
-
-                uint8_array = Uint8Array.new(array_buffer)
-                return bytes([uint8_array[i] for i in range(uint8_array.length)])
-            except ImportError:
-                # Not in Workers environment - fallback behavior
-                if hasattr(array_buffer, "__iter__"):
-                    return bytes(array_buffer)
-                else:
-                    # Return empty bytes if conversion fails
-                    return b""
+            return self._workers_array_buffer_to_bytes(array_buffer)
 
         # Fallback: try to get text and encode to bytes
         try:
@@ -256,17 +313,18 @@ class Request:
             Parsed JSON as Python dict (default) or raw JsProxy object
         """
         cache_key = f"_json_cache_{convert}"
-        cached_value = getattr(self, cache_key, None)
+        cache_set_key = f"_json_cache_set_{convert}"
 
-        if cached_value is None:
+        if not getattr(self, cache_set_key, False):
             if hasattr(self._raw, "json"):
                 cached_value = await self._parse_workers_json(convert)
             else:
                 cached_value = await self._parse_text_json()
 
             setattr(self, cache_key, cached_value)
+            setattr(self, cache_set_key, True)
 
-        return cached_value
+        return getattr(self, cache_key)
 
 
 class Response:
