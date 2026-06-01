@@ -6,6 +6,7 @@ across the test suite, particularly for D1 database mocking and Miniflare integr
 """
 
 import asyncio
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -16,6 +17,15 @@ import pytest
 
 from . import _version_guard  # noqa: F401
 from .mock_d1 import MockD1Database, d1_unwrap, d1_unwrap_results
+
+
+def _resolve_wrangler_command() -> list[str]:
+    """Prefer a globally installed wrangler binary, fallback to npx."""
+    if shutil.which("wrangler"):
+        return ["wrangler"]
+    if shutil.which("npx"):
+        return ["npx", "wrangler"]
+    raise FileNotFoundError("Neither wrangler nor npx is available")
 
 
 @pytest.fixture(autouse=True)
@@ -66,12 +76,13 @@ def mock_db():
 class MiniflareManager:
     """Manages Miniflare lifecycle for tests"""
 
-    def __init__(self):
+    def __init__(self, wrangler_cmd: list[str]):
         self.process = None
         self.port = None
         self.base_url = None
         self.config_file = None
         self.worker_file = None
+        self.wrangler_cmd = wrangler_cmd
 
     async def start(self, port=8787):
         """Start Miniflare with D1, R2, and KV bindings"""
@@ -141,8 +152,7 @@ export default {
         try:
             # Start Miniflare via wrangler dev (Miniflare v3)
             cmd = [
-                "npx",
-                "wrangler",
+                *self.wrangler_cmd,
                 "dev",
                 "--config",
                 str(self.config_file),
@@ -254,12 +264,16 @@ async def miniflare():
     """Session-scoped Miniflare instance - FAILS if wrangler unavailable"""
     # Check if wrangler is available - FAIL if not
     try:
+        wrangler_cmd = _resolve_wrangler_command()
         result = subprocess.run(
-            ["npx", "wrangler", "--version"], capture_output=True, text=True, timeout=30
+            [*wrangler_cmd, "--version"], capture_output=True, text=True, timeout=30
         )
         if result.returncode != 0:
+            details = result.stderr.strip() or result.stdout.strip()
             pytest.fail(
                 "Miniflare integration tests require wrangler but it failed to run.\n"
+                f"Command: {' '.join(wrangler_cmd)} --version\n"
+                f"Details: {details or 'no output'}\n"
                 "Install with: npm install -g wrangler\n"
                 "Or exclude with: pytest -m 'not miniflare'"
             )
@@ -270,7 +284,7 @@ async def miniflare():
             "Or exclude with: pytest -m 'not miniflare'"
         )
 
-    manager = MiniflareManager()
+    manager = MiniflareManager(wrangler_cmd)
     try:
         await manager.start()
         yield manager

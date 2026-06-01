@@ -22,4 +22,4 @@ def miniflare_env():
 
 
 # Skip miniflare tests if Node.js not available
-miniflare_available = shutil.which("npx") is not None
+miniflare_available = shutil.which("wrangler") is not None or shutil.which("npx") is not None
