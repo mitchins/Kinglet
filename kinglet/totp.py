@@ -21,6 +21,14 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 # Test TOTP secret that generates predictable codes for development/testing
 # This secret will generate "000000" at Unix timestamp 0 (and cyclically)
 TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXP"  # nosec B105
+_TOTP_DIGESTS = {
+    # RFC 6238 explicitly permits HMAC-SHA1/SHA256/SHA512 for TOTP. We keep
+    # sha1 only for authenticator interoperability and reject arbitrary or
+    # weaker algorithms entirely.
+    "sha1": hashlib.sha1,
+    "sha256": hashlib.sha256,
+    "sha512": hashlib.sha512,
+}
 
 
 def _env_get(env_source: Any, key: str, default=None):
@@ -160,7 +168,9 @@ def generate_totp_code(
         secret: Base32-encoded TOTP secret
         timestamp: Unix timestamp (defaults to current time)
         algorithm: Hash algorithm - 'sha1' (default), 'sha256', or 'sha512'
-                  Note: Google Authenticator only supports sha1, use others with compatible apps
+                  Note: this is the RFC 6238 HMAC digest. Google
+                  Authenticator only supports sha1; use sha256/sha512 only
+                  with compatible apps.
     """
     if timestamp is None:
         timestamp = int(time.time())
@@ -179,12 +189,7 @@ def generate_totp_code(
     # Pack time step as big-endian 64-bit integer
     time_bytes = struct.pack(">Q", time_step)
 
-    digest_map = {
-        "sha1": hashlib.sha1,
-        "sha256": hashlib.sha256,
-        "sha512": hashlib.sha512,
-    }
-    digest = digest_map.get(str(algorithm).lower())
+    digest = _TOTP_DIGESTS.get(str(algorithm).lower())
     if digest is None:
         raise ValueError(
             "Invalid algorithm. Supported values: 'sha1', 'sha256', 'sha512'"
