@@ -204,36 +204,43 @@ class Request:
                 self._text_cache = ""
         return self._text_cache
 
+    def _uint8_array_to_bytes(self, uint8_array) -> bytes:
+        if hasattr(uint8_array, "to_bytes"):
+            return uint8_array.to_bytes()
+
+        try:
+            return bytes(uint8_array)
+        except (TypeError, ValueError):
+            if hasattr(uint8_array, "__iter__"):
+                try:
+                    return bytes(list(uint8_array))
+                except (TypeError, ValueError):
+                    return b""
+            return b""
+
+    def _array_buffer_fallback_to_bytes(self, array_buffer) -> bytes:
+        if hasattr(array_buffer, "__iter__"):
+            try:
+                return bytes(array_buffer)
+            except (TypeError, ValueError):
+                return b""
+        return b""
+
+    def _workers_array_buffer_to_bytes(self, array_buffer) -> bytes:
+        try:
+            from js import Uint8Array  # type: ignore[import-not-found]
+
+            uint8_array = Uint8Array.new(array_buffer)
+            return self._uint8_array_to_bytes(uint8_array)
+        except (ImportError, TypeError, ValueError):
+            return self._array_buffer_fallback_to_bytes(array_buffer)
+
     async def bytes(self) -> bytes:
         """Get request body as bytes for binary data"""
         # Check if raw request has arrayBuffer() method (Workers runtime)
         if hasattr(self._raw, "arrayBuffer"):
             array_buffer = await self._raw.arrayBuffer()
-            # Convert ArrayBuffer to Python bytes
-            try:
-                from js import Uint8Array  # type: ignore[import-not-found]
-
-                uint8_array = Uint8Array.new(array_buffer)
-                if hasattr(uint8_array, "to_bytes"):
-                    return uint8_array.to_bytes()
-                try:
-                    return bytes(uint8_array)
-                except (TypeError, ValueError):
-                    if hasattr(uint8_array, "__iter__"):
-                        try:
-                            return bytes(list(uint8_array))
-                        except (TypeError, ValueError):
-                            return b""
-                    return b""
-            except (ImportError, TypeError, ValueError):
-                # Not in Workers environment - fallback behavior
-                if hasattr(array_buffer, "__iter__"):
-                    try:
-                        return bytes(array_buffer)
-                    except (TypeError, ValueError):
-                        return b""
-                # Return empty bytes if conversion fails
-                return b""
+            return self._workers_array_buffer_to_bytes(array_buffer)
 
         # Fallback: try to get text and encode to bytes
         try:
