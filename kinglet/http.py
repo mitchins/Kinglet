@@ -216,14 +216,24 @@ class Request:
                 uint8_array = Uint8Array.new(array_buffer)
                 if hasattr(uint8_array, "to_bytes"):
                     return uint8_array.to_bytes()
-                return bytes(uint8_array)
-            except ImportError:
+                try:
+                    return bytes(uint8_array)
+                except (TypeError, ValueError):
+                    if hasattr(uint8_array, "__iter__"):
+                        try:
+                            return bytes(list(uint8_array))
+                        except (TypeError, ValueError):
+                            return b""
+                    return b""
+            except (ImportError, TypeError, ValueError):
                 # Not in Workers environment - fallback behavior
                 if hasattr(array_buffer, "__iter__"):
-                    return bytes(array_buffer)
-                else:
-                    # Return empty bytes if conversion fails
-                    return b""
+                    try:
+                        return bytes(array_buffer)
+                    except (TypeError, ValueError):
+                        return b""
+                # Return empty bytes if conversion fails
+                return b""
 
         # Fallback: try to get text and encode to bytes
         try:

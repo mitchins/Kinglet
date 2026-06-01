@@ -184,6 +184,47 @@ class TestRequest:
         assert await request.bytes() == b"abc123"
 
     @pytest.mark.asyncio
+    async def test_request_bytes_falls_back_when_bytes_uint8array_fails(
+        self, mock_env, monkeypatch
+    ):
+        """Test Request.bytes falls back to iterable conversion for Uint8Array."""
+
+        class FakeUint8Array:
+            def __init__(self, array_buffer):
+                self._array_buffer = array_buffer
+
+            @classmethod
+            def new(cls, array_buffer):
+                return cls(array_buffer)
+
+            def __bytes__(self):
+                raise TypeError("bytes() unsupported for this Uint8Array bridge")
+
+            def __iter__(self):
+                return iter(self._array_buffer)
+
+        monkeypatch.setitem(
+            sys.modules,
+            "js",
+            SimpleNamespace(Uint8Array=FakeUint8Array),
+        )
+
+        class RawRequest:
+            def __init__(self):
+                self.method = "POST"
+                self.url = "http://localhost/"
+                self.headers = MockHeaders({})
+
+            async def arrayBuffer(self):
+                return bytearray(b"abc123")
+
+            async def text(self):
+                return ""
+
+        request = Request(RawRequest(), mock_env)
+        assert await request.bytes() == b"abc123"
+
+    @pytest.mark.asyncio
     async def test_request_body(self, mock_env):
         """Test request body access"""
         body_content = "test body content"
