@@ -63,7 +63,15 @@ jobs:
 
     - name: Run tests
       run: |
-        uv run pytest --cov=kinglet --cov-branch --cov-report=xml --cov-report=term-missing
+        uv run pytest --cov=kinglet --cov-branch --cov-report=xml --cov-report=term-missing --junitxml=test-results.xml
+
+    - name: Upload test reports for downstream analysis
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: test-reports
+        path: |
+          coverage.xml
+          test-results.xml
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354
@@ -129,6 +137,12 @@ jobs:
         uv run bandit -r kinglet/ -ii -f json -o bandit-report.json
         uv run bandit -r kinglet/ -ii  # Also show human-readable output
 
+    - name: Upload security reports for downstream analysis
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: security-reports
+        path: bandit-report.json
+
     - name: Check for known vulnerabilities in dependencies
       run: |
         uv export --no-dev --no-hashes -o /tmp/kinglet-prod-requirements.txt
@@ -146,33 +160,17 @@ jobs:
         persist-credentials: false
         fetch-depth: 0  # Shallow clones should be disabled for better analysis
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+    - name: Download test reports
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
       with:
-        enable-cache: true
-        cache-dependency-glob: "uv.lock"
+        name: test-reports
+        path: .
 
-    - name: Set up Python
-      run: uv python install 3.12
-
-    - name: Install dependencies
-      run: uv sync --all-extras --dev
-
-    - name: Set up Node.js (required for wrangler/miniflare)
-      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+    - name: Download security reports
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
       with:
-        node-version: ${{ env.NODE_VERSION }}
-
-    - name: Install wrangler (required for complete test suite)
-      run: npm install -g wrangler@${{ env.WRANGLER_VERSION }}
-
-    - name: Run tests with coverage for SonarQube
-      run: |
-        uv run pytest --cov=kinglet --cov-branch --cov-report=xml --junitxml=test-results.xml
-
-    - name: Run security analysis
-      run: |
-        uv run bandit -r kinglet/ -f json -o bandit-report.json
+        name: security-reports
+        path: .
 
     - name: SonarQube Scan
       uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995
