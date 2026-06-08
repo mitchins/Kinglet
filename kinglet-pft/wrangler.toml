@@ -1,7 +1,0 @@
-name = "kinglet-pft"
-main = "src/worker.py"
-compatibility_flags = ["python_workers"]
-compatibility_date = "2023-12-18"
-
-[vars]
-KINGLET_IMPORT_STRATEGY = "workers"
