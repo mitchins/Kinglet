@@ -4,7 +4,9 @@ Kinglet Core - Routing and application framework
 
 from __future__ import annotations
 
+import inspect
 import re
+import sys
 from collections.abc import Callable
 
 from .exceptions import HTTPError
@@ -17,11 +19,32 @@ class Route:
 
     def __init__(self, path: str, handler: Callable, methods: list[str]):
         self.path = path
-        self.handler = handler
+        self._handler = handler
+        self.handler_module = getattr(handler, "__module__", None)
+        self.handler_name = getattr(handler, "__name__", None)
         self.methods = [m.upper() for m in methods]
 
         # Convert path to regex with parameter extraction
         self.regex, self.param_names = self._compile_path(path)
+
+    def _resolve_handler(self) -> Callable:
+        """Resolve the latest callable for this route if it has been re-wrapped."""
+        current_handler = self._handler
+        if not self.handler_module or not self.handler_name:
+            return current_handler
+
+        module = sys.modules.get(self.handler_module)
+        if module is None:
+            return current_handler
+
+        candidate = getattr(module, self.handler_name, None)
+        if not callable(candidate) or candidate is current_handler:
+            return current_handler
+        return candidate
+
+    @property
+    def handler(self) -> Callable:
+        return self._resolve_handler()
 
     def _compile_path(self, path: str) -> tuple[re.Pattern, list[str]]:
         """Convert path pattern to regex with parameter names"""

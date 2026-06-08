@@ -7,6 +7,7 @@ from datetime import datetime
 import pytest
 
 from kinglet.orm import DateTimeField, Field, FloatField, IntegerField
+from kinglet.orm_errors import ValidationError
 
 
 class TestFieldEdgeCases:
@@ -71,6 +72,14 @@ class TestDateTimeFieldEdgeCases:
         # Invalid timestamp string
         result = field.to_python("not-a-number")
         assert result is None
+
+    def test_validate_invalid_string_raises_error(self):
+        """Test validate rejects malformed date strings instead of turning them into NULL."""
+        field = DateTimeField(null=False)
+        field.name = "expires_at"
+
+        with pytest.raises(ValidationError):
+            field.validate("not-a-date")
 
     def test_to_python_numeric_timestamp(self):
         """Test to_python with numeric Unix timestamp"""
@@ -193,6 +202,11 @@ class TestFieldIndexConfiguration:
         # Explicit index
         field = IntegerField(index=True)
         assert field.index is True
+
+        # Backward-compatible positional boolean still maps to index
+        field = IntegerField(True)
+        assert field.index is True
+        assert field.default is None
 
         # Index with other options
         field = IntegerField(index=True, primary_key=True)

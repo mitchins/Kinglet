@@ -91,6 +91,34 @@ class TestFieldValidation:
         assert field.to_python(456) == 456
         assert field.to_python(None) is None
 
+    def test_integer_field_positional_default_still_supported(self):
+        field = IntegerField(7)
+
+        assert field.default == 7
+        assert field.index is False
+
+    def test_integer_field_boolean_defaults_are_preserved(self):
+        indexed_field = IntegerField(True)
+        explicit_default = IntegerField(default=True)
+
+        assert indexed_field.default is None
+        assert indexed_field.index is True
+        assert explicit_default.default is True
+        assert explicit_default.index is False
+
+    @pytest.mark.parametrize(
+        "args, kwargs, message",
+        [
+            ((1, 2), {}, "at most one positional argument"),
+            ((5,), {"default": 3}, "default provided both positionally and by keyword"),
+        ],
+    )
+    def test_integer_field_rejects_invalid_positional_arguments(
+        self, args, kwargs, message
+    ):
+        with pytest.raises(TypeError, match=message):
+            IntegerField(*args, **kwargs)
+
     def test_boolean_field_validation(self):
         field = BooleanField()
 
@@ -411,6 +439,47 @@ class TestManagerOperations:
         except DoesNotExistError:
             # Expected - object was deleted
             pass
+
+    @pytest.mark.asyncio
+    async def test_bulk_create_preserves_explicit_primary_keys(self):
+        """Bulk create should not drop or overwrite provided primary keys."""
+        db = Mock()
+
+        class _PreparedStatement:
+            def __init__(self, sql):
+                self.sql = sql
+                self.bound_values = None
+
+            def bind(self, *values):
+                self.bound_values = values
+                return self
+
+        prepared_statements = []
+
+        def prepare(sql):
+            stmt = _PreparedStatement(sql)
+            prepared_statements.append(stmt)
+            return stmt
+
+        db.prepare = Mock(side_effect=prepare)
+        db.batch = AsyncMock(
+            return_value=[
+                Mock(meta=Mock(last_row_id=1)),
+                Mock(meta=Mock(last_row_id=2)),
+            ]
+        )
+
+        first = SampleGame(title="First")
+        second = SampleGame(id=99, title="Second")
+
+        await self.manager.bulk_create(db, [first, second])
+
+        assert len(prepared_statements) == 2
+        assert '"id"' in prepared_statements[0].sql
+        assert prepared_statements[0].bound_values[0] is None
+        assert prepared_statements[1].bound_values[0] == 99
+        assert first.id == 1
+        assert second.id == 99
 
     @pytest.mark.asyncio
     async def test_get_or_create_success_path(self):

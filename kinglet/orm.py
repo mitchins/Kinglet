@@ -113,8 +113,26 @@ class StringField(Field):
 class IntegerField(Field):
     """Integer field with optional index"""
 
-    def __init__(self, index: bool = False, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        *args: Any,
+        default: Any = None,
+        index: bool | None = None,
+        **kwargs,
+    ):
+        if len(args) > 1:
+            raise TypeError("IntegerField accepts at most one positional argument")
+        if args:
+            positional = args[0]
+            if isinstance(positional, bool) and default is None and index is None:
+                index = positional
+            elif default is None:
+                default = positional
+            else:
+                raise TypeError("default provided both positionally and by keyword")
+        if index is None:
+            index = False
+        super().__init__(default=default, **kwargs)
         self.index = index  # Explicit indexing control
 
     def to_python(self, value: Any) -> int | None:
@@ -201,6 +219,18 @@ class DateTimeField(Field):
             return datetime.fromtimestamp(int(value))
         except (ValueError, TypeError):
             return None
+
+    def validate(self, value: Any) -> datetime | None:
+        """Validate and convert field value, rejecting malformed non-null inputs."""
+        if value is None:
+            if not self.null:
+                raise ValidationError(self.name, "Field cannot be null", value)
+            return None
+
+        converted = self.to_python(value)
+        if converted is None:
+            raise ValidationError(self.name, "Invalid datetime value", value)
+        return converted
 
     def to_db(self, value: Any) -> int | None:
         if value is None:
@@ -809,7 +839,9 @@ class Manager:
         if not all(isinstance(inst, first_model.__class__) for inst in instances):
             raise ValueError("All instances must be of the same model type")
 
-    def _prepare_field_data(self, instance: Model) -> dict[str, Any]:
+    def _prepare_field_data(
+        self, instance: Model, preserve_auto_pk: bool = False
+    ) -> dict[str, Any]:
         """Prepare field data for a single instance"""
         field_data = {}
         for field_name, field in instance._fields.items():
@@ -828,7 +860,11 @@ class Manager:
 
         # Skip auto-increment ID fields
         pk_field = instance._get_pk_field()
-        if pk_field.name == "id" and getattr(instance, pk_field.name, None) is None:
+        if (
+            not preserve_auto_pk
+            and pk_field.name == "id"
+            and getattr(instance, pk_field.name, None) is None
+        ):
             field_data.pop("id", None)
 
         return field_data
@@ -837,15 +873,11 @@ class Manager:
         self, instances: list[Model]
     ) -> tuple[list[str], list[list[Any]]]:
         """Prepare field names and values for bulk insert"""
-        field_names = []
+        field_names: list[str] = list(self.model_class._fields.keys())
         all_values = []
 
         for instance in instances:
-            field_data = self._prepare_field_data(instance)
-
-            if not field_names:
-                field_names = list(field_data.keys())
-
+            field_data = self._prepare_field_data(instance, preserve_auto_pk=True)
             values = [field_data.get(name) for name in field_names]
             all_values.append(values)
 

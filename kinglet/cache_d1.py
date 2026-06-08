@@ -221,7 +221,14 @@ class D1CacheService:
 
 
 def generate_cache_key(
-    path: str, query_params: dict[str, Any] = None, extra_params: dict[str, Any] = None
+    path: str,
+    query_params: dict[str, Any] = None,
+    extra_params: dict[str, Any] = None,
+    *,
+    method: str | None = None,
+    request: Any = None,
+    body: str | bytes | None = None,
+    headers: dict[str, Any] | None = None,
 ) -> str:
     """
     Generate cache key from URL path and parameters
@@ -230,12 +237,41 @@ def generate_cache_key(
         path: URL path (e.g., '/api/games/action')
         query_params: Query parameters dict
         extra_params: Additional parameters (user_id, etc.)
+        method: Optional HTTP method to include
+        request: Optional request-like object with method/query/path/header access
+        body: Optional request body to include in the fingerprint
+        headers: Optional header map to vary on
 
     Returns:
         Cache key string
     """
     # Start with clean path
     key_parts = [path.rstrip("/")]
+
+    if request is not None:
+        method = method or getattr(request, "method", None)
+        query_string = getattr(request, "query_string", "")
+        if query_string:
+            key_parts.append(f"query={query_string}")
+
+        path_params = getattr(request, "path_params", None) or {}
+        for key, value in sorted(path_params.items()):
+            key_parts.append(f"path_{key}={value}")
+
+        if headers is None and hasattr(request, "header"):
+            headers = {
+                name: request.header(name)
+                for name in (
+                    "authorization",
+                    "cookie",
+                    "x-api-key",
+                    "x-user-id",
+                    "x-tenant-id",
+                )
+            }
+
+    if method:
+        key_parts.insert(0, f"method={method.upper()}")
 
     # Add sorted query params
     if query_params:
@@ -248,6 +284,18 @@ def generate_cache_key(
         sorted_extras = sorted(extra_params.items())
         for key, value in sorted_extras:
             key_parts.append(f"_{key}={value}")
+
+    if headers:
+        for key, value in sorted(headers.items()):
+            if value not in (None, ""):
+                key_parts.append(f"header_{str(key).lower()}={value}")
+
+    if body is not None:
+        if isinstance(body, bytes):
+            body_bytes = body
+        else:
+            body_bytes = str(body).encode("utf-8")
+        key_parts.append(f"body={hashlib.sha256(body_bytes).hexdigest()}")
 
     # Create deterministic key
     key_string = "|".join(key_parts)

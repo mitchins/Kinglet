@@ -66,6 +66,17 @@ class TestAssetURLGeneration:
         result = _detect_protocol(request)
         assert result == "https"
 
+    def test_detect_protocol_invalid_forwarded_proto_falls_back(self):
+        """Test invalid forwarded proto falls back to parsed URL scheme."""
+        request = Mock()
+        request.header = Mock(return_value="gopher")
+        request._parsed_url = Mock()
+        request._parsed_url.scheme = "https"
+
+        result = _detect_protocol(request)
+        assert result == "https"
+        request.header.assert_called_with("x-forwarded-proto")
+
     def test_detect_protocol_http_default(self):
         """Test protocol detection defaulting to HTTP"""
         request = Mock()

@@ -9,6 +9,7 @@ from enum import Enum
 from unittest.mock import MagicMock
 
 from kinglet.serializers import (
+    _COMPUTED_FIELD_ERROR,
     FieldTransforms,
     ModelSerializer,
     SerializationContext,
@@ -264,6 +265,33 @@ class SampleModelSerializer:
 
         assert result["prefixed_name"] == "Mr. test"
 
+    def test_serialize_computed_field_none_overrides_model_field(self):
+        """Test computed fields can intentionally redact by returning None."""
+        obj = SimpleModel("test", 42)
+        config = SerializerConfig(
+            computed_fields={"value": lambda instance, context=None: None}
+        )
+        serializer = ModelSerializer(config)
+
+        result = serializer.serialize(obj)
+
+        assert result["value"] is None
+        assert result["name"] == "test"
+
+    def test_serialize_computed_field_errors_do_not_override_value(self):
+        """Test compute failures leave the original model field intact."""
+
+        def broken_compute(instance, context=None):
+            raise RuntimeError("boom")
+
+        obj = SimpleModel("test", 42)
+        config = SerializerConfig(computed_fields={"value": broken_compute})
+        serializer = ModelSerializer(config)
+
+        result = serializer.serialize(obj)
+
+        assert result["value"] == 42
+
     def test_serialize_with_related_fields(self):
         """Test serializing with related field configuration"""
         related_obj = SimpleModel("related", 99)
@@ -514,7 +542,7 @@ class SampleModelSerializer:
         serializer = ModelSerializer()
         result = serializer._compute_field_value_safely(failing_func, None, None)
 
-        assert result is None
+        assert result is _COMPUTED_FIELD_ERROR
 
 
 class TestFieldTransforms:

@@ -266,7 +266,7 @@ class TestAssetUrlHelper:
                 self.env = MockEnv()
 
             def header(self, name, default=None):
-                headers = {"host": "api.example.com", "x-forwarded-proto": "https"}
+                headers = {"host": "localhost:8787", "x-forwarded-proto": "https"}
                 return headers.get(name, default)
 
         class MockEnv:
@@ -274,7 +274,7 @@ class TestAssetUrlHelper:
 
         request = MockRequest()
         url = asset_url(request, "test.jpg", "media")
-        assert url == "https://api.example.com/api/media/test.jpg"
+        assert url == "https://localhost:8787/api/media/test.jpg"
 
 
 if __name__ == "__main__":

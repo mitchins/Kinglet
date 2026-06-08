@@ -13,6 +13,7 @@ Setup:
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from typing import NoReturn
@@ -46,13 +47,14 @@ def upload(repository: str = "testpypi") -> NoReturn:
         "--skip-existing",
         "-u",
         "__token__",
-        "-p",
-        token,
         "dist/*",
     ]
 
     print(f"📦 Uploading to {repository}...")
-    result = subprocess.run(cmd, shell=False)
+    env = os.environ.copy()
+    env["TWINE_USERNAME"] = "__token__"
+    env["TWINE_PASSWORD"] = token
+    result = subprocess.run(cmd, shell=False, env=env)
     sys.exit(result.returncode)
 
 

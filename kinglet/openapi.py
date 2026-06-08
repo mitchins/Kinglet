@@ -5,7 +5,9 @@ Automatically generates OpenAPI documentation from routes, validators, and model
 
 from __future__ import annotations
 
+import html
 import inspect
+import json
 import re
 from typing import Any, get_args, get_origin
 
@@ -197,13 +199,17 @@ class SchemaGenerator:
 
     def serve_swagger_ui(self, spec_url: str = "/openapi.json") -> str:
         """Generate Swagger UI HTML page"""
+        safe_title = html.escape(self.title, quote=True)
+        safe_spec_url = self._safe_spec_url(spec_url)
+        safe_spec_url_js = json.dumps(safe_spec_url).replace("</", "<\\/")
+
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="SwaggerUI" />
-    <title>{self.title} - API Documentation</title>
+    <title>{safe_title} - API Documentation</title>
     <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
 </head>
 <body>
@@ -212,7 +218,7 @@ class SchemaGenerator:
 <script>
   window.onload = () => {{
     window.ui = SwaggerUIBundle({{
-      url: '{spec_url}',
+      url: {safe_spec_url_js},
       dom_id: '#swagger-ui',
       deepLinking: true,
       presets: [
@@ -228,12 +234,14 @@ class SchemaGenerator:
 
     def serve_redoc(self, spec_url: str = "/openapi.json") -> str:
         """Generate ReDoc HTML page"""
+        safe_title = html.escape(self.title, quote=True)
+        safe_spec_url = html.escape(self._safe_spec_url(spec_url), quote=True)
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{self.title} - API Documentation</title>
+    <title>{safe_title} - API Documentation</title>
     <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
     <style>
       body {{
@@ -243,7 +251,7 @@ class SchemaGenerator:
     </style>
 </head>
 <body>
-    <redoc spec-url='{spec_url}'></redoc>
+    <redoc spec-url="{safe_spec_url}"></redoc>
     <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
 </body>
 </html>"""
@@ -263,6 +271,13 @@ class SchemaGenerator:
         """Extract description from handler docstring"""
         docstring = inspect.getdoc(handler)
         return docstring if docstring else ""
+
+    def _safe_spec_url(self, spec_url: str) -> str:
+        """Allow only same-origin relative spec URLs for docs pages."""
+        candidate = str(spec_url or "/openapi.json").strip()
+        if not candidate.startswith("/") or candidate.startswith("//"):
+            return "/openapi.json"
+        return candidate
 
     def _extract_tags(self, path: str) -> list[str]:
         """Extract tags from path (e.g., /users/123 -> ['users'])"""

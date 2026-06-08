@@ -200,6 +200,7 @@ class TestRFC7807Responses:
         assert headers["Content-Type"] == "application/problem+json"
         assert problem["type"] == "https://errors.kinglet.dev/validation"
         assert problem["title"] == "Validation failed"
+        assert problem["detail"] == str(error)
         assert problem["field"] == "email"
         assert problem["value"] == "invalid-email"
 
@@ -209,12 +210,15 @@ class TestRFC7807Responses:
 
         error = DoesNotExistError("SampleUser", email="test@example.com")
         problem, status, headers = orm_problem_response(error, is_prod=False)
+        prod_problem, _, _ = orm_problem_response(error, is_prod=True)
 
         assert status == 404
         assert problem["type"] == "https://errors.kinglet.dev/not-found"
         assert problem["title"] == "Resource not found"
         assert problem["model"] == "SampleUser"
         assert problem["lookup"] == {"email": "test@example.com"}
+        assert "detail" in problem
+        assert "detail" not in prod_problem
 
     def test_problem_json_production_redaction(self):
         """Test field redaction in production mode"""
@@ -231,6 +235,7 @@ class TestRFC7807Responses:
         prod_problem, _, _ = orm_problem_response(error, is_prod=True)
         assert "field" not in prod_problem
         assert "value" not in prod_problem
+        assert "detail" not in prod_problem
         assert prod_problem["code"] == "ValidationError"
 
     def test_problem_json_supports_empty_error_type_map(self):

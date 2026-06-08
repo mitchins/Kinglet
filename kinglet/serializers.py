@@ -13,6 +13,9 @@ from enum import Enum
 from typing import Any
 
 
+_COMPUTED_FIELD_ERROR = object()
+
+
 class SerializationContext:
     """Context for serialization operations"""
 
@@ -62,7 +65,7 @@ class ModelSerializer:
 
     def serialize(
         self, instance, context: SerializationContext | None = None
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """
         Serialize model instance to dictionary
 
@@ -93,7 +96,7 @@ class ModelSerializer:
 
     def serialize_many(
         self, instances, context: SerializationContext | None = None
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any] | None]:
         """Serialize multiple instances"""
         if not instances:
             return []
@@ -212,8 +215,9 @@ class ModelSerializer:
             computed_value = self._compute_field_value_safely(
                 compute_func, instance, context
             )
-            if computed_value is not None:
-                result[field_name] = self._serialize_value(computed_value)
+            if computed_value is _COMPUTED_FIELD_ERROR:
+                continue
+            result[field_name] = self._serialize_value(computed_value)
 
     def _get_field_value_safely(self, instance, field_name: str):
         """Get field value from instance, handling AttributeError"""
@@ -269,7 +273,7 @@ class ModelSerializer:
                 return compute_func(instance)
         except Exception:
             # Log error in production
-            return None
+            return _COMPUTED_FIELD_ERROR
 
     def _reverse_field_mapping(self, api_field: str) -> str:
         """Reverse field mapping from API field to model field"""
@@ -401,7 +405,7 @@ class SerializerMixin:
     @classmethod
     def serialize_many(
         cls, instances, context: SerializationContext | None = None
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any] | None]:
         """Serialize multiple instances of this model"""
         config = cls._get_serializer_config()
         serializer = ModelSerializer(config)
@@ -413,7 +417,7 @@ def serialize_model(
     instance,
     config: SerializerConfig | None = None,
     context: SerializationContext | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """Quick function to serialize a model instance"""
     serializer = ModelSerializer(config or SerializerConfig())
     return serializer.serialize(instance, context)
@@ -423,7 +427,7 @@ def serialize_models(
     instances,
     config: SerializerConfig | None = None,
     context: SerializationContext | None = None,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any] | None]:
     """Quick function to serialize multiple model instances"""
     serializer = ModelSerializer(config or SerializerConfig())
     return serializer.serialize_many(instances, context)
