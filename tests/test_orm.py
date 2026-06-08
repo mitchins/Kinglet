@@ -97,6 +97,28 @@ class TestFieldValidation:
         assert field.default == 7
         assert field.index is False
 
+    def test_integer_field_boolean_defaults_are_preserved(self):
+        indexed_field = IntegerField(True)
+        explicit_default = IntegerField(default=True)
+
+        assert indexed_field.default is None
+        assert indexed_field.index is True
+        assert explicit_default.default is True
+        assert explicit_default.index is False
+
+    @pytest.mark.parametrize(
+        "args, kwargs, message",
+        [
+            ((1, 2), {}, "at most one positional argument"),
+            ((5,), {"default": 3}, "default provided both positionally and by keyword"),
+        ],
+    )
+    def test_integer_field_rejects_invalid_positional_arguments(
+        self, args, kwargs, message
+    ):
+        with pytest.raises(TypeError, match=message):
+            IntegerField(*args, **kwargs)
+
     def test_boolean_field_validation(self):
         field = BooleanField()
 

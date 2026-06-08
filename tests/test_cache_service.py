@@ -168,6 +168,19 @@ def test_asset_url_rejects_untrusted_host_header():
     assert result == "/api/media/test-uid-123"
 
 
+def test_asset_url_allows_listed_public_host():
+    """Test asset_url emits an absolute URL for explicitly allowlisted hosts."""
+    request = AssetRequest(
+        host="api.example.com",
+        scheme="https",
+        env=SimpleNamespace(ALLOWED_HOSTS=["api.example.com"]),
+        headers={"Host": "api.example.com", "X-Forwarded-Proto": "https"},
+    )
+
+    result = asset_url(request, "test-uid-123")
+    assert result == "https://api.example.com/api/media/test-uid-123"
+
+
 def test_validate_json_body():
     """Test @validate_json_body decorator"""
     app = Kinglet()

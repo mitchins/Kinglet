@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from kinglet.core import Route
 from kinglet import Kinglet, Response, Router, TestClient, geo_restrict, require_dev
 
 
@@ -131,6 +132,28 @@ class TestDecoratorOrdering:
         assert status == 200
         body_dict = parse_body(body)
         assert body_dict.get("secure") == "admin data"
+
+
+class TestRouteResolutionFallbacks:
+    """Test handler resolution fallbacks for routes."""
+
+    def test_resolve_handler_falls_back_without_metadata(self):
+        async def endpoint(request):
+            return {"ok": True}
+
+        route = Route("/fallback", endpoint, ["GET"])
+        route.handler_module = None
+
+        assert route.handler is endpoint
+
+    def test_resolve_handler_falls_back_when_module_missing(self):
+        async def endpoint(request):
+            return {"ok": True}
+
+        route = Route("/fallback", endpoint, ["GET"])
+        route.handler_module = "nonexistent.module"
+
+        assert route.handler is endpoint
 
 
 class TestResponseVsTupleReturns:
