@@ -46,7 +46,7 @@ def require_admin(handler):
 
         # Layer 2: Verify admin role (NO development bypasses!)
         claims = user.get("claims", {})
-        is_admin = claims.get("role") == "admin" or claims.get("is_publisher") is True
+        is_admin = claims.get("role") == "admin"
 
         if not is_admin:
             return Response(

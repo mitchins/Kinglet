@@ -104,6 +104,39 @@ class TestKingletApp:
         assert response is not None
 
     @pytest.mark.asyncio
+    async def test_request_constructor_failure_uses_safe_fallback_request(
+        self, app, mock_env, monkeypatch
+    ):
+        """Test fallback request has minimal middleware-safe interface."""
+        import kinglet.core as core_module
+
+        @app.middleware
+        class RequestAttributeMiddleware:
+            async def process_request(self, request):
+                return None
+
+            async def process_response(self, request, response):
+                _ = request.method
+                _ = request.path
+                _ = request.url
+                _ = request.query_params
+                _ = request.header("x-test", "default")
+                return response
+
+        original_request = core_module.Request
+
+        def exploding_request_ctor(*args, **kwargs):
+            raise RuntimeError("constructor boom")
+
+        monkeypatch.setattr(core_module, "Request", exploding_request_ctor)
+        try:
+            response = await app(MockRequest("GET", "http://localhost/"), mock_env)
+        finally:
+            monkeypatch.setattr(core_module, "Request", original_request)
+
+        assert response is not None
+
+    @pytest.mark.asyncio
     async def test_middleware_processing(self, app, mock_env):
         """Test middleware execution"""
 
@@ -152,6 +185,45 @@ class TestKingletApp:
 
         assert 404 in app.error_handlers
         assert app.error_handlers[404] == not_found_handler
+
+    @pytest.mark.asyncio
+    async def test_custom_error_handler_can_return_workers_response(
+        self, app, mock_env, monkeypatch
+    ):
+        """Test custom error handlers can return WorkersResponse directly."""
+        import sys
+        import types
+
+        from kinglet.exceptions import HTTPError
+
+        WorkersResponse = type(
+            "Response",
+            (),
+            {
+                "__module__": "workers",
+                "__init__": lambda self, content=None, status=200: setattr(
+                    self, "content", content
+                )
+                or setattr(self, "status", status),
+            },
+        )
+        fake_workers = types.ModuleType("workers")
+        fake_workers.Response = WorkersResponse
+        monkeypatch.setitem(sys.modules, "workers", fake_workers)
+
+        @app.exception_handler(404)
+        async def not_found_handler(request, _exc):
+            return WorkersResponse({"error": "Custom not found"}, status=404)
+
+        @app.get("/boom")
+        async def boom(request):
+            raise HTTPError(404, "missing")
+
+        mock_request = MockRequest("GET", "http://localhost/boom")
+        response = await app(mock_request, mock_env)
+
+        assert isinstance(response, WorkersResponse)
+        assert response.status == 404
 
     @pytest.mark.asyncio
     async def test_automatic_response_conversion(self, app, mock_env):

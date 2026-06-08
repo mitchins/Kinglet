@@ -13,10 +13,29 @@ import secrets
 import struct
 import time
 import urllib.parse
+from typing import Any
+
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # Test TOTP secret that generates predictable codes for development/testing
 # This secret will generate "000000" at Unix timestamp 0 (and cyclically)
-TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXP"  # nosec B105: Test-only predictable secret for development
+TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXP"  # nosec B105
+_TOTP_DIGESTS = {
+    # RFC 6238 explicitly permits HMAC-SHA1/SHA256/SHA512 for TOTP. We keep
+    # sha1 only for authenticator interoperability and reject arbitrary or
+    # weaker algorithms entirely.
+    "sha1": hashlib.sha1,
+    "sha256": hashlib.sha256,
+    "sha512": hashlib.sha512,
+}
+
+
+def _env_get(env_source: Any, key: str, default=None):
+    """Read env values from either dict-like or attribute-style bindings."""
+    if isinstance(env_source, dict):
+        return env_source.get(key, default)
+    return getattr(env_source, key, default)
 
 
 class OTPProvider:
@@ -149,7 +168,9 @@ def generate_totp_code(
         secret: Base32-encoded TOTP secret
         timestamp: Unix timestamp (defaults to current time)
         algorithm: Hash algorithm - 'sha1' (default), 'sha256', or 'sha512'
-                  Note: Google Authenticator only supports sha1, use others with compatible apps
+                  Note: this is the RFC 6238 HMAC digest. Google
+                  Authenticator only supports sha1; use sha256/sha512 only
+                  with compatible apps.
     """
     if timestamp is None:
         timestamp = int(time.time())
@@ -168,11 +189,12 @@ def generate_totp_code(
     # Pack time step as big-endian 64-bit integer
     time_bytes = struct.pack(">Q", time_step)
 
-    # TOTP HMAC – interoperability note:
-    # - HOTP (RFC 4226) specifies HMAC-SHA1; TOTP (RFC 6238) permits SHA-1/256/512.
-    # - SHA-1 collision attacks do not affect HMAC's PRF security; safe in this construction.
-    # - Using SHA-1 here preserves compatibility with common authenticators and existing otpauth URIs.
-    hmac_hash = hmac.new(key, time_bytes, hashlib.sha1).digest()  # NOSONAR
+    digest = _TOTP_DIGESTS.get(str(algorithm).lower())
+    if digest is None:
+        raise ValueError(
+            "Invalid algorithm. Supported values: 'sha1', 'sha256', 'sha512'"
+        )
+    hmac_hash = hmac.new(key, time_bytes, digest).digest()
 
     # Dynamic truncation (RFC 4226)
     offset = hmac_hash[-1] & 0x0F
@@ -281,55 +303,81 @@ def create_elevated_jwt(
 def get_totp_encryption_key(env) -> str:
     """Get TOTP encryption key from environment variables"""
     # Primary key for TOTP secret encryption in database
-    totp_key = getattr(env, "TOTP_ENCRYPTION_KEY", None)
+    totp_key = _env_get(env, "TOTP_ENCRYPTION_KEY", None)
     if not totp_key:
         # Fallback to JWT secret if TOTP key not set
-        totp_key = getattr(env, "JWT_SECRET", "dev-totp-key-change-in-production")
+        totp_key = _env_get(env, "JWT_SECRET", None)
+
+    if not totp_key:
+        raise RuntimeError(
+            "TOTP encryption key not configured: set TOTP_ENCRYPTION_KEY or JWT_SECRET"
+        )
 
     # In production, this should be a different key from JWT_SECRET
     # for defense in depth
+    mode = str(_env_get(env, "MODE", "")).strip().lower()
+    if mode == "prod" and totp_key == _env_get(env, "JWT_SECRET", None):
+        raise RuntimeError("TOTP_ENCRYPTION_KEY must differ from JWT_SECRET in prod")
+
     return totp_key
 
 
-def encrypt_totp_secret(secret: str, encryption_key: str) -> str:
-    """Encrypt TOTP secret for database storage"""
-    # Simple XOR encryption for demo (use proper AES in production)
-    import hashlib
+def _resolve_totp_encryption_key(encryption_key_or_env: str | Any) -> str:
+    if isinstance(encryption_key_or_env, str):
+        return encryption_key_or_env
+    return get_totp_encryption_key(encryption_key_or_env)
 
-    # Create a consistent key from the encryption key
+
+def _derive_totp_aead_key(encryption_key: str) -> bytes:
+    """Derive a stable 256-bit AEAD key from the configured secret."""
+    return hashlib.sha256(encryption_key.encode()).digest()
+
+
+def _decrypt_totp_secret_legacy(encrypted_bytes: bytes, encryption_key: str) -> str:
+    """Decrypt legacy XOR-based ciphertexts for backward compatibility."""
     key_hash = hashlib.sha256(encryption_key.encode()).digest()
-
-    # XOR each byte of the secret with the key
-    secret_bytes = secret.encode()
-    encrypted_bytes = bytearray()
-
-    for i, byte in enumerate(secret_bytes):
+    decrypted_bytes = bytearray()
+    for i, byte in enumerate(encrypted_bytes):
         key_byte = key_hash[i % len(key_hash)]
-        encrypted_bytes.append(byte ^ key_byte)
-
-    # Return as base64 for database storage
-    return base64.b64encode(encrypted_bytes).decode()
+        decrypted_bytes.append(byte ^ key_byte)
+    return decrypted_bytes.decode()
 
 
-def decrypt_totp_secret(encrypted_secret: str, encryption_key: str) -> str:
+def encrypt_totp_secret(secret: str, encryption_key: str | Any) -> str:
+    """Encrypt TOTP secret for database storage"""
+    key = _resolve_totp_encryption_key(encryption_key)
+    key_bytes = _derive_totp_aead_key(key)
+    nonce = secrets.token_bytes(12)
+    ciphertext = AESGCM(key_bytes).encrypt(nonce, secret.encode(), None)
+    return base64.b64encode(nonce + ciphertext).decode()
+
+
+def decrypt_totp_secret(
+    encrypted_secret: str | bytes, encryption_key: str | Any
+) -> str:
     """Decrypt TOTP secret from database"""
-    import hashlib
-
     try:
-        # Decode from base64
-        encrypted_bytes = base64.b64decode(encrypted_secret.encode())
+        encoded_secret = (
+            encrypted_secret.encode()
+            if isinstance(encrypted_secret, str)
+            else encrypted_secret
+        )
+        encrypted_bytes = base64.b64decode(encoded_secret)
+        if len(encrypted_bytes) < 8:
+            raise ValueError("Encrypted TOTP secret is too short")
+        key = _resolve_totp_encryption_key(encryption_key)
+        key_bytes = _derive_totp_aead_key(key)
 
-        # Create the same key
-        key_hash = hashlib.sha256(encryption_key.encode()).digest()
+        if len(encrypted_bytes) >= 28:
+            try:
+                nonce, ciphertext = encrypted_bytes[:12], encrypted_bytes[12:]
+                decrypted_bytes = AESGCM(key_bytes).decrypt(nonce, ciphertext, None)
+                return decrypted_bytes.decode()
+            except (InvalidTag, ValueError):
+                pass
 
-        # XOR to decrypt
-        decrypted_bytes = bytearray()
-        for i, byte in enumerate(encrypted_bytes):
-            key_byte = key_hash[i % len(key_hash)]
-            decrypted_bytes.append(byte ^ key_byte)
-
-        return decrypted_bytes.decode()
-    except Exception as e:
+        return _decrypt_totp_secret_legacy(encrypted_bytes, key)
+    except (InvalidTag, ValueError, RuntimeError, TypeError) as e:
         raise ValueError("Failed to decrypt TOTP secret") from e
 
 
@@ -337,7 +385,7 @@ def decrypt_totp_secret(encrypted_secret: str, encryption_key: str) -> str:
 def test_totp_implementation():
     """Test TOTP implementation with known values"""
     # Test with a known secret
-    test_secret = "JBSWY3DPEHPK3PXP"  # nosec B105: Test-only predictable secret for development
+    test_secret = "JBSWY3DPEHPK3PXP"  # nosec B105
 
     # Generate code for current time
     current_code = generate_totp_code(test_secret)

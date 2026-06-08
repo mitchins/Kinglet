@@ -299,6 +299,14 @@ class Kinglet:
 
         try:
             response = await self.error_handlers[status_code](request, exception)
+            try:
+                from workers import Response as WorkersResponse
+
+                if isinstance(response, WorkersResponse):
+                    return response
+            except ImportError:
+                pass
+
             if not isinstance(response, Response):
                 response = Response(response)
 
@@ -327,6 +335,7 @@ class Kinglet:
 
     async def __call__(self, request, env):
         """ASGI-compatible entry point for Workers"""
+        kinglet_request = None
         try:
             # Wrap the raw request
             kinglet_request = Request(request, env)
@@ -349,6 +358,20 @@ class Kinglet:
 
         except Exception as e:
             status_code = getattr(e, "status_code", 500)
+            if kinglet_request is None:
+                class FallbackRequest:
+                    request_id = "unknown"
+                    headers = {}
+                    env = type("Env", (), {})()
+                    method = "GET"
+                    path = "/"
+                    url = "/"
+                    query_params = {}
+
+                    def header(self, name, default=None):
+                        return self.headers.get(name, default)
+
+                kinglet_request = FallbackRequest()
 
             # Try custom error handler first
             custom_response = await self._handle_custom_error(

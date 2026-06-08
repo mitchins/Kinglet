@@ -14,6 +14,11 @@ from kinglet.totp import generate_totp_secret, verify_totp_code
 app = Kinglet()
 
 
+def _is_local_demo_allowed(request) -> bool:
+    env_name = str(getattr(request.env, "ENVIRONMENT", "production")).lower()
+    return env_name in {"development", "dev", "local", "test"}
+
+
 # ============ Basic Routes ============
 @app.get("/")
 async def hello(request):
@@ -239,22 +244,22 @@ async def get_file(request):
                 info = r2_get_content_info(obj)
 
                 # For binary files, return stream directly
-                if info["type"] and "image" in info["type"]:
+                if info["content_type"] and "image" in info["content_type"]:
                     from workers import Response as WorkersResponse
 
                     return WorkersResponse(
                         obj.body,
                         headers={
-                            "Content-Type": info["type"],
+                            "Content-Type": info["content_type"],
                             "Content-Length": str(info["size"]),
                         },
                     )
 
                 # For text files, return content
                 content = await obj.text()
-                return Response(content, headers={"Content-Type": info["type"]})
-    except:
-        pass
+                return Response(content, headers={"Content-Type": info["content_type"]})
+    except Exception as e:
+        print(f"R2 file lookup failed for {key}: {e}")
 
     return Response({"error": f"File '{key}' not found"}, status=404)
 
@@ -345,7 +350,7 @@ async def test_ses_signing(request):
             "message": "SigV4 signing works!",
             "using_dummy_credentials": using_dummy,
             "region": aws_region,
-            "signed_headers": headers_dict,
+            "signed_header_keys": sorted(list(headers_dict.keys())),
         }
     except Exception as e:
         return {
@@ -358,6 +363,9 @@ async def test_ses_signing(request):
 @app.get("/ses/demo")
 async def ses_demo_form(request):
     """Simple HTML form for testing email sends - LOCAL ONLY"""
+    if not _is_local_demo_allowed(request):
+        return Response({"error": "Not found"}, status=404)
+
     html = """<!DOCTYPE html>
 <html>
 <head>
@@ -442,6 +450,9 @@ async def ses_demo_form(request):
 @app.post("/ses/send")
 async def send_test_email(request):
     """Actually send a test email via SES"""
+    if not _is_local_demo_allowed(request):
+        return Response({"error": "Not found"}, status=404)
+
     from kinglet.ses import send_email
 
     data = await request.json()

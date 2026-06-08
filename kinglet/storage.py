@@ -209,9 +209,12 @@ def bytes_to_arraybuffer(data):
         # Create Uint8Array view of the ArrayBuffer
         uint8_array = Uint8Array.new(array_buffer)
 
-        # Copy bytes efficiently
-        for i, byte in enumerate(data):
-            uint8_array[i] = byte
+        # Copy bytes efficiently when the JS bridge supports bulk assignment.
+        if hasattr(uint8_array, "assign"):
+            uint8_array.assign(data)
+        else:
+            for i, byte in enumerate(data):
+                uint8_array[i] = byte
 
         return array_buffer
 
@@ -250,8 +253,10 @@ def arraybuffer_to_bytes(array_buffer):
         # Create Uint8Array view
         uint8_array = Uint8Array.new(array_buffer)
 
-        # Convert to Python bytes
-        return bytes([uint8_array[i] for i in range(uint8_array.length)])
+        # Convert to Python bytes using the bridge's bulk helper when available.
+        if hasattr(uint8_array, "to_bytes"):
+            return uint8_array.to_bytes()
+        return bytes(uint8_array)
 
     except ImportError:
         # Not in Workers environment - assume it's already bytes

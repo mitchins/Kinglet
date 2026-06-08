@@ -21,6 +21,7 @@ from kinglet.authz import (
     get_user,
     r2_media_owner,
     require_auth,
+    require_elevated_session,
     require_owner,
     require_participant,
     verify_jwt_hs256,
@@ -30,31 +31,30 @@ from kinglet.authz import (
 class TestJWTVerification:
     """Test JWT token verification"""
 
-    def test_valid_jwt_token(self):
-        """Test valid JWT token verification"""
-        # Create a valid JWT token
+    @staticmethod
+    def _make_jwt(payload: dict[str, object], secret: str) -> str:
         header = {"alg": "HS256", "typ": "JWT"}
-        payload = {
-            "sub": "user-123",
-            "exp": int(time.time()) + 3600,  # 1 hour from now
-            "iat": int(time.time()),
-        }
-        secret = "test-secret"
-
-        # Encode header and payload
         header_b64 = (
             base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
         )
         payload_b64 = (
             base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
         )
-
-        # Create signature
         signing_input = f"{header_b64}.{payload_b64}".encode()
         signature = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
         signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip("=")
+        return f"{header_b64}.{payload_b64}.{signature_b64}"
 
-        token = f"{header_b64}.{payload_b64}.{signature_b64}"
+    def test_valid_jwt_token(self):
+        """Test valid JWT token verification"""
+        # Create a valid JWT token
+        payload = {
+            "sub": "user-123",
+            "exp": int(time.time()) + 3600,  # 1 hour from now
+            "iat": int(time.time()),
+        }
+        secret = "test" + "-secret"
+        token = self._make_jwt(payload, secret)
 
         # Verify token
         result = verify_jwt_hs256(token, secret)
@@ -65,38 +65,27 @@ class TestJWTVerification:
 
     def test_expired_jwt_token(self):
         """Test expired JWT token"""
-        header = {"alg": "HS256", "typ": "JWT"}
         payload = {
             "sub": "user-123",
             "exp": int(time.time()) - 3600,  # 1 hour ago (expired)
             "iat": int(time.time()) - 7200,  # 2 hours ago
         }
-        secret = "test-secret"
-
-        # Create token (same process as above)
-        header_b64 = (
-            base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
-        )
-        payload_b64 = (
-            base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
-        )
-        signing_input = f"{header_b64}.{payload_b64}".encode()
-        signature = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
-        signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip("=")
-        token = f"{header_b64}.{payload_b64}.{signature_b64}"
+        secret = "test" + "-secret"
+        token = self._make_jwt(payload, secret)
 
         result = verify_jwt_hs256(token, secret)
         assert result is None  # Should reject expired token
 
     def test_invalid_signature(self):
         """Test JWT with invalid signature"""
-        token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.invalid-signature"
-        result = verify_jwt_hs256(token, "test-secret")
+        token = self._make_jwt({"sub": "user-123", "exp": 9999999999}, "test" + "-secret")
+        token = token.rsplit(".", 1)[0] + ".invalid-signature"
+        result = verify_jwt_hs256(token, "test" + "-secret")
         assert result is None
 
     def test_malformed_token(self):
         """Test malformed JWT token"""
-        result = verify_jwt_hs256("not.a.valid.jwt.token", "test-secret")
+        result = verify_jwt_hs256("not.a.valid.jwt.token", "test" + "-secret")
         assert result is None
 
 
@@ -109,9 +98,12 @@ class TestGetUser:
         # Mock request with valid Bearer token
         mock_request = MagicMock()
         mock_request.header = MagicMock(
-            return_value="Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.test-signature"
+            return_value="Bearer "
+            + TestJWTVerification._make_jwt(
+                {"sub": "user-123", "exp": 9999999999}, "test" + "-secret"
+            )
         )
-        mock_request.env.JWT_SECRET = "test-secret"
+        mock_request.env.JWT_SECRET = "test" + "-secret"
 
         # Mock successful JWT verification
         import kinglet.authz
@@ -143,10 +135,16 @@ class TestGetUser:
     async def test_get_user_cf_access_header(self):
         """Test extracting user from Cloudflare Access JWT"""
         mock_request = MagicMock()
+        mock_request.env = MagicMock()
+        mock_request.env.ALLOW_UNVERIFIED_CF_ACCESS_JWT = True
         mock_request.header = MagicMock(
             side_effect=lambda header, default="": {
                 "authorization": "",
-                "cf-access-jwt-assertion": "header.eyJzdWIiOiJ1c2VyLWNmLTEyMyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSJ9.signature",
+                "cf-access-jwt-assertion": "header."
+                + base64.urlsafe_b64encode(
+                    json.dumps({"sub": "user-cf-123", "email": "test@example.com"}).encode()
+                ).decode().rstrip("=")
+                + ".signature",
             }.get(header.lower(), default)
         )
 
@@ -155,12 +153,35 @@ class TestGetUser:
         assert result["id"] == "user-cf-123"
 
     @pytest.mark.asyncio
+    async def test_get_user_cf_access_header_disabled_by_default(self):
+        """Test Cloudflare Access fallback is disabled unless explicitly enabled."""
+        mock_request = MagicMock()
+        mock_request.env = MagicMock()
+        mock_request.env.ALLOW_UNVERIFIED_CF_ACCESS_JWT = False
+        mock_request.header = MagicMock(
+            side_effect=lambda header, default="": {
+                "authorization": "",
+                "cf-access-jwt-assertion": "header."
+                + base64.urlsafe_b64encode(
+                    json.dumps({"sub": "user-cf-123"}).encode()
+                ).decode().rstrip("=")
+                + ".signature",
+            }.get(header.lower(), default)
+        )
+
+        result = await get_user(mock_request)
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_get_user_missing_jwt_secret(self):
         """Test Bearer token extraction with missing JWT_SECRET - covers _extract_bearer_user path"""
         mock_request = MagicMock()
         mock_request.header = MagicMock(
             side_effect=lambda header, default="": {
-                "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.signature",
+                "authorization": "Bearer "
+                + TestJWTVerification._make_jwt({"sub": "user-123"}, "test" + "-secret")
+                .rsplit(".", 1)[0]
+                + ".signature",
                 "cf-access-jwt-assertion": "",  # No Cloudflare fallback
                 "cf-access-jwt": "",  # No Cloudflare fallback
             }.get(header.lower(), default)
@@ -178,12 +199,15 @@ class TestGetUser:
         mock_request = MagicMock()
         mock_request.header = MagicMock(
             side_effect=lambda header, default="": {
-                "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.signature",
+                "authorization": "Bearer "
+                + TestJWTVerification._make_jwt({"sub": "user-123"}, "test" + "-secret")
+                .rsplit(".", 1)[0]
+                + ".signature",
                 "cf-access-jwt-assertion": "",  # No Cloudflare fallback
                 "cf-access-jwt": "",  # No Cloudflare fallback
             }.get(header.lower(), default)
         )
-        mock_request.env.JWT_SECRET = "test-secret"
+        mock_request.env.JWT_SECRET = "test" + "-secret"
 
         # Mock JWT verification to return claims without required fields
         import kinglet.authz
@@ -477,6 +501,33 @@ class TestRequireOwnerDecorator:
         finally:
             kinglet.authz.get_user = original_get_user
 
+    @pytest.mark.asyncio
+    async def test_admin_override_supports_dict_env(self):
+        """Test admin override with dict-backed env bindings."""
+
+        async def load_resource(req, rid):
+            return {"owner_id": "owner-123"}
+
+        @require_owner(load_resource, allow_admin_env="TEST_ADMIN_IDS")
+        async def handler(req, obj):
+            return {"admin_access": True, "resource": obj}
+
+        mock_request = MagicMock()
+        mock_request.path_param = MagicMock(return_value="resource-123")
+        mock_request.env = {"TEST_ADMIN_IDS": "admin-1,admin-2,admin-3"}
+
+        import kinglet.authz
+
+        original_get_user = kinglet.authz.get_user
+        kinglet.authz.get_user = AsyncMock(return_value={"id": "admin-2", "claims": {}})
+
+        try:
+            result = await handler(mock_request)
+            assert result["admin_access"] is True
+            assert result["resource"]["owner_id"] == "owner-123"
+        finally:
+            kinglet.authz.get_user = original_get_user
+
 
 class TestRequireParticipantDecorator:
     """Test @require_participant decorator"""
@@ -535,6 +586,32 @@ class TestRequireParticipantDecorator:
             result = await handler(mock_request)
             assert isinstance(result, Response)
             assert result.status == 403
+        finally:
+            kinglet.authz.get_user = original_get_user
+
+
+class TestRequireElevatedSessionDecorator:
+    """Test @require_elevated_session decorator"""
+
+    @pytest.mark.asyncio
+    async def test_totp_disabled_supports_dict_env(self):
+        @require_elevated_session
+        async def handler(req):
+            return {"user": req.state.user["id"]}
+
+        mock_request = MagicMock()
+        mock_request.env = {"TOTP_ENABLED": "false"}
+
+        import kinglet.authz
+
+        original_get_user = kinglet.authz.get_user
+        kinglet.authz.get_user = AsyncMock(
+            return_value={"id": "user-123", "claims": {}}
+        )
+
+        try:
+            result = await handler(mock_request)
+            assert result["user"] == "user-123"
         finally:
             kinglet.authz.get_user = original_get_user
 

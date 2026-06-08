@@ -395,6 +395,7 @@ class TestMigrationGenerator:
         assert len(migrations) == 1
         assert "create_orders" in migrations[0].version
         assert migrations[0].description == "Create table orders"
+        assert migrations[0].sql.startswith('CREATE TABLE IF NOT EXISTS "orders"')
 
     def test_generate_add_column_not_null_without_default(self):
         """Test generating ALTER TABLE for NOT NULL column without default"""
@@ -436,6 +437,10 @@ class TestMigrationGenerator:
         sql = MigrationGenerator.generate_add_column("users", "status", field)
         assert "DEFAULT 'test'" in sql
         assert "multi-step migration" not in sql
+
+        field = StringField(default="O'Brien", null=False)
+        sql = MigrationGenerator.generate_add_column("users", "owner", field)
+        assert "DEFAULT 'O''Brien'" in sql
 
         # Test with integer default
         field = IntegerField(default=42)

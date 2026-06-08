@@ -9,6 +9,7 @@ Tests the compute-optimized ORM functionality including:
 """
 
 from datetime import datetime
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -53,6 +54,14 @@ class SampleUser(Model):
 
     class Meta:
         table_name = "test_users"
+
+
+class CustomPkGame(Model):
+    game_id = IntegerField(primary_key=True)
+    title = StringField(max_length=200, null=False)
+
+    class Meta:
+        table_name = "custom_pk_games"
 
 
 class TestFieldValidation:
@@ -185,6 +194,59 @@ class TestModelInstance:
         assert game.metadata == {"key": "value"}  # Parsed from JSON
         assert game._state["saved"] is True
 
+    @pytest.mark.asyncio
+    async def test_partial_projection_does_not_overwrite_missing_fields(self):
+        row_data = {"id": 1, "title": "Projected Game"}
+        game = SampleGame._from_db(row_data)
+        game.title = "Updated Projected Game"
+
+        db = Mock()
+        stmt = Mock()
+        stmt.bind = Mock(return_value=stmt)
+        stmt.run = AsyncMock(return_value=Mock())
+        db.prepare = Mock(return_value=stmt)
+
+        await game.save(db)
+
+        sql = db.prepare.call_args[0][0]
+        assert '"description"' not in sql
+        assert '"is_published"' not in sql
+        assert '"metadata"' not in sql
+        assert '"title" = ?' in sql
+
+    @pytest.mark.asyncio
+    async def test_partial_projection_explicitly_set_field_is_saved(self):
+        row_data = {"id": 1, "title": "Projected Game"}
+        game = SampleGame._from_db(row_data)
+        game.description = "Filled after projection"
+
+        db = Mock()
+        stmt = Mock()
+        stmt.bind = Mock(return_value=stmt)
+        stmt.run = AsyncMock(return_value=Mock())
+        db.prepare = Mock(return_value=stmt)
+
+        await game.save(db)
+
+        sql = db.prepare.call_args[0][0]
+        assert '"description" = ?' in sql
+        assert '"title" = ?' in sql
+
+    @pytest.mark.asyncio
+    async def test_save_supports_custom_primary_key(self):
+        game = CustomPkGame(title="Test Game")
+        db = Mock()
+        stmt = Mock()
+        stmt.bind = Mock(return_value=stmt)
+        stmt.run = AsyncMock(return_value=Mock(meta=Mock(last_row_id=42)))
+        db.prepare = Mock(return_value=stmt)
+
+        await game.save(db)
+
+        assert game.game_id == 42
+        assert db.prepare.call_args[0][0].startswith("INSERT INTO")
+        assert '"game_id"' not in db.prepare.call_args[0][0]
+
 
 class TestQuerySet:
     """Test QuerySet functionality"""
@@ -220,15 +282,15 @@ class TestQuerySet:
 
         # Greater than
         condition = qs._build_lookup_condition("score", "gt", 100)
-        assert condition == "score > ?"
+        assert condition == '"score" > ?'
 
         # Contains
         condition = qs._build_lookup_condition("title", "contains", "test")
-        assert condition == "title LIKE ?"
+        assert condition == '"title" LIKE ? /*contains*/'
 
         # In lookup
         condition = qs._build_lookup_condition("id", "in", [1, 2, 3])
-        assert condition == "id IN (?,?,?)"
+        assert condition == '"id" IN (?,?,?)'
 
     def test_sql_building(self):
         qs = self.queryset.filter(is_published=True).order_by("-created_at").limit(10)
@@ -236,7 +298,7 @@ class TestQuerySet:
 
         # Now uses projection instead of SELECT * for D1 cost optimization, with quoted identifiers
         expected_fields = '"id", "title", "description", "score", "is_published", "created_at", "metadata"'
-        expected_sql = f'SELECT {expected_fields} FROM "test_games" WHERE is_published = ? ORDER BY "created_at" DESC LIMIT 10'
+        expected_sql = f'SELECT {expected_fields} FROM "test_games" WHERE "is_published" = ? ORDER BY "created_at" DESC LIMIT 10'
         assert sql == expected_sql
         assert params == [True]
 
@@ -257,20 +319,20 @@ class TestSchemaManager:
     def test_generate_create_sql(self):
         sql = SampleGame.get_create_sql()
 
-        assert "CREATE TABLE IF NOT EXISTS test_games" in sql
-        assert "id INTEGER PRIMARY KEY AUTOINCREMENT" in sql
-        assert "title VARCHAR(200) NOT NULL" in sql
-        assert "score INTEGER" in sql
-        assert "is_published INTEGER" in sql
-        assert "created_at INTEGER" in sql
-        assert "metadata TEXT" in sql
+        assert 'CREATE TABLE IF NOT EXISTS "test_games"' in sql
+        assert '"id" INTEGER PRIMARY KEY AUTOINCREMENT' in sql
+        assert '"title" VARCHAR(200) NOT NULL' in sql
+        assert '"score" INTEGER' in sql
+        assert '"is_published" INTEGER' in sql
+        assert '"created_at" INTEGER' in sql
+        assert '"metadata" TEXT' in sql
 
     def test_generate_schema_sql(self):
         models = [SampleGame, SampleUser]
         schema = SchemaManager.generate_schema_sql(models)
 
-        assert "CREATE TABLE IF NOT EXISTS test_games" in schema
-        assert "CREATE TABLE IF NOT EXISTS test_users" in schema
+        assert 'CREATE TABLE IF NOT EXISTS "test_games"' in schema
+        assert 'CREATE TABLE IF NOT EXISTS "test_users"' in schema
 
     @pytest.mark.asyncio
     async def test_migrate_all(self):
@@ -495,7 +557,7 @@ class TestQuerySetExclude:
         # Check that WHERE NOT condition was added
         assert len(excluded_qs._where_conditions) == 1
         condition, value = excluded_qs._where_conditions[0]
-        assert "NOT (is_published = ?)" in condition
+        assert 'NOT ("is_published" = ?)' in condition
         assert value is True
 
     def test_exclude_multiple_conditions(self):
@@ -519,7 +581,8 @@ class TestQuerySetExclude:
         assert len(excluded_qs._where_conditions) == 1
         condition, value = excluded_qs._where_conditions[0]
         assert "NOT (" in condition
-        assert "score > ?" in condition
+        assert 'score > ?' not in condition
+        assert 'NOT ("score" > ?)' in condition
         assert value == 90
 
     def test_exclude_invalid_field(self):
@@ -539,12 +602,12 @@ class TestQuerySetExclude:
 
         # First condition should be filter (positive)
         filter_condition, filter_value = chained_qs._where_conditions[0]
-        assert filter_condition == "is_published = ?"
+        assert filter_condition == '"is_published" = ?'
         assert filter_value is True
 
         # Second condition should be exclude (negative)
         exclude_condition, exclude_value = chained_qs._where_conditions[1]
-        assert "NOT (score = ?)" in exclude_condition
+        assert 'NOT ("score" = ?)' in exclude_condition
         assert exclude_value == 0
 
     def test_exclude_preserves_other_query_parts(self):
@@ -719,7 +782,7 @@ class TestD1Transaction:
 
         # Adding statement after execute should raise error
         with pytest.raises(RuntimeError, match="Transaction already executed"):
-            await txn.add_statement("INSERT INTO test VALUES (?)", ["value"])
+            txn.add_statement("INSERT INTO test VALUES (?)", ["value"])
 
 
 class TestQuerySetAdvanced:
@@ -862,7 +925,7 @@ class TestQuerySetAdvanced:
         # Verify condition was added correctly
         assert len(qs._where_conditions) == 1
         condition, value = qs._where_conditions[0]
-        assert "NOT (score = ?)" in condition
+        assert 'NOT ("score" = ?)' in condition
         assert value == 0
 
     def test_limit_validation(self):

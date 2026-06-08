@@ -3,6 +3,7 @@ Kinglet Decorators and Utility Functions
 """
 
 import functools
+import json
 from collections.abc import Callable
 
 from .exceptions import GeoRestrictedError, HTTPError
@@ -67,7 +68,7 @@ def require_dev():
     def decorator(handler: Callable):
         @functools.wraps(handler)
         async def wrapped(request):
-            env_name = getattr(request.env, "ENVIRONMENT", "production")
+            env_name = str(getattr(request.env, "ENVIRONMENT", "production")).lower()
 
             if env_name not in ["development", "dev", "test"]:
                 # Security: In production, make dev endpoints a complete blackhole
@@ -125,21 +126,34 @@ def validate_json_body(handler: Callable):
     @functools.wraps(handler)
     async def wrapped(request):
         try:
-            body = await request.json()
-            # Check for None or empty dict (both considered "empty" for validation)
-            if body is None or body == {}:
+            raw_text = await request.text()
+            stripped = raw_text.strip() if raw_text else ""
+            if stripped == "":
                 return Response.error(
                     "Request body cannot be empty", 400, request.request_id
                 )
-        except Exception as e:
-            return Response.error(f"Invalid JSON: {str(e)}", 400, request.request_id)
+            if stripped == "null":
+                return await handler(request)
+
+            body = await request.json()
+            if body is None:
+                try:
+                    body = json.loads(stripped)
+                except json.JSONDecodeError:
+                    return Response.error("Invalid JSON body", 400, request.request_id)
+            if body == {}:
+                return Response.error(
+                    "Request body cannot be empty", 400, request.request_id
+                )
+        except Exception:
+            return Response.error("Invalid JSON body", 400, request.request_id)
 
         return await handler(request)
 
     return wrapped
 
 
-def require_field(field_name: str, field_type: type = str):
+def require_field(field_name: str, field_type: type | tuple[type, ...] = str):
     """
     Decorator to validate that JSON body contains required field
 
@@ -160,8 +174,13 @@ def require_field(field_name: str, field_type: type = str):
 
                 value = body[field_name]
                 if not isinstance(value, field_type):
+                    type_names = (
+                        " or ".join(t.__name__ for t in field_type)
+                        if isinstance(field_type, tuple)
+                        else field_type.__name__
+                    )
                     return Response.error(
-                        f"Field '{field_name}' must be of type {field_type.__name__}",
+                        f"Field '{field_name}' must be of type {type_names}",
                         400,
                         request.request_id,
                     )

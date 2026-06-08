@@ -10,6 +10,7 @@ import uuid
 
 from kinglet import (
     Kinglet,
+    asset_url,
     Response,
     TestClient,
     cache_aside,
@@ -66,7 +67,7 @@ async def get_homepage(request):
 
     # Generate media URLs for covers
     for game in featured_games + latest_games:
-        game["cover_url"] = media_url(game["cover_uid"])
+        game["cover_url"] = asset_url(request, game["cover_uid"])
 
     return {
         "featured_games": featured_games,
@@ -167,7 +168,7 @@ async def get_game_detail(request):
         media_url(f"{game['cover_uid']}-screenshot1"),
         media_url(f"{game['cover_uid']}-screenshot2"),
     ]
-    game["cover_url"] = media_url(request, game["cover_uid"])
+    game["cover_url"] = asset_url(request, game["cover_uid"])
     game["generated_at"] = time.time()
 
     return {"game": game, "source": "kinglet_game_detail_cached"}
@@ -196,7 +197,7 @@ async def create_game(request):
     }
 
     # Add media URL
-    new_game["cover_url"] = media_url(request, new_game["cover_uid"])
+    new_game["cover_url"] = asset_url(request, new_game["cover_uid"])
 
     # Add to mock data
     GAMES_DATA.append(new_game)
@@ -229,7 +230,7 @@ async def update_game(request):
         game["rating"] = data["rating"]
 
     game["updated_at"] = time.time()
-    game["cover_url"] = media_url(request, game["cover_uid"])
+    game["cover_url"] = asset_url(request, game["cover_uid"])
 
     return {"success": True, "game": game, "message": "Game updated successfully"}
 

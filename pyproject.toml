@@ -26,6 +26,7 @@ classifiers = [
 keywords = ["cloudflare", "workers", "python", "routing", "web", "framework", "asgi", "lightweight"]
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography>=46.0.7",
 ]
 
 [project.scripts]

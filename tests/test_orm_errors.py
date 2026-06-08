@@ -233,6 +233,17 @@ class TestRFC7807Responses:
         assert "value" not in prod_problem
         assert prod_problem["code"] == "ValidationError"
 
+    def test_problem_json_supports_empty_error_type_map(self):
+        """Test empty error_type_map does not fall back to defaults."""
+        from kinglet.orm_errors import orm_problem_response
+
+        error = ValidationError("email", "Invalid email format")
+        problem, status, _headers = orm_problem_response(error, error_type_map={})
+
+        assert status == 500
+        assert problem["type"] == "https://errors.kinglet.dev/internal"
+        assert problem["title"] == "Internal error"
+
 
 class TestConstraintRegistry:
     """Test ConstraintRegistry functionality"""

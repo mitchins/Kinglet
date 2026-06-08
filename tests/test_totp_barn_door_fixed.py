@@ -7,6 +7,7 @@ from kinglet.totp import (
     DummyOTPProvider,
     ProductionOTPProvider,
     generate_totp_code,
+    generate_totp_qr_url,
     generate_totp_secret,
     get_otp_provider,
     set_otp_provider,
@@ -131,6 +132,27 @@ class TestTOTPBarnDoorFixed:
         assert isinstance(code, str)
         assert len(code) == 6
         assert code.isdigit()
+
+    def test_generate_totp_code_respects_algorithm(self):
+        """Test non-SHA1 algorithms are actually applied."""
+        timestamp = 1_700_000_000
+        sha1_code = generate_totp_code(TEST_TOTP_SECRET, timestamp, "sha1")
+        sha256_code = generate_totp_code(TEST_TOTP_SECRET, timestamp, "sha256")
+        sha512_code = generate_totp_code(TEST_TOTP_SECRET, timestamp, "sha512")
+
+        assert len({sha1_code, sha256_code, sha512_code}) > 1
+
+    def test_generate_totp_code_invalid_algorithm_raises(self):
+        """Test unsupported algorithm names are rejected."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Invalid algorithm"):
+            generate_totp_code(TEST_TOTP_SECRET, algorithm="md5")
+
+    def test_generate_totp_qr_url_includes_algorithm(self):
+        """Test QR URL carries requested algorithm value."""
+        qr = generate_totp_qr_url(TEST_TOTP_SECRET, "user@example.com", algorithm="sha512")
+        assert "algorithm=SHA512" in qr
 
     def test_production_provider_verify_code_format(self):
         """Test production provider verify_code accepts right format"""
