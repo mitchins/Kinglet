@@ -201,7 +201,7 @@ def handle_service_exceptions(func: Callable) -> Callable:
             return ServiceResult.error_result(e.message, e.error_code, e.details)
         except Exception:
             # Log unexpected exceptions (you'd use your logger here)
-            traceback.format_exc()
+            traceback.print_exc()
             return ServiceResult.error_result("An unexpected error occurred", "INTERNAL_ERROR")
 
     @functools.wraps(func)
@@ -214,7 +214,7 @@ def handle_service_exceptions(func: Callable) -> Callable:
         except ServiceException as e:
             return ServiceResult.error_result(e.message, e.error_code, e.details)
         except Exception:
-            traceback.format_exc()
+            traceback.print_exc()
             return ServiceResult.error_result("An unexpected error occurred", "INTERNAL_ERROR")
 
     # Return appropriate wrapper based on whether function is async

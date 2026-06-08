@@ -398,13 +398,10 @@ def cache_aside(
         @functools.wraps(func)
         async def wrapped(*args, **kwargs):
             request = next((arg for arg in args if hasattr(arg, "env")), None)
-            if not request or not cache_policy.should_cache(request):
-                return await func(*args, **kwargs)
+        if not request or not cache_policy.should_cache(request):
+            return await func(*args, **kwargs)
 
             path_params = getattr(request, "path_params", {})
-            cache_key = _generate_cache_key(
-                func.__name__, cache_type, args, kwargs, path_params
-            )
 
             storage = getattr(request.env, storage_binding, None)
             if not storage:

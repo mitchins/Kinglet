@@ -38,7 +38,7 @@ async def search_users(request):
     limit = request.query_int("limit", 10)
     active_only = request.query("active", "false").lower() in {"1", "true", "yes"}
     tags_param = request.query("tags", "")
-    tags = [tag for tag in tags_param.split(",") if tag]
+    tags = [tag.strip() for tag in tags_param.split(",") if tag.strip()]
 
     return {
         "users": [f"user_{i}" for i in range((page - 1) * limit, page * limit)],
@@ -138,6 +138,7 @@ async def on_fetch(request, env):
 if __name__ == "__main__":
     print("🧪 Testing Kinglet API Example")
     print("=" * 40)
+    os.environ.setdefault("API_TOKEN", "user-token-123")
 
     client = TestClient(app)
 

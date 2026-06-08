@@ -291,18 +291,24 @@ class TestSchemaLock:
         assert lock_data["migrations"][1]["version"] == "v2"
 
     def test_generate_lock_detects_index_changes(self):
-        class IndexedProduct(Model):
-            name = StringField(max_length=100, null=False, index=True)
-            price = IntegerField(default=0)
-
-            class Meta:
-                table_name = "products"
+        IndexedProduct = type(
+            "SampleProduct",
+            (Model,),
+            {
+                "__module__": __name__,
+                "name": StringField(max_length=100, null=False, index=True),
+                "price": IntegerField(default=0),
+                "Meta": type(
+                    "Meta", (), {"__module__": __name__, "table_name": "products"}
+                ),
+            },
+        )
 
         base_lock = SchemaLock.generate_lock([SampleProduct])
         indexed_lock = SchemaLock.generate_lock([IndexedProduct])
 
         assert base_lock["schema_hash"] != indexed_lock["schema_hash"]
-        assert indexed_lock["models"]["IndexedProduct"]["fields"]["name"]["index"] is True
+        assert indexed_lock["models"]["SampleProduct"]["fields"]["name"]["index"] is True
 
     def test_write_and_read_lock_file(self):
         models = [SampleProduct]

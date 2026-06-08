@@ -40,14 +40,7 @@ class Route:
         candidate = getattr(module, self.handler_name, None)
         if not callable(candidate) or candidate is current_handler:
             return current_handler
-
-        try:
-            if inspect.unwrap(candidate) is inspect.unwrap(current_handler):
-                return candidate
-        except Exception:
-            return current_handler
-
-        return current_handler
+        return candidate
 
     @property
     def handler(self) -> Callable:

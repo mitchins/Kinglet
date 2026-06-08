@@ -57,10 +57,8 @@ class TestDecoratorOrdering:
             return {"secret": "geo-only"}
 
         @router.get("/correct-order")  # Router decorator FIRST (correct!)
+        @require_admin_check  # Security decorator SECOND
         async def secure_endpoint(request):
-            user = await get_user(request)
-            if not user or not user.get("is_admin"):
-                return Response({"error": "Admin required"}, status=403)
             return {"secret": "admin data", "secure": True}
 
         app.include_router("/api", router)
@@ -85,6 +83,13 @@ class TestDecoratorOrdering:
         assert status == 403, "Correct order should enforce security"
         body_dict = parse_body(body)
         assert "Admin required" in body_dict.get("error", "")
+
+        status, _, body = client.request(
+            "GET", "/api/correct-order", headers={"X-Admin-Token": "valid-admin-token"}
+        )
+        assert status == 200
+        body_dict = parse_body(body)
+        assert body_dict.get("secure") is True
 
     def test_correct_decorator_order_enforces_security(self):
         """Test that correct decorator order enforces security"""

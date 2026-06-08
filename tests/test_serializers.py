@@ -9,6 +9,7 @@ from enum import Enum
 from unittest.mock import MagicMock
 
 from kinglet.serializers import (
+    _COMPUTED_FIELD_ERROR,
     FieldTransforms,
     ModelSerializer,
     SerializationContext,
@@ -541,7 +542,7 @@ class SampleModelSerializer:
         serializer = ModelSerializer()
         result = serializer._compute_field_value_safely(failing_func, None, None)
 
-        assert result is None
+        assert result is _COMPUTED_FIELD_ERROR
 
 
 class TestFieldTransforms:

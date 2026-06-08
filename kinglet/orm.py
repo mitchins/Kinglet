@@ -113,10 +113,23 @@ class StringField(Field):
 class IntegerField(Field):
     """Integer field with optional index"""
 
-    def __init__(self, default: Any = None, *, index: bool | None = None, **kwargs):
-        if index is None and isinstance(default, bool):
-            index = default
-            default = None
+    def __init__(
+        self,
+        *args: Any,
+        default: Any = None,
+        index: bool | None = None,
+        **kwargs,
+    ):
+        if len(args) > 1:
+            raise TypeError("IntegerField accepts at most one positional argument")
+        if args:
+            positional = args[0]
+            if isinstance(positional, bool) and default is None and index is None:
+                index = positional
+            elif default is None:
+                default = positional
+            else:
+                raise TypeError("default provided both positionally and by keyword")
         if index is None:
             index = False
         super().__init__(default=default, **kwargs)
@@ -860,18 +873,11 @@ class Manager:
         self, instances: list[Model]
     ) -> tuple[list[str], list[list[Any]]]:
         """Prepare field names and values for bulk insert"""
-        field_names: list[str] = []
-        field_name_set: set[str] = set()
+        field_names: list[str] = list(self.model_class._fields.keys())
         all_values = []
 
         for instance in instances:
             field_data = self._prepare_field_data(instance, preserve_auto_pk=True)
-
-            for field_name in field_data.keys():
-                if field_name not in field_name_set:
-                    field_name_set.add(field_name)
-                    field_names.append(field_name)
-
             values = [field_data.get(name) for name in field_names]
             all_values.append(values)
 

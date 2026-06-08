@@ -65,7 +65,7 @@ class ModelSerializer:
 
     def serialize(
         self, instance, context: SerializationContext | None = None
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """
         Serialize model instance to dictionary
 
@@ -96,7 +96,7 @@ class ModelSerializer:
 
     def serialize_many(
         self, instances, context: SerializationContext | None = None
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any] | None]:
         """Serialize multiple instances"""
         if not instances:
             return []
@@ -405,7 +405,7 @@ class SerializerMixin:
     @classmethod
     def serialize_many(
         cls, instances, context: SerializationContext | None = None
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any] | None]:
         """Serialize multiple instances of this model"""
         config = cls._get_serializer_config()
         serializer = ModelSerializer(config)
@@ -417,7 +417,7 @@ def serialize_model(
     instance,
     config: SerializerConfig | None = None,
     context: SerializationContext | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """Quick function to serialize a model instance"""
     serializer = ModelSerializer(config or SerializerConfig())
     return serializer.serialize(instance, context)
@@ -427,7 +427,7 @@ def serialize_models(
     instances,
     config: SerializerConfig | None = None,
     context: SerializationContext | None = None,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any] | None]:
     """Quick function to serialize multiple model instances"""
     serializer = ModelSerializer(config or SerializerConfig())
     return serializer.serialize_many(instances, context)
