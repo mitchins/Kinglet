@@ -234,6 +234,30 @@ def _safe_request_host(request: Request) -> str | None:
     return candidate
 
 
+def _detect_protocol(request: Request) -> str:
+    """Backward-compatible protocol detection for existing tests and callers."""
+    forwarded = request.header("x-forwarded-proto")
+    if forwarded:
+        return str(forwarded).split(",", 1)[0].strip().lower()
+
+    parsed_url = getattr(request, "_parsed_url", None)
+    scheme = getattr(parsed_url, "scheme", "")
+    if scheme:
+        return str(scheme).lower()
+
+    return "http"
+
+
+def _get_host(request: Request) -> str:
+    """Backward-compatible host lookup for existing tests and callers."""
+    host = request.header("host")
+    if host:
+        return str(host).strip()
+
+    parsed_url = getattr(request, "_parsed_url", None)
+    return str(getattr(parsed_url, "netloc", "")).strip()
+
+
 def _trusted_request_origin(request: Request) -> str | None:
     """Resolve a safe absolute origin for asset URLs."""
     env = getattr(request, "env", None)
