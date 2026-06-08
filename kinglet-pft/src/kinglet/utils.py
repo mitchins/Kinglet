@@ -7,11 +7,9 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
-import re
 import time
 from collections.abc import Callable
 from typing import Any, Protocol
-from urllib.parse import urlparse
 
 from .http import Request
 
@@ -87,185 +85,6 @@ class NeverCachePolicy:
 
 # Default policy instance
 _default_cache_policy = EnvironmentCachePolicy()
-
-
-_DEFAULT_CACHE_VARY_HEADERS = (
-    "authorization",
-    "cookie",
-    "x-api-key",
-    "x-user-id",
-    "x-tenant-id",
-)
-
-
-def _serialize_cache_component(value: Any) -> str:
-    """Create a deterministic string representation for cache key components."""
-    if isinstance(value, str):
-        return value
-
-    try:
-        return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-    except Exception:
-        return repr(value)
-
-
-def _normalized_vary_headers(vary_headers: tuple[str, ...] | list[str] | None) -> list[str]:
-    """Merge built-in and custom vary headers while preserving order."""
-    headers: list[str] = []
-    seen: set[str] = set()
-
-    for header_name in (*_DEFAULT_CACHE_VARY_HEADERS, *(vary_headers or ())):
-        normalized = str(header_name).lower()
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            headers.append(normalized)
-
-    return headers
-
-
-async def _request_body_signature(request: Request) -> str | None:
-    """Hash the request body when it is present."""
-    if not hasattr(request, "text"):
-        return None
-
-    try:
-        body = await request.text()
-    except Exception:
-        return None
-
-    if not body:
-        return None
-
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
-
-
-def _append_identity_parts(parts: list[str], source: Any, prefix: str) -> None:
-    """Append stable identity hints from request or state objects."""
-    if source is None:
-        return
-
-    for attr in ("user", "tenant", "tenant_id", "user_id", "auth", "identity"):
-        if hasattr(source, attr):
-            value = getattr(source, attr)
-            if value is not None:
-                parts.append(f"{prefix}_{attr}={_serialize_cache_component(value)}")
-
-
-async def _request_cache_parts(
-    request: Request, path_params: dict | None = None, vary_headers: tuple[str, ...] | None = None
-) -> list[str]:
-    """Build stable cache key components from the request context."""
-    parts = [f"method={getattr(request, 'method', 'GET').upper()}"]
-
-    path = getattr(request, "path", "")
-    parts.append(f"path={path.rstrip('/')}")
-
-    query_string = getattr(request, "query_string", "")
-    if query_string:
-        parts.append(f"query={query_string}")
-
-    effective_path_params = path_params or getattr(request, "path_params", {}) or {}
-    for key, value in sorted(effective_path_params.items()):
-        parts.append(f"path_{key}={_serialize_cache_component(value)}")
-
-    for header_name in _normalized_vary_headers(vary_headers):
-        try:
-            value = request.header(header_name)
-        except Exception:
-            value = None
-        if value not in (None, ""):
-            parts.append(f"header_{header_name}={_serialize_cache_component(value)}")
-
-    _append_identity_parts(parts, request, "request")
-    _append_identity_parts(parts, getattr(request, "state", None), "state")
-
-    body_signature = await _request_body_signature(request)
-    if body_signature:
-        parts.append(f"body={body_signature}")
-
-    return parts
-
-
-def _normalize_origin_url(origin: str) -> str | None:
-    """Return a normalized absolute origin URL or None if invalid."""
-    if not origin:
-        return None
-
-    candidate = origin.strip()
-    if not candidate:
-        return None
-
-    parsed = urlparse(candidate)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return None
-
-    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
-
-
-def _is_loopback_host(host: str) -> bool:
-    """Allow local development hosts without trusting arbitrary public hosts."""
-    normalized = host.lower()
-    return (
-        normalized == "testserver"
-        or normalized.startswith("localhost")
-        or normalized.startswith("127.0.0.1")
-        or normalized.startswith("[::1]")
-        or normalized == "::1"
-        or normalized.endswith(".localhost")
-    )
-
-
-def _safe_request_host(request: Request) -> str | None:
-    """Return a syntactically safe host header if one is present."""
-    host = request.header("host")
-    if not host and hasattr(request, "_parsed_url"):
-        host = getattr(request._parsed_url, "netloc", "")
-
-    if not host:
-        return None
-
-    candidate = host.strip()
-    if not candidate:
-        return None
-
-    if not re.fullmatch(r"(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::\d+)?", candidate):
-        return None
-
-    return candidate
-
-
-def _trusted_request_origin(request: Request) -> str | None:
-    """Resolve a safe absolute origin for asset URLs."""
-    env = getattr(request, "env", None)
-    if env is not None:
-        for attr_name in ("PUBLIC_ORIGIN", "APP_ORIGIN", "CANONICAL_ORIGIN", "BASE_URL"):
-            configured = getattr(env, attr_name, None)
-            origin = _normalize_origin_url(str(configured)) if configured else None
-            if origin:
-                return origin
-
-    host = _safe_request_host(request)
-    if not host:
-        return None
-
-    allowed_hosts = getattr(env, "ALLOWED_HOSTS", None) if env is not None else None
-    if allowed_hosts:
-        if isinstance(allowed_hosts, str):
-            allowed = {
-                item.strip().lower()
-                for item in allowed_hosts.split(",")
-                if item.strip()
-            }
-        else:
-            allowed = {str(item).strip().lower() for item in allowed_hosts if str(item).strip()}
-
-        if host.lower() not in allowed:
-            return None
-    elif not _is_loopback_host(host):
-        return None
-
-    scheme = "https" if getattr(getattr(request, "_parsed_url", None), "scheme", "") == "https" else "http"
-    return f"{scheme}://{host}".rstrip("/")
 
 
 class CacheService:
@@ -356,7 +175,6 @@ def cache_aside(
     cache_type: str = "default",
     ttl: int = 3600,
     policy: CachePolicy | None = None,
-    vary_headers: tuple[str, ...] | None = None,
 ):
     """
     Policy-driven cache-aside decorator for expensive operations
@@ -385,16 +203,6 @@ def cache_aside(
             storage = getattr(request.env, storage_binding, None)
             if not storage:
                 return await func(*args, **kwargs)
-
-            cache_key = await _generate_cache_key(
-                func.__name__,
-                cache_type,
-                args,
-                kwargs,
-                getattr(request, "path_params", {}),
-                request=request,
-                vary_headers=vary_headers,
-            )
 
             cache = CacheService(storage, ttl)
 
@@ -437,6 +245,23 @@ def _get_cdn_url(request: Request, path: str, asset_type: str) -> str | None:
     return None
 
 
+def _detect_protocol(request: Request) -> str:
+    """Detect if we're running on HTTPS"""
+    if request.header("x-forwarded-proto") == "https" or (
+        hasattr(request, "_parsed_url") and request._parsed_url.scheme == "https"
+    ):
+        return "https"
+    return "http"
+
+
+def _get_host(request: Request) -> str:
+    """Get host from header, fallback to parsed URL if available"""
+    host = request.header("host")
+    if not host and hasattr(request, "_parsed_url"):
+        host = request._parsed_url.netloc
+    return host
+
+
 def asset_url(request: Request, uid: str, asset_type: str = "media") -> str:
     """
     Generate asset URL based on environment and type
@@ -457,10 +282,12 @@ def asset_url(request: Request, uid: str, asset_type: str = "media") -> str:
         if cdn_url:
             return cdn_url
 
-        # Only emit an absolute URL when we have a trusted canonical origin.
-        origin = _trusted_request_origin(request)
-        if origin:
-            return f"{origin}{path}"
+        # Build full URL with protocol and host
+        protocol = _detect_protocol(request)
+        host = _get_host(request)
+
+        if host:
+            return f"{protocol}://{host}{path}"
     except Exception:
         # Fall through to return path-only
         return path
@@ -485,35 +312,28 @@ def media_url(uid: str) -> str:
     return f"{cdn_base}/{uid}"
 
 
-async def _generate_cache_key(
-    func_name: str,
-    cache_type: str,
-    args: tuple,
-    kwargs: dict,
-    path_params: dict | None = None,
-    *,
-    request: Request | None = None,
-    vary_headers: tuple[str, ...] | None = None,
+def _generate_cache_key(
+    func_name: str, cache_type: str, args: tuple, kwargs: dict, path_params: dict = None
 ) -> str:
-    """Generate a cache key from function name, request context, and arguments."""
+    """Generate a cache key from function name and arguments"""
+    # Create a string representation of arguments
     key_parts = [func_name, cache_type]
 
-    if request is not None:
-        key_parts.extend(await _request_cache_parts(request, path_params, vary_headers))
-    elif path_params:
+    # Add path parameters (most important for route-based caching)
+    if path_params:
         for k, v in sorted(path_params.items()):
-            key_parts.append(f"path_{k}={_serialize_cache_component(v)}")
+            key_parts.append(f"path_{k}={v}")
 
     # Add positional args (skip request object)
     for arg in args[1:]:  # Skip first arg which is usually request
         if hasattr(arg, "__dict__"):
             continue  # Skip complex objects
-        key_parts.append(_serialize_cache_component(arg))
+        key_parts.append(str(arg))
 
     # Add keyword args
     for k, v in sorted(kwargs.items()):
         if not hasattr(v, "__dict__"):  # Skip complex objects
-            key_parts.append(f"{k}={_serialize_cache_component(v)}")
+            key_parts.append(f"{k}={v}")
 
     # Generate hash for consistent key length
     key_string = "|".join(key_parts)
@@ -526,7 +346,6 @@ def cache_aside_d1(
     ttl: int = 3600,
     policy: CachePolicy | None = None,
     track_hits: bool = False,
-    vary_headers: tuple[str, ...] | None = None,
 ):
     """
     D1 database caching decorator
@@ -551,9 +370,7 @@ def cache_aside_d1(
             if not db:
                 return await func(*args, **kwargs)
 
-            cache_key = await _generate_d1_cache_key(
-                request, cache_type, vary_headers=vary_headers
-            )
+            cache_key = _generate_d1_cache_key(request, cache_type)
 
             try:
                 from .cache_d1 import D1CacheService
@@ -576,15 +393,33 @@ def cache_aside_d1(
     return decorator
 
 
-async def _generate_d1_cache_key(
-    request: Request,
-    cache_type: str = "default",
-    *,
-    vary_headers: tuple[str, ...] | None = None,
-) -> str:
-    """Generate a cache key optimized for D1 from the full request context."""
-    key_parts = [cache_type]
-    key_parts.extend(await _request_cache_parts(request, vary_headers=vary_headers))
+def _generate_d1_cache_key(request: Request, cache_type: str = "default") -> str:
+    """Generate cache key optimized for D1 from request"""
+    # Use path as primary key component
+    path = getattr(request, "path", "")
+
+    # Include query parameters for cache differentiation
+    query_params = {}
+    if hasattr(request, "query_string") and request.query_string:
+        # Parse common query params that affect cache
+        for param in ["sort", "limit", "offset", "page", "filter", "search"]:
+            value = getattr(request, "query", lambda _x, d=None: d)(param)
+            if value is not None:
+                query_params[param] = value
+
+    # Include path parameters
+    path_params = getattr(request, "path_params", {})
+
+    # Build cache key
+    key_parts = [cache_type, path.rstrip("/")]
+
+    # Add path parameters (most specific)
+    for k, v in sorted(path_params.items()):
+        key_parts.append(f"path_{k}={v}")
+
+    # Add query parameters
+    for k, v in sorted(query_params.items()):
+        key_parts.append(f"query_{k}={v}")
 
     # Generate shorter hash for D1 efficiency
     key_string = "|".join(key_parts)

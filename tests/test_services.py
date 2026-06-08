@@ -330,7 +330,7 @@ class TestHandleServiceExceptionsDecorator:
         assert result.success is False
         assert result.message == "An unexpected error occurred"
         assert result.error_code == "INTERNAL_ERROR"
-        assert "Something went wrong" in result.error_details
+        assert result.error_details is None
 
     def test_sync_generic_exception(self):
         """Test decorator catching generic Exception in sync function"""
@@ -345,6 +345,7 @@ class TestHandleServiceExceptionsDecorator:
         assert result.success is False
         assert result.message == "An unexpected error occurred"
         assert result.error_code == "INTERNAL_ERROR"
+        assert result.error_details is None
 
     @pytest.mark.asyncio
     async def test_async_function_returns_service_result(self):

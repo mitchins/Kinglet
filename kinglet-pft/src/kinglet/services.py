@@ -199,10 +199,12 @@ def handle_service_exceptions(func: Callable) -> Callable:
             return ServiceResult.validation_error(e.message, e.field_errors)
         except ServiceException as e:
             return ServiceResult.error_result(e.message, e.error_code, e.details)
-        except Exception:
+        except Exception as e:
             # Log unexpected exceptions (you'd use your logger here)
             traceback.format_exc()
-            return ServiceResult.error_result("An unexpected error occurred", "INTERNAL_ERROR")
+            return ServiceResult.error_result(
+                "An unexpected error occurred", "INTERNAL_ERROR", str(e)
+            )
 
     @functools.wraps(func)
     def sync_wrapper(*args, **kwargs) -> ServiceResult:
@@ -213,9 +215,11 @@ def handle_service_exceptions(func: Callable) -> Callable:
             return ServiceResult.validation_error(e.message, e.field_errors)
         except ServiceException as e:
             return ServiceResult.error_result(e.message, e.error_code, e.details)
-        except Exception:
+        except Exception as e:
             traceback.format_exc()
-            return ServiceResult.error_result("An unexpected error occurred", "INTERNAL_ERROR")
+            return ServiceResult.error_result(
+                "An unexpected error occurred", "INTERNAL_ERROR", str(e)
+            )
 
     # Return appropriate wrapper based on whether function is async
     if asyncio.iscoroutinefunction(func):

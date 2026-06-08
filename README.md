@@ -16,7 +16,9 @@
 Install: `pip install kinglet` or add `dependencies = ["kinglet"]` to pyproject.toml
 
 ```python
-from kinglet import Kinglet, CorsMiddleware, cache_aside_d1
+import os
+
+from kinglet import Kinglet, CorsMiddleware, Response, cache_aside_d1
 
 app = Kinglet(root_path="/api")
 
@@ -58,9 +60,12 @@ async def get_data(request):
 @app.get("/users/{user_id}")
 async def get_user(request):
     user_id = request.path_param_int("user_id")  # Validates or returns 400
-    token = request.bearer_token()               # Extract JWT
+    auth_header = request.header("authorization", "")
+    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+    if token != os.environ.get("API_TOKEN"):
+        return Response({"error": "Authentication required"}, status=401)
     limit = request.query_int("limit", 10)       # Query params with defaults
-    return {"user": user_id, "token": token}
+    return {"user": user_id, "token": "validated"}
 ```
 
 **Flexible Middleware & Caching:**

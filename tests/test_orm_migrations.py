@@ -272,6 +272,7 @@ class TestSchemaLock:
         assert "name" in product_schema["fields"]
         assert product_schema["fields"]["name"]["type"] == "StringField"
         assert product_schema["fields"]["name"]["null"] is False
+        assert product_schema["fields"]["name"]["index"] is False
 
         # Check schema hash
         assert len(lock_data["schema_hash"]) == 16
@@ -288,6 +289,20 @@ class TestSchemaLock:
         assert len(lock_data["migrations"]) == 2
         assert lock_data["migrations"][0]["version"] == "v1"
         assert lock_data["migrations"][1]["version"] == "v2"
+
+    def test_generate_lock_detects_index_changes(self):
+        class IndexedProduct(Model):
+            name = StringField(max_length=100, null=False, index=True)
+            price = IntegerField(default=0)
+
+            class Meta:
+                table_name = "products"
+
+        base_lock = SchemaLock.generate_lock([SampleProduct])
+        indexed_lock = SchemaLock.generate_lock([IndexedProduct])
+
+        assert base_lock["schema_hash"] != indexed_lock["schema_hash"]
+        assert indexed_lock["models"]["IndexedProduct"]["fields"]["name"]["index"] is True
 
     def test_write_and_read_lock_file(self):
         models = [SampleProduct]

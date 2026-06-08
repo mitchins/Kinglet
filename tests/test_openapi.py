@@ -45,6 +45,40 @@ class TestSchemaGenerator:
         assert generator.version == "2.0.0"
         assert generator.description == "Custom API description"
 
+    def test_docs_html_sanitizes_title_and_spec_url(self):
+        """Test documentation HTML escapes text and rejects unsafe spec URLs."""
+        app = Kinglet()
+        generator = SchemaGenerator(
+            app, title='</title><script>alert("x")</script>', version="1.0.0"
+        )
+
+        swagger_html = generator.serve_swagger_ui(
+            spec_url='https://evil.example/spec.json?x="></script><script>alert(1)</script>'
+        )
+        redoc_html = generator.serve_redoc(
+            spec_url='https://evil.example/spec.json?x="></script><script>alert(1)</script>'
+        )
+        swagger_html_relative = generator.serve_swagger_ui(
+            spec_url='/openapi.json"></script><script>alert(1)</script>'
+        )
+        redoc_html_relative = generator.serve_redoc(
+            spec_url='/openapi.json"></script><script>alert(1)</script>'
+        )
+
+        assert "&lt;/title&gt;&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in swagger_html
+        assert "javascript:alert" not in swagger_html
+        assert "evil.example" not in swagger_html
+        assert 'url: "/openapi.json"' in swagger_html
+        assert 'spec-url="/openapi.json"' in redoc_html
+        assert "<script>alert(1)</script>" not in redoc_html
+        assert "</script><script>alert(1)</script>" not in swagger_html_relative
+        assert "</script><script>alert(1)</script>" not in redoc_html_relative
+        assert "<\\/script><script>alert(1)<\\/script>" in swagger_html_relative
+        assert (
+            'spec-url="/openapi.json&quot;&gt;&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;"'
+            in redoc_html_relative
+        )
+
     def test_generate_spec_structure(self):
         """Test that generate_spec returns valid OpenAPI 3.0 structure"""
         app = Kinglet()

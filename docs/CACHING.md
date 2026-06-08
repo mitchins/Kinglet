@@ -132,8 +132,12 @@ async def custom_cached_endpoint(request):
 
 Cache keys are automatically generated from:
 - Function name
+- HTTP method
+- Request path
 - Path parameters
-- Query parameters
+- Full query string
+- Request body hash for body-bearing requests
+- Authentication and identity headers (`Authorization`, `Cookie`, `X-API-Key`, `X-User-Id`, `X-Tenant-Id`)
 - Cache type
 
 ```python
@@ -141,9 +145,11 @@ Cache keys are automatically generated from:
 async def get_user_data(request):
     user_id = request.path_param("user_id")
     include_private = request.query("private", "false")
-    # Key: cache:sha256(get_user_data|user_data|user_id=123|private=false)[:16]
+    # Key includes method, path, query string, auth headers, and body hash.
     return await fetch_user(user_id, include_private)
 ```
+
+For custom auth or tenant headers, pass `vary_headers=("X-Customer-Id", ...)` to the cache decorator so those values are included in the cache key.
 
 ### TTL Configuration
 

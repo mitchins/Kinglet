@@ -12,7 +12,6 @@ Key differences from Peewee/SQLAlchemy:
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import AsyncGenerator, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -26,10 +25,8 @@ from .orm_errors import (
     ValidationError,
     get_constraint_registry,
 )
+from .sql import quote_ident_sqlite, safe_ident
 from .storage import d1_unwrap, d1_unwrap_results
-
-# Safe SQL identifier validation and quoting
-_IDENT = re.compile(r"^[A-Za-z_]\w*$")
 
 # Error message constants for reuse
 _FIELD_NOT_EXIST_MSG = "Field '{field_name}' does not exist on {model_name}"
@@ -39,9 +36,11 @@ _LIMIT_EXCEED_MSG = "Limit cannot exceed 10000 (D1 safety limit)"
 
 def _qi(name: str) -> str:
     """Quote and validate SQL identifier to prevent injection"""
-    if not _IDENT.fullmatch(name):
-        raise ValueError(f"Unsafe SQL identifier: {name!r}")
-    return f'"{name}"'  # SQLite identifier quoting
+    try:
+        safe_ident(name)  # Validates the identifier
+    except ValueError as e:
+        raise ValueError(f"Unsafe SQL identifier: {name!r}") from e
+    return quote_ident_sqlite(name)
 
 
 class Field:
@@ -113,13 +112,8 @@ class StringField(Field):
 class IntegerField(Field):
     """Integer field with optional index"""
 
-    def __init__(self, default: Any = None, *, index: bool | None = None, **kwargs):
-        if index is None and isinstance(default, bool):
-            index = default
-            default = None
-        if index is None:
-            index = False
-        super().__init__(default=default, **kwargs)
+    def __init__(self, index: bool = False, **kwargs):
+        super().__init__(**kwargs)
         self.index = index  # Explicit indexing control
 
     def to_python(self, value: Any) -> int | None:
@@ -206,18 +200,6 @@ class DateTimeField(Field):
             return datetime.fromtimestamp(int(value))
         except (ValueError, TypeError):
             return None
-
-    def validate(self, value: Any) -> datetime | None:
-        """Validate and convert field value, rejecting malformed non-null inputs."""
-        if value is None:
-            if not self.null:
-                raise ValidationError(self.name, "Field cannot be null", value)
-            return None
-
-        converted = self.to_python(value)
-        if converted is None:
-            raise ValidationError(self.name, "Invalid datetime value", value)
-        return converted
 
     def to_db(self, value: Any) -> int | None:
         if value is None:
@@ -826,9 +808,7 @@ class Manager:
         if not all(isinstance(inst, first_model.__class__) for inst in instances):
             raise ValueError("All instances must be of the same model type")
 
-    def _prepare_field_data(
-        self, instance: Model, preserve_auto_pk: bool = False
-    ) -> dict[str, Any]:
+    def _prepare_field_data(self, instance: Model) -> dict[str, Any]:
         """Prepare field data for a single instance"""
         field_data = {}
         for field_name, field in instance._fields.items():
@@ -847,11 +827,7 @@ class Manager:
 
         # Skip auto-increment ID fields
         pk_field = instance._get_pk_field()
-        if (
-            not preserve_auto_pk
-            and pk_field.name == "id"
-            and getattr(instance, pk_field.name, None) is None
-        ):
+        if pk_field.name == "id" and getattr(instance, pk_field.name, None) is None:
             field_data.pop("id", None)
 
         return field_data
@@ -860,17 +836,14 @@ class Manager:
         self, instances: list[Model]
     ) -> tuple[list[str], list[list[Any]]]:
         """Prepare field names and values for bulk insert"""
-        field_names: list[str] = []
-        field_name_set: set[str] = set()
+        field_names = []
         all_values = []
 
         for instance in instances:
-            field_data = self._prepare_field_data(instance, preserve_auto_pk=True)
+            field_data = self._prepare_field_data(instance)
 
-            for field_name in field_data.keys():
-                if field_name not in field_name_set:
-                    field_name_set.add(field_name)
-                    field_names.append(field_name)
+            if not field_names:
+                field_names = list(field_data.keys())
 
             values = [field_data.get(name) for name in field_names]
             all_values.append(values)

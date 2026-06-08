@@ -285,7 +285,6 @@ class SchemaLock:
                         "null": field.null,
                         "unique": field.unique,
                         "primary_key": field.primary_key,
-                        "index": getattr(field, "index", False),
                     }
 
                 lock_data["models"][model.__name__] = model_schema

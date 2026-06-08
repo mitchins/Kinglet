@@ -12,6 +12,7 @@ def test_to_problem_json_various_errors():
     # Validation
     v = ValidationError("field", "msg", "bad")
     p = to_problem_json(v, status=400, title="t")
+    assert p["detail"] == str(v)
     assert p.get("validation_type") == "field_validation"
 
     # Unique

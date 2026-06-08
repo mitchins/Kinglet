@@ -36,8 +36,9 @@ async def search_users(request):
     """Example with typed query parameters"""
     page = request.query_int("page", 1)
     limit = request.query_int("limit", 10)
-    active_only = request.query_bool("active", False)
-    tags = request.query_all("tags")
+    active_only = request.query("active", "false").lower() in {"1", "true", "yes"}
+    tags_param = request.query("tags", "")
+    tags = [tag for tag in tags_param.split(",") if tag]
 
     return {
         "users": [f"user_{i}" for i in range((page - 1) * limit, page * limit)],
@@ -52,9 +53,11 @@ async def get_user(request):
     # Typed path parameter with validation
     user_id = request.path_param_int("user_id")
 
-    # Check authentication
-    token = request.bearer_token()
-    if not token:
+    # Check authentication by validating the bearer token against a trusted source.
+    auth_header = request.header("authorization", "")
+    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+    expected_token = os.environ.get("API_TOKEN")
+    if not expected_token or token != expected_token:
         return Response.error(
             "Authentication required", status=401, request_id=request.request_id
         )

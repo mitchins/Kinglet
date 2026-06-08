@@ -621,10 +621,8 @@ def to_problem_json(
         "type": type_uri,
         "title": title,
         "status": status,
+        "detail": str(error),
     }
-
-    if not (redact_in_prod and is_prod):
-        problem["detail"] = str(error)
 
     # Add instance URI if provided
     if instance:

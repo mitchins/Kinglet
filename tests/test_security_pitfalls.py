@@ -6,12 +6,10 @@ discovered in real-world Kinglet deployments.
 """
 
 import json
-from unittest.mock import AsyncMock
 
 import pytest
 
-from kinglet import Kinglet, Response, Router, TestClient
-from kinglet.authz import get_user
+from kinglet import Kinglet, Response, Router, TestClient, geo_restrict, require_dev
 
 
 def parse_body(body):
@@ -27,28 +25,37 @@ def parse_body(body):
 class TestDecoratorOrdering:
     """Test decorator ordering security issues"""
 
-    def test_wrong_decorator_order_bypasses_auth(self):
-        """Demonstrate how wrong decorator order creates security vulnerability"""
+    def test_wrong_decorator_order_still_enforces_security(self):
+        """Test that route resolution keeps security decorators active in any order."""
         app = Kinglet()
         router = Router()
 
         # Mock admin check
         def require_admin_check(handler):
             async def wrapped(request):
-                user = await get_user(request)
-                if not user or not user.get("is_admin"):
+                if request.header("x-admin-token") != "valid-admin-token":
                     return Response({"error": "Admin required"}, status=403)
                 return await handler(request)
 
             return wrapped
 
-        # ❌ WRONG ORDER - Security bypassed!
+        # Wrong order should still be enforced by the router.
         @require_admin_check  # Security decorator FIRST (wrong!)
         @router.get("/wrong-order")  # Router decorator SECOND
         async def vulnerable_endpoint(request):
             return {"secret": "admin data", "bypassed": True}
 
-        # ✅ CORRECT ORDER - Security enforced
+        # Built-in access decorators in the wrong order should also stay secure.
+        @require_dev()
+        @router.get("/dev-only")
+        async def dev_only_endpoint(request):
+            return {"secret": "dev-only"}
+
+        @geo_restrict(allowed=["US"])
+        @router.get("/geo-only")
+        async def geo_only_endpoint(request):
+            return {"secret": "geo-only"}
+
         @router.get("/correct-order")  # Router decorator FIRST (correct!)
         async def secure_endpoint(request):
             user = await get_user(request)
@@ -57,29 +64,27 @@ class TestDecoratorOrdering:
             return {"secret": "admin data", "secure": True}
 
         app.include_router("/api", router)
-        client = TestClient(app)
+        client = TestClient(app, env={"ENVIRONMENT": "production"})
 
-        # Mock get_user to return non-admin user
-        import kinglet.authz
+        status, _, body = client.request("GET", "/api/wrong-order")
+        assert status == 403
+        body_dict = parse_body(body)
+        assert "Admin required" in body_dict.get("error", "")
 
-        original_get_user = kinglet.authz.get_user
-        kinglet.authz.get_user = AsyncMock(
-            return_value={"id": "user-123", "is_admin": False}
+        status, _, body = client.request("GET", "/api/dev-only")
+        assert status == 404
+        body_dict = parse_body(body)
+        assert "Not Found" in body_dict.get("error", "")
+
+        status, _, body = client.request(
+            "GET", "/api/geo-only", headers={"CF-IPCountry": "CA"}
         )
+        assert status == 451
 
-        try:
-            # Wrong order endpoint - should be secure but ISN'T (vulnerability!)
-            # Note: In actual framework, wrong decorator order would bypass security
-            # This test documents the expected vulnerable behavior
-
-            # Correct order endpoint - properly secured
-            status, _, body = client.request("GET", "/api/correct-order")
-            assert status == 403, "Correct order should enforce security"
-            body_dict = parse_body(body)
-            assert "Admin required" in body_dict.get("error", "")
-
-        finally:
-            kinglet.authz.get_user = original_get_user
+        status, _, body = client.request("GET", "/api/correct-order")
+        assert status == 403, "Correct order should enforce security"
+        body_dict = parse_body(body)
+        assert "Admin required" in body_dict.get("error", "")
 
     def test_correct_decorator_order_enforces_security(self):
         """Test that correct decorator order enforces security"""

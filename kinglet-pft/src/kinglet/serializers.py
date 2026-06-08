@@ -13,9 +13,6 @@ from enum import Enum
 from typing import Any
 
 
-_COMPUTED_FIELD_ERROR = object()
-
-
 class SerializationContext:
     """Context for serialization operations"""
 
@@ -215,9 +212,8 @@ class ModelSerializer:
             computed_value = self._compute_field_value_safely(
                 compute_func, instance, context
             )
-            if computed_value is _COMPUTED_FIELD_ERROR:
-                continue
-            result[field_name] = self._serialize_value(computed_value)
+            if computed_value is not None:
+                result[field_name] = self._serialize_value(computed_value)
 
     def _get_field_value_safely(self, instance, field_name: str):
         """Get field value from instance, handling AttributeError"""
@@ -273,7 +269,7 @@ class ModelSerializer:
                 return compute_func(instance)
         except Exception:
             # Log error in production
-            return _COMPUTED_FIELD_ERROR
+            return None
 
     def _reverse_field_mapping(self, api_field: str) -> str:
         """Reverse field mapping from API field to model field"""
