@@ -70,3 +70,5 @@ yarn.lock
 test_*.py
 !tests/test_*.py
 example_*.py
+bandit-report.json
+test-results.xml
