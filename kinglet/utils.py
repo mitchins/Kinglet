@@ -238,12 +238,16 @@ def _detect_protocol(request: Request) -> str:
     """Backward-compatible protocol detection for existing tests and callers."""
     forwarded = request.header("x-forwarded-proto")
     if forwarded:
-        return str(forwarded).split(",", 1)[0].strip().lower()
+        candidate = str(forwarded).split(",", 1)[0].strip().lower()
+        if candidate in {"http", "https"}:
+            return candidate
 
     parsed_url = getattr(request, "_parsed_url", None)
     scheme = getattr(parsed_url, "scheme", "")
-    if scheme:
-        return str(scheme).lower()
+    if isinstance(scheme, str):
+        scheme = scheme.strip().lower()
+        if scheme in {"http", "https"}:
+            return scheme
 
     return "http"
 
@@ -288,7 +292,7 @@ def _trusted_request_origin(request: Request) -> str | None:
     elif not _is_loopback_host(host):
         return None
 
-    scheme = "https" if getattr(getattr(request, "_parsed_url", None), "scheme", "") == "https" else "http"
+    scheme = _detect_protocol(request)
     return f"{scheme}://{host}".rstrip("/")
 
 

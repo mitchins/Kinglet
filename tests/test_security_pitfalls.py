@@ -44,22 +44,26 @@ class TestDecoratorOrdering:
         @router.get("/wrong-order")  # Router decorator SECOND
         async def vulnerable_endpoint(request):
             return {"secret": "admin data", "bypassed": True}
+        globals()["vulnerable_endpoint"] = vulnerable_endpoint
 
         # Built-in access decorators in the wrong order should also stay secure.
         @require_dev()
         @router.get("/dev-only")
         async def dev_only_endpoint(request):
             return {"secret": "dev-only"}
+        globals()["dev_only_endpoint"] = dev_only_endpoint
 
         @geo_restrict(allowed=["US"])
         @router.get("/geo-only")
         async def geo_only_endpoint(request):
             return {"secret": "geo-only"}
+        globals()["geo_only_endpoint"] = geo_only_endpoint
 
         @router.get("/correct-order")  # Router decorator FIRST (correct!)
         @require_admin_check  # Security decorator SECOND
         async def secure_endpoint(request):
             return {"secret": "admin data", "secure": True}
+        globals()["secure_endpoint"] = secure_endpoint
 
         app.include_router("/api", router)
         client = TestClient(app, env={"ENVIRONMENT": "production"})
