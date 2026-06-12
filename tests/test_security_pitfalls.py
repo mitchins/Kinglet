@@ -5,6 +5,7 @@ This test suite demonstrates and prevents common security vulnerabilities
 discovered in real-world Kinglet deployments.
 """
 
+import functools
 import json
 
 import pytest
@@ -33,6 +34,7 @@ class TestDecoratorOrdering:
 
         # Mock admin check
         def require_admin_check(handler):
+            @functools.wraps(handler)
             async def wrapped(request):
                 if request.header("x-admin-token") != "valid-admin-token":
                     return Response({"error": "Admin required"}, status=403)
@@ -154,6 +156,25 @@ class TestRouteResolutionFallbacks:
         route.handler_module = "nonexistent.module"
 
         assert route.handler is endpoint
+
+    def test_route_keeps_original_callable_after_same_name_rebind(self):
+        router = Router()
+
+        @router.get("/admin")
+        async def endpoint(request):
+            return Response({"secret": True}, status=200)
+
+        original_endpoint = endpoint
+
+        @router.get("/public")
+        async def endpoint(request):
+            return {"public": True}
+
+        handler, params = router.resolve("GET", "/admin")
+
+        assert params == {}
+        assert handler is original_endpoint
+        assert handler is not endpoint
 
 
 class TestResponseVsTupleReturns:

@@ -28,7 +28,12 @@ class Route:
         self.regex, self.param_names = self._compile_path(path)
 
     def _resolve_handler(self) -> Callable:
-        """Resolve the latest callable for this route if it has been re-wrapped."""
+        """Return the callable registered for this route.
+
+        If the module-level name now refers to a wrapper that still unwraps to
+        the originally registered handler, keep the wrapper so decorator order
+        remains supported without swapping in unrelated same-named callables.
+        """
         current_handler = self._handler
         if not self.handler_module or not self.handler_name:
             return current_handler
@@ -40,7 +45,14 @@ class Route:
         candidate = getattr(module, self.handler_name, None)
         if not callable(candidate) or candidate is current_handler:
             return current_handler
-        return candidate
+
+        try:
+            if inspect.unwrap(candidate) is current_handler:
+                return candidate
+        except ValueError:
+            pass
+
+        return current_handler
 
     @property
     def handler(self) -> Callable:
