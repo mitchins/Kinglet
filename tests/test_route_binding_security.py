@@ -16,7 +16,7 @@ import time
 
 import pytest
 
-from kinglet import Kinglet, Response, Router, TestClient
+from kinglet import Kinglet, Response, Router, TestClient, is_route_registered
 from kinglet.authz import require_auth, require_claim
 
 SECRET = "unit-test-secret"
@@ -118,28 +118,32 @@ class TestNoHandlerRebinding:
         async def endpoint(request):
             return {"admin": True}
 
-        globals()["endpoint"] = endpoint
+        try:
+            globals()["endpoint"] = endpoint
 
-        @app.get("/public")
-        async def endpoint(request):
-            return {"public": True}
+            @app.get("/public")
+            async def endpoint(request):
+                return {"public": True}
 
-        globals()["endpoint"] = endpoint
+            globals()["endpoint"] = endpoint
 
-        client = TestClient(app, env={"JWT_SECRET": SECRET})
+            client = TestClient(app, env={"JWT_SECRET": SECRET})
 
-        status, _, body = client.request("GET", "/admin")
-        assert status == 401, "/admin must never execute the same-named public handler"
-        assert "admin" not in body
+            status, _, body = client.request("GET", "/admin")
+            assert status == 401, (
+                "/admin must never execute the same-named public handler"
+            )
+            assert "admin" not in body
 
-        status, _, body = client.request("GET", "/public")
-        assert status == 200
-        assert "public" in body
+            status, _, body = client.request("GET", "/public")
+            assert status == 200
+            assert "public" in body
 
-        status, _, body = client.request("GET", "/admin", headers=auth_header({}))
-        assert status == 200
-        assert "admin" in body
-        globals().pop("endpoint", None)
+            status, _, body = client.request("GET", "/admin", headers=auth_header({}))
+            assert status == 200
+            assert "admin" in body
+        finally:
+            globals().pop("endpoint", None)
 
     def test_module_global_wrapper_is_never_recovered(self):
         """A module-level wrapper that captures the registered handler (via
@@ -158,14 +162,45 @@ class TestNoHandlerRebinding:
         wrapper.__name__ = "data"
         wrapper.__module__ = registered.__module__
         wrapper.__wrapped__ = registered
-        globals()["data"] = wrapper
+        try:
+            globals()["data"] = wrapper
 
-        handler, _ = app.router.resolve("GET", "/data")
-        assert handler is registered
+            handler, _ = app.router.resolve("GET", "/data")
+            assert handler is registered
 
-        client = TestClient(app)
-        status, _, body = client.request("GET", "/data")
-        assert status == 200
-        assert "original" in body
-        assert "hijacked" not in body
-        globals().pop("data", None)
+            client = TestClient(app)
+            status, _, body = client.request("GET", "/data")
+            assert status == 200
+            assert "original" in body
+            assert "hijacked" not in body
+        finally:
+            globals().pop("data", None)
+
+
+class TestUnmarkableHandlers:
+    """Callables that cannot carry attributes must still trip the guard."""
+
+    def test_route_registered_bound_method_is_guarded(self):
+        class Controller:
+            async def secret(self, request):
+                return {"secret": True}
+
+        controller = Controller()
+        router = Router()
+        # Bound methods reject setattr; the weak registry must catch them.
+        router.add_route("/secret", controller.secret, ["GET"])
+
+        # Every `controller.secret` access creates a fresh bound-method object;
+        # it must still be recognised via (instance, function) equality.
+        assert is_route_registered(controller.secret)
+        with pytest.raises(RuntimeError, match="require_auth"):
+            require_auth(controller.secret)
+
+    def test_unregistered_bound_method_is_not_flagged(self):
+        class Controller:
+            async def secret(self, request):
+                return {"secret": True}
+
+        assert not is_route_registered(Controller().secret)
+        # Wrapping before registration stays allowed.
+        require_auth(Controller().secret)

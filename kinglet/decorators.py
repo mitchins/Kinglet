@@ -5,6 +5,7 @@ Kinglet Decorators and Utility Functions
 import contextlib
 import functools
 import json
+import weakref
 from collections.abc import Callable
 
 from .exceptions import GeoRestrictedError, HTTPError
@@ -14,22 +15,37 @@ from .http import Response
 # use it to fail closed when applied in an order that cannot protect the route.
 ROUTE_REGISTERED_ATTR = "__kinglet_route_registered__"
 
+# Fallback registry for callables that cannot carry attributes (bound methods,
+# functools.partial, ...). Weak references: entries vanish when the registered
+# handler is garbage collected. Bound methods are ephemeral objects but hash
+# and compare by (instance, function), so a fresh `obj.method` reference still
+# matches the one the route registered.
+_UNMARKABLE_ROUTE_HANDLERS: weakref.WeakSet = weakref.WeakSet()
+
 
 def mark_route_registered(handler: Callable) -> Callable:
     """Mark a callable as registered with a route.
 
-    Best-effort: exotic callables that reject attribute assignment (e.g.
-    functools.partial, bound methods) are still routable but cannot be
-    detected by the decorator-order guard.
+    Callables that reject attribute assignment are tracked in a weak registry
+    instead, so the decorator-order guard still detects them.
     """
-    with contextlib.suppress(AttributeError, TypeError):
+    try:
         setattr(handler, ROUTE_REGISTERED_ATTR, True)
+    except (AttributeError, TypeError):
+        # Not weakref-able or not hashable: best effort ends here.
+        with contextlib.suppress(TypeError):
+            _UNMARKABLE_ROUTE_HANDLERS.add(handler)
     return handler
 
 
 def is_route_registered(handler: Callable) -> bool:
     """Return True if the callable was already registered with a route."""
-    return bool(getattr(handler, ROUTE_REGISTERED_ATTR, False))
+    if getattr(handler, ROUTE_REGISTERED_ATTR, False):
+        return True
+    try:
+        return handler in _UNMARKABLE_ROUTE_HANDLERS
+    except TypeError:  # unhashable callable
+        return False
 
 
 def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:

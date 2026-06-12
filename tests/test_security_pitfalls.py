@@ -163,20 +163,22 @@ class TestRouteHandlerBinding:
             return Response({"secret": True}, status=200)
 
         original_endpoint = endpoint
-        globals()["endpoint"] = endpoint
+        try:
+            globals()["endpoint"] = endpoint
 
-        @router.get("/public")
-        async def endpoint(request):
-            return {"public": True}
+            @router.get("/public")
+            async def endpoint(request):
+                return {"public": True}
 
-        globals()["endpoint"] = endpoint
+            globals()["endpoint"] = endpoint
 
-        handler, params = router.resolve("GET", "/admin")
+            handler, params = router.resolve("GET", "/admin")
 
-        assert params == {}
-        assert handler is original_endpoint
-        assert handler is not endpoint
-        globals().pop("endpoint", None)
+            assert params == {}
+            assert handler is original_endpoint
+            assert handler is not endpoint
+        finally:
+            globals().pop("endpoint", None)
 
     def test_module_wrapper_capturing_handler_is_ignored(self):
         """A same-named module global that closes over the registered handler
@@ -195,18 +197,20 @@ class TestRouteHandlerBinding:
         # Same module, same name, directly captures the registered handler.
         shadowing_wrapper.__name__ = "page"
         shadowing_wrapper.__wrapped__ = registered
-        globals()["page"] = shadowing_wrapper
+        try:
+            globals()["page"] = shadowing_wrapper
 
-        handler, _ = app.router.resolve("GET", "/page")
-        assert handler is registered
-        assert handler is not shadowing_wrapper
+            handler, _ = app.router.resolve("GET", "/page")
+            assert handler is registered
+            assert handler is not shadowing_wrapper
 
-        client = TestClient(app)
-        status, _, body = client.request("GET", "/page")
-        assert status == 200
-        assert "original" in body
-        assert "hijacked" not in body
-        globals().pop("page", None)
+            client = TestClient(app)
+            status, _, body = client.request("GET", "/page")
+            assert status == 200
+            assert "original" in body
+            assert "hijacked" not in body
+        finally:
+            globals().pop("page", None)
 
 
 class TestResponseVsTupleReturns:
