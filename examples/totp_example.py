@@ -3,6 +3,8 @@ TOTP Authentication Example
 Demonstrates session elevation with TOTP in Kinglet
 """
 
+import time
+
 from kinglet import Kinglet, Response
 from kinglet.authz import (
     configure_otp_provider,
@@ -68,7 +70,8 @@ async def setup_totp(request):
     )
 
     # Generate QR code URL for scanning
-    email = user["claims"].get("email", f"user_{user_id}")
+    claims = user.get("claims", {})
+    email = claims.get("email", f"user_{user_id}")
     qr_url = generate_totp_qr_url(secret, email, "MyApp")
 
     return {
@@ -180,9 +183,14 @@ async def step_up_authentication(request):
         return Response({"error": "Invalid code"}, status=401)
 
     # Create elevated JWT with additional claims
+    claims = user.get("claims", {})
     elevated_token = create_elevated_jwt(
         user_id=user_id,
-        claims={**user["claims"], "elevated": True, "elevation_time": int(time.time())},
+        claims={
+            **claims,
+            "elevated": True,
+            "elevation_time": int(time.time()),
+        },
         secret=request.env.JWT_SECRET,
         expires_in=900,  # 15 minutes
     )
@@ -370,7 +378,6 @@ async def get_test_info(request):
 # ============================================
 
 import secrets
-import time
 
 
 def generate_id():

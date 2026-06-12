@@ -19,6 +19,7 @@ Quick start examples for all Kinglet features.
 - **[secure_admin_example.py](secure_admin_example.py)** - JWT, geo-restrictions
 - **[authz_example.py](authz_example.py)** - Fine-grained authorization
 - **[totp_example.py](totp_example.py)** - Two-factor authentication
+- **[totp_workers_demo/](totp_workers_demo/)** - Workers deployment demo for auth and TOTP
 
 ### Email & Integrations
 - **[ses_email_example.py](ses_email_example.py)** - Amazon SES email

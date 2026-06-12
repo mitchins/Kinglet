@@ -71,16 +71,18 @@ async def register(request):
     data = await request.json()
 
     if not data.get("email"):
-        return Response.error(
-            "Email required",
+        return Response(
+            {
+                "error": "Email required",
+                "detail": "Please provide a valid email",
+                "request_id": request.request_id,
+            },
             status=400,
-            detail="Please provide a valid email",
-            request_id=request.request_id,
         )
 
-    return Response.json(
+    return Response(
         {"user_id": "123", "email": data["email"], "created": True},
-        request_id=request.request_id,
+        status=201,
     )
 
 
@@ -144,32 +146,38 @@ if __name__ == "__main__":
 
     # Test health check
     status, headers, body = client.request("GET", "/api/")
+    assert status == 200, body
     print(f"Health: {status} - {body}")
 
     # Test search with typed parameters
     status, headers, body = client.request(
         "GET", "/api/search?page=2&limit=5&active=true&tags=python"
     )
+    assert status == 200, body
     print(f"Search: {status} - {body}")
 
     # Test authenticated user lookup
     status, headers, body = client.request(
         "GET", "/api/users/42", headers={"Authorization": "Bearer user-token-123"}
     )
+    assert status == 200, body
     print(f"User: {status} - {body}")
 
     # Test registration
     status, headers, body = client.request(
         "POST", "/api/auth/register", json={"email": "test@example.com"}
     )
+    assert status == 201, body
     print(f"Register: {status} - {body}")
 
     # Test validation error
     status, headers, body = client.request("POST", "/api/auth/register", json={})
+    assert status == 400, body
     print(f"Error: {status} - {body}")
 
     # Test OpenAPI spec generation
     status, headers, body = client.request("GET", "/api/openapi.json")
+    assert status == 200, body
     print(f"\nOpenAPI Spec: {status}")
     if status == 200:
         import json
@@ -184,6 +192,7 @@ if __name__ == "__main__":
 
     # Test Swagger UI
     status, headers, body = client.request("GET", "/api/docs")
+    assert status == 200, body
     print(f"Swagger UI: {status} - {len(body)} chars")
 
     print("\n✅ All examples completed!")

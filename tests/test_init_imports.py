@@ -2,7 +2,10 @@
 Tests for kinglet __init__.py import handling
 """
 
+import importlib
+import runpy
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -74,7 +77,7 @@ class TestImportFallbacks:
         assert hasattr(kinglet, "__author__")
         assert hasattr(kinglet, "__all__")
 
-        assert kinglet.__version__ == "1.8.2"  # Current version
+        assert kinglet.__version__ == "1.9.0"  # Current version
         assert kinglet.__author__ == "Mitchell Currie"
         assert isinstance(kinglet.__all__, list)
         assert len(kinglet.__all__) > 0
@@ -103,3 +106,47 @@ class TestImportFallbacks:
             else:
                 # ORM items should be present if ORM is available
                 assert "Model" in kinglet.__all__
+
+    def test_examples_import_without_cryptography(self):
+        """Auth and TOTP example modules should load without eager crypto imports."""
+        blocked_modules = {
+            "cryptography": None,
+            "cryptography.exceptions": None,
+            "cryptography.hazmat": None,
+            "cryptography.hazmat.primitives": None,
+            "cryptography.hazmat.primitives.ciphers": None,
+            "cryptography.hazmat.primitives.ciphers.aead": None,
+        }
+        examples_dir = Path(__file__).resolve().parent.parent / "examples"
+
+        with patch.dict(sys.modules, blocked_modules, clear=False):
+            for module in [
+                "kinglet",
+                "kinglet.authz",
+                "kinglet.totp",
+            ]:
+                sys.modules.pop(module, None)
+
+            kinglet = importlib.import_module("kinglet")
+            assert kinglet.Kinglet is not None
+
+            totp_module = kinglet.totp
+            code = totp_module.generate_totp_code("JBSWY3DPEHPK3PXP", timestamp=0)
+            assert len(code) == 6
+            assert code.isdigit()
+
+            basic_api_globals = runpy.run_path(str(examples_dir / "basic_api.py"))
+            assert "app" in basic_api_globals
+
+            authz_globals = runpy.run_path(str(examples_dir / "authz_example.py"))
+            assert "router" in authz_globals
+
+            totp_globals = runpy.run_path(str(examples_dir / "totp_example.py"))
+            assert "app" in totp_globals
+
+            workers_demo_globals = runpy.run_path(
+                str(examples_dir / "totp_workers_demo" / "worker.py")
+            )
+            assert "app" in workers_demo_globals
+            assert "Default" in workers_demo_globals
+            assert hasattr(workers_demo_globals["Default"], "fetch")

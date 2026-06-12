@@ -1,0 +1,12 @@
+name = "kinglet-totp-workers-demo"
+main = "worker.py"
+compatibility_flags = ["python_workers"]
+compatibility_date = "2026-06-12"
+account_id = "33623e6d0b4793842a1832c5512aeb49"
+
+[vars]
+ENVIRONMENT = "demo"
+MODE = "dev"
+JWT_SECRET = "totp-workers-demo-jwt-secret"
+TOTP_ENABLED = "true"
+TOTP_ENCRYPTION_KEY = "totp-workers-demo-encryption-key-32-chars"
