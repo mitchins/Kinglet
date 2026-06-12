@@ -30,7 +30,20 @@ def _import_cryptography_aead():
     return aead_mod.AESGCM, exc_mod.InvalidTag
 
 
-AESGCM, InvalidTag = _import_cryptography_aead()
+def _cryptography_aead_available() -> bool:
+    """Load and cache the cryptography AES-GCM backend if present."""
+    global AESGCM, InvalidTag
+
+    if AESGCM is False and InvalidTag is False:
+        return False
+    if AESGCM is not None and InvalidTag is not None:
+        return True
+
+    AESGCM, InvalidTag = _import_cryptography_aead()
+    if AESGCM is None or InvalidTag is None:
+        AESGCM = InvalidTag = False
+        return False
+    return True
 
 # Test TOTP secret that generates predictable codes for development/testing
 # This secret will generate "000000" at Unix timestamp 0 (and cyclically)
@@ -52,12 +65,17 @@ def _env_get(env_source: Any, key: str, default=None):
     return getattr(env_source, key, default)
 
 
+def _is_pyodide_js_exception(exc: Exception) -> bool:
+    try:
+        from pyodide.ffi import JsException
+    except ImportError:
+        return False
+    return isinstance(exc, JsException)
+
+
 def _load_cryptography_aead():
     """Return AES-GCM helpers if the runtime provides cryptography."""
-    global AESGCM, InvalidTag
-
-    AESGCM, InvalidTag = _import_cryptography_aead()
-    if AESGCM is not None and InvalidTag is not None:
+    if _cryptography_aead_available():
         return AESGCM, InvalidTag
 
     raise RuntimeError(
@@ -409,18 +427,34 @@ def _webcrypto_aesgcm_encrypt(key_bytes: bytes, nonce: bytes, plaintext: bytes) 
     algorithm = Object.fromEntries([["name", "AES-GCM"]])
     params = Object.fromEntries([["name", "AES-GCM"], ["iv", Uint8Array.new(nonce)]])
     usages = Array.of("encrypt", "decrypt")
-    crypto_key = run_sync(
-        crypto.subtle.importKey(
-            "raw",
-            Uint8Array.new(key_bytes),
-            algorithm,
-            False,
-            usages,
+    try:
+        crypto_key = run_sync(
+            crypto.subtle.importKey(
+                "raw",
+                Uint8Array.new(key_bytes),
+                algorithm,
+                False,
+                usages,
+            )
         )
-    )
-    encrypted = run_sync(
-        crypto.subtle.encrypt(params, crypto_key, Uint8Array.new(plaintext))
-    )
+    except Exception as exc:
+        if _is_pyodide_js_exception(exc):
+            raise RuntimeError(
+                "TOTP secret encryption requires the optional "
+                "'cryptography' package"
+            ) from exc
+        raise
+    try:
+        encrypted = run_sync(
+            crypto.subtle.encrypt(params, crypto_key, Uint8Array.new(plaintext))
+        )
+    except Exception as exc:
+        if _is_pyodide_js_exception(exc):
+            raise RuntimeError(
+                "TOTP secret encryption requires the optional "
+                "'cryptography' package"
+            ) from exc
+        raise
     return bytes(Uint8Array.new(encrypted).to_py())
 
 
@@ -443,18 +477,34 @@ def _webcrypto_aesgcm_decrypt(key_bytes: bytes, nonce: bytes, ciphertext: bytes)
     algorithm = Object.fromEntries([["name", "AES-GCM"]])
     params = Object.fromEntries([["name", "AES-GCM"], ["iv", Uint8Array.new(nonce)]])
     usages = Array.of("encrypt", "decrypt")
-    crypto_key = run_sync(
-        crypto.subtle.importKey(
-            "raw",
-            Uint8Array.new(key_bytes),
-            algorithm,
-            False,
-            usages,
+    try:
+        crypto_key = run_sync(
+            crypto.subtle.importKey(
+                "raw",
+                Uint8Array.new(key_bytes),
+                algorithm,
+                False,
+                usages,
+            )
         )
-    )
-    decrypted = run_sync(
-        crypto.subtle.decrypt(params, crypto_key, Uint8Array.new(ciphertext))
-    )
+    except Exception as exc:
+        if _is_pyodide_js_exception(exc):
+            raise RuntimeError(
+                "TOTP secret encryption requires the optional "
+                "'cryptography' package"
+            ) from exc
+        raise
+    try:
+        decrypted = run_sync(
+            crypto.subtle.decrypt(params, crypto_key, Uint8Array.new(ciphertext))
+        )
+    except Exception as exc:
+        if _is_pyodide_js_exception(exc):
+            raise RuntimeError(
+                "TOTP secret encryption requires the optional "
+                "'cryptography' package"
+            ) from exc
+        raise
     return bytes(Uint8Array.new(decrypted).to_py())
 
 
@@ -463,12 +513,10 @@ def encrypt_totp_secret(secret: str, encryption_key: str | Any) -> str:
     key = _resolve_totp_encryption_key(encryption_key)
     key_bytes = _derive_totp_aead_key(key)
     nonce = secrets.token_bytes(12)
-    try:
-        AESGCM, _ = _load_cryptography_aead()
-    except RuntimeError:
-        ciphertext = _webcrypto_aesgcm_encrypt(key_bytes, nonce, secret.encode())
-    else:
+    if _cryptography_aead_available():
         ciphertext = AESGCM(key_bytes).encrypt(nonce, secret.encode(), None)
+    else:
+        ciphertext = _webcrypto_aesgcm_encrypt(key_bytes, nonce, secret.encode())
     return base64.b64encode(nonce + ciphertext).decode()
 
 
@@ -489,10 +537,16 @@ def decrypt_totp_secret(
         key_bytes = _derive_totp_aead_key(key)
 
         if len(encrypted_bytes) >= 28:
-            try:
-                AESGCM, InvalidTag = _load_cryptography_aead()
-            except RuntimeError:
-                AESGCM = InvalidTag = None
+            if _cryptography_aead_available():
+                try:
+                    nonce, ciphertext = encrypted_bytes[:12], encrypted_bytes[12:]
+                    decrypted_bytes = AESGCM(key_bytes).decrypt(nonce, ciphertext, None)
+                    decrypted_secret = decrypted_bytes.decode()
+                    if _looks_like_totp_secret(decrypted_secret):
+                        return decrypted_secret
+                except (InvalidTag, ValueError):
+                    pass
+            else:
                 try:
                     nonce, ciphertext = encrypted_bytes[:12], encrypted_bytes[12:]
                     decrypted_bytes = _webcrypto_aesgcm_decrypt(
@@ -502,15 +556,6 @@ def decrypt_totp_secret(
                     if _looks_like_totp_secret(decrypted_secret):
                         return decrypted_secret
                 except (RuntimeError, ValueError, TypeError):
-                    pass
-            else:
-                try:
-                    nonce, ciphertext = encrypted_bytes[:12], encrypted_bytes[12:]
-                    decrypted_bytes = AESGCM(key_bytes).decrypt(nonce, ciphertext, None)
-                    decrypted_secret = decrypted_bytes.decode()
-                    if _looks_like_totp_secret(decrypted_secret):
-                        return decrypted_secret
-                except (InvalidTag, ValueError):
                     pass
 
         decrypted_secret = _decrypt_totp_secret_legacy(encrypted_bytes, key)

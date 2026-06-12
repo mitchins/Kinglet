@@ -144,10 +144,7 @@ def test_workers_webcrypto_backend_encrypts_and_decrypts_round_trip():
     secret = "JBSWY3DPEHPK3PXP"
 
     with patch(
-        "kinglet.totp._load_cryptography_aead",
-        side_effect=RuntimeError(
-            "TOTP secret encryption requires the optional 'cryptography' package"
-        ),
+        "kinglet.totp._cryptography_aead_available", return_value=False
     ), patch.dict(sys.modules, _fake_workers_webcrypto_modules(), clear=False):
         encrypted = encrypt_totp_secret(secret, env)
         assert decrypt_totp_secret(encrypted, env) == secret
@@ -178,19 +175,6 @@ def test_old_totp_fixture_decrypts_under_1_9_0():
     env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
 
     assert decrypt_totp_secret(legacy_ciphertext, env) == secret
-
-
-def test_encrypt_totp_secret_requires_cryptography_dependency():
-    env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
-
-    with patch(
-        "kinglet.totp._load_cryptography_aead",
-        side_effect=RuntimeError(
-            "TOTP secret encryption requires the optional 'cryptography' package"
-        ),
-    ):
-        with pytest.raises(RuntimeError, match="optional 'cryptography' package"):
-            encrypt_totp_secret("JBSWY3DPEHPK3PXP", env)
 
 
 def test_base_import_works_without_cryptography_on_emscripten():
@@ -231,10 +215,7 @@ def test_encrypt_totp_secret_errors_when_no_backend_exists():
     env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
 
     with patch(
-        "kinglet.totp._load_cryptography_aead",
-        side_effect=RuntimeError(
-            "TOTP secret encryption requires the optional 'cryptography' package"
-        ),
+        "kinglet.totp._cryptography_aead_available", return_value=False
     ), patch(
         "kinglet.totp._webcrypto_aesgcm_encrypt",
         side_effect=RuntimeError(
@@ -251,9 +232,6 @@ def test_decrypt_legacy_ciphertext_without_cryptography():
     env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
 
     with patch(
-        "kinglet.totp._load_cryptography_aead",
-        side_effect=RuntimeError(
-            "TOTP secret encryption requires the optional 'cryptography' package"
-        ),
+        "kinglet.totp._cryptography_aead_available", return_value=False
     ):
         assert decrypt_totp_secret(legacy_ciphertext, env) == secret

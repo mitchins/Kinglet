@@ -60,13 +60,14 @@ async def test_info(request):
 @require_auth
 async def setup_totp(request):
     user = request.state.user
+    claims = user.get("claims", {})
     secret = generate_totp_secret()
     return {
         "user_id": user["id"],
         "secret": secret,
         "qr_url": generate_totp_qr_url(
             secret,
-            user["claims"].get("email", f"user-{user['id']}"),
+            claims.get("email", f"user-{user['id']}"),
             "KingletWorkersDemo",
         ),
     }
@@ -119,8 +120,9 @@ async def roundtrip_secret(request):
 @app.get("/auth/totp/elevated-check")
 @require_elevated_session
 async def elevated_check(request):
+    claims = request.state.user.get("claims", {})
     elevated_token = create_elevated_jwt(
-        {"sub": request.state.user["id"], "email": request.state.user["claims"].get("email", "")},
+        {"sub": request.state.user["id"], "email": claims.get("email", "")},
         _env_get(request.env, "JWT_SECRET"),
     )
     return {
