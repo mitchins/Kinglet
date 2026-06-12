@@ -138,6 +138,29 @@ class TestDecoratorOrdering:
 class TestRouteResolutionFallbacks:
     """Test route registration and rebinding behavior."""
 
+    def test_resolve_handler_falls_back_without_metadata(self):
+        async def endpoint(request):
+            return {"ok": True}
+
+        route = Router()
+        route.add_route("/fallback", endpoint, ["GET"])
+        registered_route = route.routes[0]
+        registered_route.handler_module = None
+        registered_route.handler_name = None
+
+        assert registered_route.handler is endpoint
+
+    def test_resolve_handler_falls_back_when_module_missing(self):
+        async def endpoint(request):
+            return {"ok": True}
+
+        route = Router()
+        route.add_route("/fallback", endpoint, ["GET"])
+        registered_route = route.routes[0]
+        registered_route.handler_module = "nonexistent.module"
+
+        assert registered_route.handler is endpoint
+
     def test_route_keeps_original_callable_after_same_name_rebind(self):
         router = Router()
 

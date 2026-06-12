@@ -22,7 +22,7 @@ class Route:
         self.handler_module = getattr(handler, "__module__", None)
         self.handler_name = getattr(handler, "__name__", None)
         self.methods = [m.upper() for m in methods]
-        self._last_resolved_candidate_id: int | None = None
+        self._last_resolved_candidate: Callable | None = None
         self._last_resolved_candidate_matches = False
 
         # Convert path to regex with parameter extraction
@@ -47,15 +47,14 @@ class Route:
         if not callable(candidate) or candidate is current_handler:
             return current_handler
 
-        candidate_id = id(candidate)
-        if candidate_id == self._last_resolved_candidate_id:
+        if candidate is self._last_resolved_candidate:
             if self._last_resolved_candidate_matches:
                 self._handler = candidate
                 return candidate
             return current_handler
 
         matches = self._references_handler(candidate, current_handler)
-        self._last_resolved_candidate_id = candidate_id
+        self._last_resolved_candidate = candidate
         self._last_resolved_candidate_matches = matches
         if matches:
             self._handler = candidate
