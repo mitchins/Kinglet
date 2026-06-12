@@ -22,6 +22,8 @@ class Route:
         self.handler_module = getattr(handler, "__module__", None)
         self.handler_name = getattr(handler, "__name__", None)
         self.methods = [m.upper() for m in methods]
+        self._last_resolved_candidate_id: int | None = None
+        self._last_resolved_candidate_matches = False
 
         # Convert path to regex with parameter extraction
         self.regex, self.param_names = self._compile_path(path)
@@ -29,9 +31,9 @@ class Route:
     def _resolve_handler(self) -> Callable:
         """Return the callable registered for this route.
 
-        If the module-level name now refers to a wrapper around the originally
-        registered handler, keep the wrapper so decorator order remains
-        supported without swapping in unrelated same-named callables.
+        Only upgrade to a same-named module wrapper when it still references
+        the registered handler. This preserves support for external decorators
+        without swapping in unrelated callables.
         """
         current_handler = self._handler
         if not self.handler_module or not self.handler_name:
@@ -45,7 +47,17 @@ class Route:
         if not callable(candidate) or candidate is current_handler:
             return current_handler
 
-        if self._references_handler(candidate, current_handler):
+        candidate_id = id(candidate)
+        if candidate_id == self._last_resolved_candidate_id:
+            if self._last_resolved_candidate_matches:
+                self._handler = candidate
+                return candidate
+            return current_handler
+
+        matches = self._references_handler(candidate, current_handler)
+        self._last_resolved_candidate_id = candidate_id
+        self._last_resolved_candidate_matches = matches
+        if matches:
             self._handler = candidate
             return candidate
 
@@ -53,50 +65,57 @@ class Route:
 
     def _references_handler(self, candidate: Callable, handler: Callable) -> bool:
         """Check whether a callable still references the registered handler."""
-        current = candidate
-        seen_ids: set[int] = set()
+        return self._object_references_value(candidate, handler, set())
 
-        while True:
-            wrapped = getattr(current, "__wrapped__", None)
-            if wrapped is None:
-                break
-            if wrapped is handler:
-                return True
-
-            wrapped_id = id(wrapped)
-            if wrapped_id in seen_ids:
-                break
-
-            seen_ids.add(wrapped_id)
-            current = wrapped
-
-        if self._callable_contains_value(candidate, handler):
+    @classmethod
+    def _object_references_value(
+        cls, obj: object, target: object, seen_ids: set[int]
+    ) -> bool:
+        if obj is target:
             return True
 
-        return False
+        obj_id = id(obj)
+        if obj_id in seen_ids:
+            return False
+        seen_ids.add(obj_id)
 
-    @staticmethod
-    def _callable_contains_value(candidate: Callable, value: object) -> bool:
-        """Check common callable storage locations for a captured value."""
-        closure = getattr(candidate, "__closure__", None) or ()
+        wrapped = getattr(obj, "__wrapped__", None)
+        if wrapped is not None and cls._object_references_value(
+            wrapped, target, seen_ids
+        ):
+            return True
+
+        closure = getattr(obj, "__closure__", None) or ()
         for cell in closure:
             try:
-                if cell.cell_contents is value:
+                if cls._object_references_value(cell.cell_contents, target, seen_ids):
                     return True
             except ValueError:
                 continue
 
-        defaults = getattr(candidate, "__defaults__", None) or ()
-        if any(default is value for default in defaults):
-            return True
+        defaults = getattr(obj, "__defaults__", None) or ()
+        for default in defaults:
+            if cls._object_references_value(default, target, seen_ids):
+                return True
 
-        kwdefaults = getattr(candidate, "__kwdefaults__", None) or {}
-        if any(default is value for default in kwdefaults.values()):
-            return True
+        kwdefaults = getattr(obj, "__kwdefaults__", None) or {}
+        for default in kwdefaults.values():
+            if cls._object_references_value(default, target, seen_ids):
+                return True
 
-        candidate_dict = getattr(candidate, "__dict__", None) or {}
-        if any(attr is value for attr in candidate_dict.values()):
-            return True
+        obj_dict = getattr(obj, "__dict__", None) or {}
+        for value in obj_dict.values():
+            if cls._object_references_value(value, target, seen_ids):
+                return True
+
+        if isinstance(obj, dict):
+            for value in obj.values():
+                if cls._object_references_value(value, target, seen_ids):
+                    return True
+        elif isinstance(obj, (list, tuple, set, frozenset)):
+            for value in obj:
+                if cls._object_references_value(value, target, seen_ids):
+                    return True
 
         return False
 

@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kinglet import Response
+from kinglet import Kinglet, Response, Router, TestClient
 from kinglet.authz import (
     _b64url_decode,
     _extract_bearer_user,
@@ -220,6 +220,37 @@ class TestGetUser:
             assert result is None
         finally:
             kinglet.authz.verify_jwt_hs256 = original_verify
+
+    def test_require_auth_route_wrong_order_with_include_router(self):
+        """Test wrong-order route decoration still enforces auth after router inclusion."""
+        app = Kinglet()
+        router = Router()
+        secret = "test" + "-secret"
+        token = TestJWTVerification._make_jwt(
+            {"sub": "user-123", "exp": int(time.time()) + 3600}, secret
+        )
+
+        @require_auth
+        @router.get("/profile")
+        async def profile(request):
+            return {"id": request.state.user["id"]}
+        globals()["profile"] = profile
+
+        app.include_router("/api", router)
+        client = TestClient(app, env={"JWT_SECRET": secret})
+
+        status, _, body = client.request("GET", "/api/profile")
+        assert status == 401
+        assert "unauthorized" in body.lower()
+
+        status, _, body = client.request(
+            "GET",
+            "/api/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert status == 200
+        assert "user-123" in body
+        globals().pop("profile", None)
 
 
 class TestD1Resolver:
