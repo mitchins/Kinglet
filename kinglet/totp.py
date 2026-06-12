@@ -507,8 +507,8 @@ def decrypt_totp_secret(
             else encrypted_secret
         )
         encrypted_bytes = base64.b64decode(encoded_secret)
-            if len(encrypted_bytes) < 8:
-                raise ValueError("Encrypted TOTP secret is too short")
+        if len(encrypted_bytes) < 8:
+            raise ValueError("Encrypted TOTP secret is too short")
         key = _resolve_totp_encryption_key(encryption_key)
         key_bytes = _derive_totp_aead_key(key)
 
