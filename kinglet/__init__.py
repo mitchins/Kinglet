@@ -13,6 +13,8 @@ from .core import Kinglet, Route, Router
 # Decorators
 from .decorators import (
     geo_restrict,
+    is_route_registered,
+    reject_if_route_registered,
     require_dev,
     require_field,
     validate_json_body,
@@ -250,6 +252,8 @@ __all__ = [
     "geo_restrict",
     "validate_json_body",
     "require_field",
+    "is_route_registered",
+    "reject_if_route_registered",
     # Utilities
     "CacheService",
     "cache_aside",

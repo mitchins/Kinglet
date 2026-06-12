@@ -2,12 +2,68 @@
 Kinglet Decorators and Utility Functions
 """
 
+import contextlib
 import functools
 import json
+import weakref
 from collections.abc import Callable
 
 from .exceptions import GeoRestrictedError, HTTPError
 from .http import Response
+
+# Attribute set on every callable registered with a route. Security decorators
+# use it to fail closed when applied in an order that cannot protect the route.
+ROUTE_REGISTERED_ATTR = "__kinglet_route_registered__"
+
+# Fallback registry for callables that cannot carry attributes (bound methods,
+# functools.partial, ...). Weak references: entries vanish when the registered
+# handler is garbage collected. Bound methods are ephemeral objects but hash
+# and compare by (instance, function), so a fresh `obj.method` reference still
+# matches the one the route registered.
+_UNMARKABLE_ROUTE_HANDLERS: weakref.WeakSet = weakref.WeakSet()
+
+
+def mark_route_registered(handler: Callable) -> Callable:
+    """Mark a callable as registered with a route.
+
+    Callables that reject attribute assignment are tracked in a weak registry
+    instead, so the decorator-order guard still detects them.
+    """
+    try:
+        setattr(handler, ROUTE_REGISTERED_ATTR, True)
+    except (AttributeError, TypeError):
+        # Not weakref-able or not hashable: best effort ends here.
+        with contextlib.suppress(TypeError):
+            _UNMARKABLE_ROUTE_HANDLERS.add(handler)
+    return handler
+
+
+def is_route_registered(handler: Callable) -> bool:
+    """Return True if the callable was already registered with a route."""
+    if getattr(handler, ROUTE_REGISTERED_ATTR, False):
+        return True
+    try:
+        return handler in _UNMARKABLE_ROUTE_HANDLERS
+    except TypeError:  # unhashable callable
+        return False
+
+
+def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:
+    """Fail closed when a security decorator is applied above a route decorator.
+
+    Once a callable is registered, the route executes exactly that callable;
+    wrapping it afterwards produces a wrapper the route never calls, silently
+    leaving the route unprotected. Raise loudly instead.
+    """
+    if is_route_registered(handler):
+        raise RuntimeError(
+            f"@{decorator_name} was applied above/outside a route decorator. "
+            f"The route has already been registered and would execute without "
+            f"this protection. Apply the route decorator outermost:\n\n"
+            f"    @app.get('/path')\n"
+            f"    @{decorator_name}\n"
+            f"    async def handler(request): ...\n"
+        )
 
 
 def wrap_exceptions(step: str = None, expose_details: bool = None):
@@ -66,6 +122,8 @@ def require_dev():
     """
 
     def decorator(handler: Callable):
+        reject_if_route_registered(handler, "require_dev()")
+
         @functools.wraps(handler)
         async def wrapped(request):
             env_name = str(getattr(request.env, "ENVIRONMENT", "production")).lower()
@@ -96,6 +154,8 @@ def geo_restrict(*, allowed: list = None, blocked: list = None):
     """
 
     def decorator(handler: Callable):
+        reject_if_route_registered(handler, "geo_restrict(...)")
+
         @functools.wraps(handler)
         async def wrapped(request):
             # Get country from Cloudflare header (case-insensitive)
@@ -122,6 +182,7 @@ def geo_restrict(*, allowed: list = None, blocked: list = None):
 
 def validate_json_body(handler: Callable):
     """Decorator to validate that request has valid JSON body"""
+    reject_if_route_registered(handler, "validate_json_body")
 
     @functools.wraps(handler)
     async def wrapped(request):
@@ -163,6 +224,8 @@ def require_field(field_name: str, field_type: type | tuple[type, ...] = str):
     """
 
     def decorator(handler: Callable):
+        reject_if_route_registered(handler, f"require_field({field_name!r})")
+
         @functools.wraps(handler)
         async def wrapped(request):
             try:

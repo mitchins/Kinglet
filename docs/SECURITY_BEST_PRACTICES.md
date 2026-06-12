@@ -32,12 +32,33 @@ async def get_sensitive_data(request):
 ```
 
 ### Why This Matters
-**Router decorators must be applied BEFORE security decorators.** When decorators are applied in the wrong order:
+**Router decorators must be applied BEFORE security decorators** (route decorator outermost in source). Python applies decorators bottom-up, so with the wrong order:
 
-1. The security decorator wraps the function first
-2. The router decorator then wraps the security decorator
-3. The router bypasses authentication and calls the original function directly
+1. The route decorator runs first and registers the unprotected function
+2. The security decorator then wraps the *returned* function object
+3. The route executes exactly the callable it registered — the security wrapper is never called
 4. **Result: Complete authentication bypass**
+
+### Built-in Guardrail (Fail Closed)
+A route executes exactly the callable registered at declaration time. Kinglet never recovers handlers by module/global name lookup or wrapper inspection.
+
+All built-in security and validation decorators (`require_auth`, `require_owner`, `require_participant`, `require_claim`, `require_elevated_session`, `require_elevated_claim`, `allow_public_or_owner`, `require_dev`, `geo_restrict`, `validate_json_body`, `require_field`) detect when they are applied above/outside a route decorator and **raise `RuntimeError` at import time** instead of leaving the route silently unprotected:
+
+```python
+@require_auth          # ← RuntimeError at import: cannot protect the route
+@app.get("/secret")
+async def secret(request): ...
+```
+
+Custom security decorators do not get this guardrail automatically. If you write your own, you can opt in:
+
+```python
+from kinglet import reject_if_route_registered
+
+def require_admin(handler):
+    reject_if_route_registered(handler, "require_admin")
+    ...
+```
 
 ### Testing for Decorator Order Issues
 ```python

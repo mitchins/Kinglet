@@ -1,0 +1,19 @@
+# Runtime dispatch / auth / crypto
+/kinglet/core.py        @mitchins
+/kinglet/decorators.py  @mitchins
+/kinglet/authz.py       @mitchins
+/kinglet/totp.py        @mitchins
+
+# ORM / D1 / migrations
+/kinglet/orm*.py        @mitchins
+
+# CI / release / deploy
+/.github/               @mitchins
+/scripts/               @mitchins
+/pyproject.toml         @mitchins
+/uv.lock                @mitchins
+/sonar-project.properties @mitchins
+
+# Security docs
+/docs/SECURITY*.md      @mitchins
+/docs/TOTP.md           @mitchins
