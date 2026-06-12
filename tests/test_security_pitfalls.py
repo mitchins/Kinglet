@@ -165,16 +165,86 @@ class TestRouteResolutionFallbacks:
             return Response({"secret": True}, status=200)
 
         original_endpoint = endpoint
+        globals()["endpoint"] = endpoint
 
         @router.get("/public")
         async def endpoint(request):
             return {"public": True}
+        globals()["endpoint"] = endpoint
 
         handler, params = router.resolve("GET", "/admin")
 
         assert params == {}
         assert handler is original_endpoint
         assert handler is not endpoint
+
+    def test_resolve_caches_verified_wrapped_handler(self, monkeypatch):
+        import kinglet.core as core_module
+
+        router = Router()
+
+        @router.get("/admin")
+        async def endpoint(request):
+            return Response({"secret": True}, status=200)
+
+        original_endpoint = endpoint
+        globals()["endpoint"] = endpoint
+
+        calls = {"count": 0}
+        original_references_handler = core_module.Route._references_handler
+
+        def counting_references_handler(self, candidate, handler):
+            calls["count"] += 1
+            return original_references_handler(self, candidate, handler)
+
+        @functools.wraps(endpoint)
+        async def endpoint(request):
+            return await original_endpoint(request)
+
+        globals()["endpoint"] = endpoint
+        monkeypatch.setattr(
+            core_module.Route, "_references_handler", counting_references_handler
+        )
+
+        handler, params = router.resolve("GET", "/admin")
+        assert params == {}
+        assert handler is endpoint
+        assert calls["count"] == 1
+
+        handler, params = router.resolve("GET", "/admin")
+        assert params == {}
+        assert handler is endpoint
+        assert calls["count"] == 1
+
+    def test_route_preserves_wrapper_without_functools_wraps(self):
+        app = Kinglet()
+
+        def require_admin(handler):
+            async def wrapped(request):
+                if request.header("x-admin-token") != "valid-admin-token":
+                    return Response({"error": "Admin required"}, status=403)
+                return await handler(request)
+
+            return wrapped
+
+        @require_admin
+        @app.get("/admin")
+        async def endpoint(request):
+            return {"secret": True}
+
+        globals()["endpoint"] = endpoint
+
+        client = TestClient(app)
+
+        status, _, body = client.request("GET", "/admin")
+        assert status == 403
+        assert "Admin required" in body
+
+        status, _, body = client.request(
+            "GET", "/admin", headers={"X-Admin-Token": "valid-admin-token"}
+        )
+        assert status == 200
+        assert "secret" in body
 
 
 class TestResponseVsTupleReturns:
