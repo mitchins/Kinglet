@@ -2,12 +2,52 @@
 Kinglet Decorators and Utility Functions
 """
 
+import contextlib
 import functools
 import json
 from collections.abc import Callable
 
 from .exceptions import GeoRestrictedError, HTTPError
 from .http import Response
+
+# Attribute set on every callable registered with a route. Security decorators
+# use it to fail closed when applied in an order that cannot protect the route.
+ROUTE_REGISTERED_ATTR = "__kinglet_route_registered__"
+
+
+def mark_route_registered(handler: Callable) -> Callable:
+    """Mark a callable as registered with a route.
+
+    Best-effort: exotic callables that reject attribute assignment (e.g.
+    functools.partial, bound methods) are still routable but cannot be
+    detected by the decorator-order guard.
+    """
+    with contextlib.suppress(AttributeError, TypeError):
+        setattr(handler, ROUTE_REGISTERED_ATTR, True)
+    return handler
+
+
+def is_route_registered(handler: Callable) -> bool:
+    """Return True if the callable was already registered with a route."""
+    return bool(getattr(handler, ROUTE_REGISTERED_ATTR, False))
+
+
+def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:
+    """Fail closed when a security decorator is applied above a route decorator.
+
+    Once a callable is registered, the route executes exactly that callable;
+    wrapping it afterwards produces a wrapper the route never calls, silently
+    leaving the route unprotected. Raise loudly instead.
+    """
+    if is_route_registered(handler):
+        raise RuntimeError(
+            f"@{decorator_name} was applied above/outside a route decorator. "
+            f"The route has already been registered and would execute without "
+            f"this protection. Apply the route decorator outermost:\n\n"
+            f"    @app.get('/path')\n"
+            f"    @{decorator_name}\n"
+            f"    async def handler(request): ...\n"
+        )
 
 
 def wrap_exceptions(step: str = None, expose_details: bool = None):
@@ -66,6 +106,8 @@ def require_dev():
     """
 
     def decorator(handler: Callable):
+        reject_if_route_registered(handler, "require_dev()")
+
         @functools.wraps(handler)
         async def wrapped(request):
             env_name = str(getattr(request.env, "ENVIRONMENT", "production")).lower()
@@ -96,6 +138,8 @@ def geo_restrict(*, allowed: list = None, blocked: list = None):
     """
 
     def decorator(handler: Callable):
+        reject_if_route_registered(handler, "geo_restrict(...)")
+
         @functools.wraps(handler)
         async def wrapped(request):
             # Get country from Cloudflare header (case-insensitive)
@@ -122,6 +166,7 @@ def geo_restrict(*, allowed: list = None, blocked: list = None):
 
 def validate_json_body(handler: Callable):
     """Decorator to validate that request has valid JSON body"""
+    reject_if_route_registered(handler, "validate_json_body")
 
     @functools.wraps(handler)
     async def wrapped(request):
@@ -163,6 +208,8 @@ def require_field(field_name: str, field_type: type | tuple[type, ...] = str):
     """
 
     def decorator(handler: Callable):
+        reject_if_route_registered(handler, f"require_field({field_name!r})")
+
         @functools.wraps(handler)
         async def wrapped(request):
             try:

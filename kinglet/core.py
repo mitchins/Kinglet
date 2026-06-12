@@ -5,111 +5,31 @@ Kinglet Core - Routing and application framework
 from __future__ import annotations
 
 import re
-import sys
 from collections.abc import Callable
 
+from .decorators import mark_route_registered
 from .exceptions import HTTPError
 from .http import Request, Response
 from .middleware import Middleware
 
 
 class Route:
-    """Represents a single route"""
+    """Represents a single route.
+
+    A route executes exactly the callable registered at declaration time.
+    Handlers are never recovered by module/global name lookup or wrapper
+    inspection: security decorators must wrap the handler *before* route
+    registration (route decorator outermost), and the built-in security
+    decorators raise at import time if applied in the wrong order.
+    """
 
     def __init__(self, path: str, handler: Callable, methods: list[str]):
         self.path = path
-        self._handler = handler
-        self.handler_module = getattr(handler, "__module__", None)
-        self.handler_name = getattr(handler, "__name__", None)
+        self.handler = mark_route_registered(handler)
         self.methods = [m.upper() for m in methods]
-        self._last_resolved_candidate: Callable | None = None
-        self._last_resolved_candidate_matches = False
 
         # Convert path to regex with parameter extraction
         self.regex, self.param_names = self._compile_path(path)
-
-    def _resolve_handler(self) -> Callable:
-        """Return the callable registered for this route.
-
-        Only upgrade to a same-named module wrapper when it still references
-        the registered handler. This preserves support for external decorators
-        without swapping in unrelated callables.
-        """
-        current_handler = self._handler
-        if not self.handler_module or not self.handler_name:
-            return current_handler
-
-        module = sys.modules.get(self.handler_module)
-        if module is None:
-            return current_handler
-
-        candidate = getattr(module, self.handler_name, None)
-        if not callable(candidate) or candidate is current_handler:
-            return current_handler
-
-        if candidate is self._last_resolved_candidate:
-            if self._last_resolved_candidate_matches:
-                self._handler = candidate
-                return candidate
-            return current_handler
-
-        matches = self._references_handler(candidate, current_handler)
-        self._last_resolved_candidate = candidate
-        self._last_resolved_candidate_matches = matches
-        if matches:
-            self._handler = candidate
-            return candidate
-
-        return current_handler
-
-    def _references_handler(self, candidate: Callable, handler: Callable) -> bool:
-        """Check whether a callable still references the registered handler."""
-        return self._object_references_value(candidate, handler, set())
-
-    @classmethod
-    def _iter_direct_references(cls, obj: object):
-        """Yield directly referenced values commonly used by wrapped callables."""
-        wrapped = getattr(obj, "__wrapped__", None)
-        if wrapped is not None:
-            yield wrapped
-
-        closure = getattr(obj, "__closure__", None) or ()
-        for cell in closure:
-            try:
-                yield cell.cell_contents
-            except ValueError:
-                continue
-
-        yield from getattr(obj, "__defaults__", None) or ()
-        yield from (getattr(obj, "__kwdefaults__", None) or {}).values()
-        yield from (getattr(obj, "__dict__", None) or {}).values()
-
-        if isinstance(obj, dict):
-            yield from obj.values()
-        elif isinstance(obj, (list, tuple, set, frozenset)):
-            yield from obj
-
-    @classmethod
-    def _object_references_value(
-        cls, obj: object, target: object, seen_ids: set[int]
-    ) -> bool:
-        if obj is target:
-            return True
-
-        obj_id = id(obj)
-        if obj_id in seen_ids:
-            return False
-        seen_ids.add(obj_id)
-
-        for value in cls._iter_direct_references(obj):
-            if cls._object_references_value(value, target, seen_ids):
-                return True
-
-        return False
-
-    @property
-    def handler(self) -> Callable:
-        return self._resolve_handler()
 
     def _compile_path(self, path: str) -> tuple[re.Pattern, list[str]]:
         """Convert path pattern to regex with parameter names"""
@@ -447,6 +367,7 @@ class Kinglet:
         except Exception as e:
             status_code = getattr(e, "status_code", 500)
             if kinglet_request is None:
+
                 class FallbackRequest:
                     request_id = "unknown"
                     headers = {}

@@ -26,12 +26,33 @@ def parse_body(body):
 class TestDecoratorOrdering:
     """Test decorator ordering security issues"""
 
-    def test_wrong_decorator_order_still_enforces_security(self):
-        """Test that route resolution keeps security decorators active in any order."""
+    def test_builtin_decorator_above_route_fails_at_import(self):
+        """Built-in access decorators above a route decorator must fail loudly.
+
+        Once a route is registered it executes exactly the registered
+        callable; wrapping afterwards cannot protect it, so the built-in
+        decorators raise instead of leaving the route silently unprotected.
+        """
+        router = Router()
+
+        with pytest.raises(RuntimeError, match="require_dev"):
+
+            @require_dev()
+            @router.get("/dev-only")
+            async def dev_only_endpoint(request):
+                return {"secret": "dev-only"}
+
+        with pytest.raises(RuntimeError, match="geo_restrict"):
+
+            @geo_restrict(allowed=["US"])
+            @router.get("/geo-only")
+            async def geo_only_endpoint(request):
+                return {"secret": "geo-only"}
+
+    def test_correct_order_with_builtin_decorators_enforces_security(self):
         app = Kinglet()
         router = Router()
 
-        # Mock admin check
         def require_admin_check(handler):
             @functools.wraps(handler)
             async def wrapped(request):
@@ -41,39 +62,23 @@ class TestDecoratorOrdering:
 
             return wrapped
 
-        # Wrong order should still be enforced by the router.
-        @require_admin_check  # Security decorator FIRST (wrong!)
-        @router.get("/wrong-order")  # Router decorator SECOND
-        async def vulnerable_endpoint(request):
-            return {"secret": "admin data", "bypassed": True}
-        globals()["vulnerable_endpoint"] = vulnerable_endpoint
-
-        # Built-in access decorators in the wrong order should also stay secure.
-        @require_dev()
-        @router.get("/dev-only")
-        async def dev_only_endpoint(request):
-            return {"secret": "dev-only"}
-        globals()["dev_only_endpoint"] = dev_only_endpoint
-
-        @geo_restrict(allowed=["US"])
-        @router.get("/geo-only")
-        async def geo_only_endpoint(request):
-            return {"secret": "geo-only"}
-        globals()["geo_only_endpoint"] = geo_only_endpoint
-
         @router.get("/correct-order")  # Router decorator FIRST (correct!)
         @require_admin_check  # Security decorator SECOND
         async def secure_endpoint(request):
             return {"secret": "admin data", "secure": True}
-        globals()["secure_endpoint"] = secure_endpoint
+
+        @router.get("/dev-only")
+        @require_dev()
+        async def dev_only_endpoint(request):
+            return {"secret": "dev-only"}
+
+        @router.get("/geo-only")
+        @geo_restrict(allowed=["US"])
+        async def geo_only_endpoint(request):
+            return {"secret": "geo-only"}
 
         app.include_router("/api", router)
         client = TestClient(app, env={"ENVIRONMENT": "production"})
-
-        status, _, body = client.request("GET", "/api/wrong-order")
-        assert status == 403
-        body_dict = parse_body(body)
-        assert "Admin required" in body_dict.get("error", "")
 
         status, _, body = client.request("GET", "/api/dev-only")
         assert status == 404
@@ -135,33 +140,22 @@ class TestDecoratorOrdering:
         assert body_dict.get("secure") == "admin data"
 
 
-class TestRouteResolutionFallbacks:
-    """Test route registration and rebinding behavior."""
+class TestRouteHandlerBinding:
+    """Routes execute exactly the callable registered at declaration time."""
 
-    def test_resolve_handler_falls_back_without_metadata(self):
-        async def endpoint(request):
-            return {"ok": True}
+    def test_route_has_no_dynamic_resolution_machinery(self):
+        """Guard against reintroducing module/global handler recovery."""
+        from kinglet.core import Route
 
-        route = Router()
-        route.add_route("/fallback", endpoint, ["GET"])
-        registered_route = route.routes[0]
-        registered_route.handler_module = None
-        registered_route.handler_name = None
+        for attr in (
+            "_resolve_handler",
+            "_references_handler",
+            "_object_references_value",
+            "_iter_direct_references",
+        ):
+            assert not hasattr(Route, attr), f"Route.{attr} must not exist"
 
-        assert registered_route.handler is endpoint
-
-    def test_resolve_handler_falls_back_when_module_missing(self):
-        async def endpoint(request):
-            return {"ok": True}
-
-        route = Router()
-        route.add_route("/fallback", endpoint, ["GET"])
-        registered_route = route.routes[0]
-        registered_route.handler_module = "nonexistent.module"
-
-        assert registered_route.handler is endpoint
-
-    def test_route_keeps_original_callable_after_same_name_rebind(self):
+    def test_same_name_functions_do_not_rebind(self):
         router = Router()
 
         @router.get("/admin")
@@ -174,6 +168,7 @@ class TestRouteResolutionFallbacks:
         @router.get("/public")
         async def endpoint(request):
             return {"public": True}
+
         globals()["endpoint"] = endpoint
 
         handler, params = router.resolve("GET", "/admin")
@@ -181,124 +176,37 @@ class TestRouteResolutionFallbacks:
         assert params == {}
         assert handler is original_endpoint
         assert handler is not endpoint
+        globals().pop("endpoint", None)
 
-    def test_route_preserves_wrapper_without_functools_wraps(self):
-        app = Kinglet()
-
-        def require_admin(handler):
-            async def wrapped(request):
-                if request.header("x-admin-token") != "valid-admin-token":
-                    return Response({"error": "Admin required"}, status=403)
-                return await handler(request)
-
-            return wrapped
-
-        @require_admin
-        @app.get("/admin")
-        async def endpoint(request):
-            return {"secret": True}
-
-        globals()["endpoint"] = endpoint
-
-        client = TestClient(app)
-
-        status, _, body = client.request("GET", "/admin")
-        assert status == 403
-        assert "Admin required" in body
-
-        status, _, body = client.request(
-            "GET", "/admin", headers={"X-Admin-Token": "valid-admin-token"}
-        )
-        assert status == 200
-        assert "secret" in body
-
-    def test_route_rebinds_across_multiple_builtin_wrappers(self):
+    def test_module_wrapper_capturing_handler_is_ignored(self):
+        """A same-named module global that closes over the registered handler
+        must never be swapped in at dispatch time (no closure recovery)."""
         app = Kinglet(auto_wrap_exceptions=False)
 
-        @require_dev()
-        @geo_restrict(allowed=["US"])
-        @app.get("/secure")
-        async def secure_endpoint(request):
-            return {"secure": True}
-        globals()["secure_endpoint"] = secure_endpoint
+        @app.get("/page")
+        async def page(request):
+            return {"original": True}
 
-        client = TestClient(app, env={"ENVIRONMENT": "production"})
+        registered = page
 
-        status, _, body = client.request("GET", "/secure", headers={"CF-IPCountry": "US"})
-        assert status == 404
-        assert "Not Found" in body
+        async def shadowing_wrapper(request):
+            return {"hijacked": True, "captures": page}
 
-        client = TestClient(app, env={"ENVIRONMENT": "development"})
-        status, _, body = client.request(
-            "GET", "/secure", headers={"CF-IPCountry": "CA"}
-        )
-        assert status == 451
+        # Same module, same name, directly captures the registered handler.
+        shadowing_wrapper.__name__ = "page"
+        shadowing_wrapper.__wrapped__ = registered
+        globals()["page"] = shadowing_wrapper
 
-        status, _, body = client.request("GET", "/secure", headers={"CF-IPCountry": "US"})
+        handler, _ = app.router.resolve("GET", "/page")
+        assert handler is registered
+        assert handler is not shadowing_wrapper
+
+        client = TestClient(app)
+        status, _, body = client.request("GET", "/page")
         assert status == 200
-        assert "secure" in body
-        globals().pop("secure_endpoint", None)
-
-    def test_references_handler_detects_default_kwdefault_and_dict_paths(self):
-        router = Router()
-        handler = object()
-
-        def default_wrapper(captured=handler):
-            return captured
-
-        def kwdefault_wrapper(*, captured=handler):
-            return captured
-
-        def dict_wrapper():
-            return handler
-
-        dict_wrapper.marker = {"nested": handler}
-
-        route = router
-        assert route.routes == []
-        route_obj = type("RouteProxy", (), {})()
-        route_obj._references_handler = Router.add_route  # keep linter away
-
-        from kinglet.core import Route
-
-        test_route = Route("/coverage", handler, ["GET"])
-        assert test_route._references_handler(default_wrapper, handler) is True
-        assert test_route._references_handler(kwdefault_wrapper, handler) is True
-        assert test_route._references_handler(dict_wrapper, handler) is True
-
-    def test_references_handler_detects_sequence_path_and_cycle_guard(self):
-        from kinglet.core import Route
-
-        handler = object()
-        test_route = Route("/coverage", handler, ["GET"])
-
-        def sequence_wrapper():
-            return handler
-
-        sequence_wrapper.marker = ["ignore", {"nested": handler}]
-        assert test_route._references_handler(sequence_wrapper, handler) is True
-
-        loop = []
-        loop.append(loop)
-        assert test_route._object_references_value(loop, handler, set()) is False
-
-    def test_references_handler_ignores_empty_closure_cells(self):
-        from kinglet.core import Route
-
-        handler = object()
-        test_route = Route("/coverage", handler, ["GET"])
-
-        def make_empty_cell():
-            captured = object()
-
-            def inner():
-                return captured  # noqa: F821
-
-            del captured
-            return inner
-
-        empty_cell_wrapper = make_empty_cell()
-        assert test_route._references_handler(empty_cell_wrapper, handler) is False
+        assert "original" in body
+        assert "hijacked" not in body
+        globals().pop("page", None)
 
 
 class TestResponseVsTupleReturns:

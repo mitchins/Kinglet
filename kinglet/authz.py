@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .constants import AUTH_REQUIRED, NOT_FOUND, TOTP_STEP_UP_PATH
+from .decorators import reject_if_route_registered
 from .http import Response  # Import directly from http module
 
 
@@ -162,6 +163,8 @@ async def r2_media_owner(env, bucket_binding: str, key: str) -> dict | None:
 
 # ---------- Decorators ----------
 def require_auth(handler: Callable[[Any], Awaitable[Any]]):
+    reject_if_route_registered(handler, "require_auth")
+
     @functools.wraps(handler)
     async def wrapped(req):
         user = await get_user(req)
@@ -185,6 +188,8 @@ def allow_public_or_owner(
     """
 
     def deco(handler):
+        reject_if_route_registered(handler, "allow_public_or_owner(...)")
+
         @functools.wraps(handler)
         async def wrapped(req):
             rid = req.path_param(id_param)
@@ -215,6 +220,8 @@ def require_owner(
     allow_admin_env="ADMIN_IDS",
 ):
     def deco(handler):
+        reject_if_route_registered(handler, "require_owner(...)")
+
         @functools.wraps(handler)
         async def wrapped(req):
             user = await get_user(req)
@@ -247,6 +254,8 @@ def require_participant(
     allow_admin_env="ADMIN_IDS",
 ):
     def deco(handler):
+        reject_if_route_registered(handler, "require_participant(...)")
+
         @functools.wraps(handler)
         async def wrapped(req):
             user = await get_user(req)
@@ -274,6 +283,7 @@ def require_participant(
 
 def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
     """Require elevated session (TOTP verified) - skips if TOTP_ENABLED=false"""
+    reject_if_route_registered(handler, "require_elevated_session")
 
     @functools.wraps(handler)
     async def wrapped(req):
@@ -326,6 +336,8 @@ def require_claim(claim_name: str, claim_value: Any = True):
     """Require specific claim in JWT (app-specific like 'publisher', 'host')"""
 
     def deco(handler):
+        reject_if_route_registered(handler, f"require_claim({claim_name!r})")
+
         @functools.wraps(handler)
         async def wrapped(req):
             user = await get_user(req)
@@ -359,6 +371,8 @@ def require_elevated_claim(claim_name: str, claim_value: Any = True):
     """Require both elevated session AND specific claim - skips elevation if TOTP_ENABLED=false"""
 
     def deco(handler):
+        reject_if_route_registered(handler, f"require_elevated_claim({claim_name!r})")
+
         @functools.wraps(handler)
         async def wrapped(req):
             user = await get_user(req)

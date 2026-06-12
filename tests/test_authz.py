@@ -221,8 +221,18 @@ class TestGetUser:
         finally:
             kinglet.authz.verify_jwt_hs256 = original_verify
 
-    def test_require_auth_route_wrong_order_with_include_router(self):
-        """Test wrong-order route decoration still enforces auth after router inclusion."""
+    def test_require_auth_above_route_decorator_raises(self):
+        """Auth decorator above a route decorator cannot protect the route: fail closed."""
+        router = Router()
+
+        with pytest.raises(RuntimeError, match="require_auth"):
+
+            @require_auth
+            @router.get("/profile")
+            async def profile(request):
+                return {"id": request.state.user["id"]}
+
+    def test_require_auth_correct_order_with_include_router(self):
         app = Kinglet()
         router = Router()
         secret = "test" + "-secret"
@@ -230,11 +240,10 @@ class TestGetUser:
             {"sub": "user-123", "exp": int(time.time()) + 3600}, secret
         )
 
-        @require_auth
         @router.get("/profile")
+        @require_auth
         async def profile(request):
             return {"id": request.state.user["id"]}
-        globals()["profile"] = profile
 
         app.include_router("/api", router)
         client = TestClient(app, env={"JWT_SECRET": secret})
@@ -250,7 +259,6 @@ class TestGetUser:
         )
         assert status == 200
         assert "user-123" in body
-        globals().pop("profile", None)
 
 
 class TestD1Resolver:

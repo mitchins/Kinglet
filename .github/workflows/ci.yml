@@ -151,7 +151,14 @@ jobs:
   sonarqube:
     runs-on: ubuntu-latest
     needs: [test, security]
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    # SONAR_TOKEN must never be exposed to untrusted PR-controlled code.
+    # Same-repo PRs are authored by users with write access, so the pre-merge
+    # quality gate (new issues, new-code coverage) keeps running for them.
+    # Fork PRs are excluded: GitHub withholds secrets from them anyway, and
+    # this condition makes the boundary explicit.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
     - name: Checkout code
