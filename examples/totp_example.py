@@ -3,6 +3,8 @@ TOTP Authentication Example
 Demonstrates session elevation with TOTP in Kinglet
 """
 
+import time
+
 from kinglet import Kinglet, Response
 from kinglet.authz import (
     configure_otp_provider,

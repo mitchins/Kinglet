@@ -11,7 +11,6 @@ from typing import Any
 
 from .constants import AUTH_REQUIRED, NOT_FOUND, TOTP_STEP_UP_PATH
 from .http import Response  # Import directly from http module
-from .totp import DummyOTPProvider, set_otp_provider  # TOTP support
 
 
 def _env_get(env_source, key: str, default=None):
@@ -401,5 +400,7 @@ def configure_otp_provider(env) -> None:
     totp_enabled = _env_flag(env, "TOTP_ENABLED", True)
     if not totp_enabled:
         # Use dummy provider for development/testing
+        from .totp import DummyOTPProvider, set_otp_provider
+
         set_otp_provider(DummyOTPProvider())
     # Production provider is the default

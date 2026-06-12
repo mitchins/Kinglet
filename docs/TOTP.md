@@ -4,6 +4,8 @@
 
 Kinglet 1.4.0 introduces TOTP (Time-based One-Time Password) support for session elevation, implementing RFC 6238 for enhanced security on sensitive operations.
 
+Basic TOTP generation, verification, and session elevation are built into Kinglet. The secret-at-rest helpers `encrypt_totp_secret()` and `decrypt_totp_secret()` use `cryptography` on standard Python runtimes and fall back to the Workers Web Crypto API on Python Workers, so encrypted TOTP secret storage remains available in both environments.
+
 ## Key Components
 
 ### 1. OTP Provider Pattern

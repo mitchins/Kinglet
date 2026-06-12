@@ -2,9 +2,12 @@
 Kinglet - A lightweight routing framework for Python Workers
 """
 
+from importlib import import_module
+
 # Core framework
-# Import specialized modules for FGA support, TOTP, and SES
-from . import authz, ses, totp
+# Import specialized modules for FGA support and SES.
+# TOTP is loaded lazily so auth-only apps do not pay the crypto import cost.
+from . import authz, ses
 from .core import Kinglet, Route, Router
 
 # Decorators
@@ -176,8 +179,17 @@ try:
 except ImportError:
     _openapi_available = False
 
-__version__ = "1.8.2"
+__version__ = "1.9.0"
 __author__ = "Mitchell Currie"
+
+
+def __getattr__(name: str):
+    if name == "totp":
+        module = import_module(".totp", __name__)
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Export commonly used items
 __all__ = [
