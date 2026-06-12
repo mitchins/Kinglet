@@ -5,6 +5,7 @@ This test suite demonstrates and prevents common security vulnerabilities
 discovered in real-world Kinglet deployments.
 """
 
+import functools
 import json
 
 import pytest
@@ -33,6 +34,7 @@ class TestDecoratorOrdering:
 
         # Mock admin check
         def require_admin_check(handler):
+            @functools.wraps(handler)
             async def wrapped(request):
                 if request.header("x-admin-token") != "valid-admin-token":
                     return Response({"error": "Admin required"}, status=403)
@@ -154,6 +156,161 @@ class TestRouteResolutionFallbacks:
         route.handler_module = "nonexistent.module"
 
         assert route.handler is endpoint
+
+    def test_route_keeps_original_callable_after_same_name_rebind(self):
+        router = Router()
+
+        @router.get("/admin")
+        async def endpoint(request):
+            return Response({"secret": True}, status=200)
+
+        original_endpoint = endpoint
+        globals()["endpoint"] = endpoint
+
+        @router.get("/public")
+        async def endpoint(request):
+            return {"public": True}
+        globals()["endpoint"] = endpoint
+
+        handler, params = router.resolve("GET", "/admin")
+
+        assert params == {}
+        assert handler is original_endpoint
+        assert handler is not endpoint
+
+    def test_resolve_caches_verified_wrapped_handler(self, monkeypatch):
+        import kinglet.core as core_module
+
+        router = Router()
+
+        @router.get("/admin")
+        async def endpoint(request):
+            return Response({"secret": True}, status=200)
+
+        original_endpoint = endpoint
+        globals()["endpoint"] = endpoint
+
+        calls = {"count": 0}
+        original_references_handler = core_module.Route._references_handler
+
+        def counting_references_handler(self, candidate, handler):
+            calls["count"] += 1
+            return original_references_handler(self, candidate, handler)
+
+        @functools.wraps(endpoint)
+        async def endpoint(request):
+            return await original_endpoint(request)
+
+        globals()["endpoint"] = endpoint
+        monkeypatch.setattr(
+            core_module.Route, "_references_handler", counting_references_handler
+        )
+
+        handler, params = router.resolve("GET", "/admin")
+        assert params == {}
+        assert handler is endpoint
+        assert calls["count"] == 1
+
+        handler, params = router.resolve("GET", "/admin")
+        assert params == {}
+        assert handler is endpoint
+        assert calls["count"] == 1
+
+    def test_route_preserves_wrapper_without_functools_wraps(self):
+        app = Kinglet()
+
+        def require_admin(handler):
+            async def wrapped(request):
+                if request.header("x-admin-token") != "valid-admin-token":
+                    return Response({"error": "Admin required"}, status=403)
+                return await handler(request)
+
+            return wrapped
+
+        @require_admin
+        @app.get("/admin")
+        async def endpoint(request):
+            return {"secret": True}
+
+        globals()["endpoint"] = endpoint
+
+        client = TestClient(app)
+
+        status, _, body = client.request("GET", "/admin")
+        assert status == 403
+        assert "Admin required" in body
+
+        status, _, body = client.request(
+            "GET", "/admin", headers={"X-Admin-Token": "valid-admin-token"}
+        )
+        assert status == 200
+        assert "secret" in body
+
+    def test_references_handler_supports_multiple_wrapper_shapes(self):
+        handler = object()
+
+        def make_route(candidate_name: str, candidate):
+            route = Route("/coverage", handler, ["GET"])
+            route.handler_module = __name__
+            route.handler_name = candidate_name
+            globals()[candidate_name] = candidate
+            return route
+
+        def module_level_wrapped():
+            return handler
+
+        module_level_wrapped.__wrapped__ = handler
+        route = make_route("module_level_wrapped", module_level_wrapped)
+        assert route._references_handler(module_level_wrapped, handler) is True
+
+        def closure_wrapper():
+            captured = handler
+
+            def wrapped():
+                return captured
+
+            return wrapped
+
+        route = make_route("closure_wrapper", closure_wrapper())
+        assert route._references_handler(closure_wrapper(), handler) is True
+
+        def default_wrapper(captured=handler):
+            return captured
+
+        route = make_route("default_wrapper", default_wrapper)
+        assert route._references_handler(default_wrapper, handler) is True
+
+        def kwdefault_wrapper(*, captured=handler):
+            return captured
+
+        route = make_route("kwdefault_wrapper", kwdefault_wrapper)
+        assert route._references_handler(kwdefault_wrapper, handler) is True
+
+        def dict_wrapper():
+            return handler
+
+        dict_wrapper.marker = handler
+        route = make_route("dict_wrapper", dict_wrapper)
+        assert route._references_handler(dict_wrapper, handler) is True
+
+        class LoopWrapper:
+            def __call__(self):
+                return handler
+
+        loop_wrapper = LoopWrapper()
+        loop_wrapper.__wrapped__ = loop_wrapper
+        route = make_route("loop_wrapper", loop_wrapper)
+        assert route._references_handler(loop_wrapper, handler) is False
+
+        for name in (
+            "module_level_wrapped",
+            "closure_wrapper",
+            "default_wrapper",
+            "kwdefault_wrapper",
+            "dict_wrapper",
+            "loop_wrapper",
+        ):
+            globals().pop(name, None)
 
 
 class TestResponseVsTupleReturns:

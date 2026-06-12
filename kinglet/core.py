@@ -4,7 +4,6 @@ Kinglet Core - Routing and application framework
 
 from __future__ import annotations
 
-import inspect
 import re
 import sys
 from collections.abc import Callable
@@ -28,7 +27,12 @@ class Route:
         self.regex, self.param_names = self._compile_path(path)
 
     def _resolve_handler(self) -> Callable:
-        """Resolve the latest callable for this route if it has been re-wrapped."""
+        """Return the callable registered for this route.
+
+        If the module-level name now refers to a wrapper around the originally
+        registered handler, keep the wrapper so decorator order remains
+        supported without swapping in unrelated same-named callables.
+        """
         current_handler = self._handler
         if not self.handler_module or not self.handler_name:
             return current_handler
@@ -40,7 +44,61 @@ class Route:
         candidate = getattr(module, self.handler_name, None)
         if not callable(candidate) or candidate is current_handler:
             return current_handler
-        return candidate
+
+        if self._references_handler(candidate, current_handler):
+            self._handler = candidate
+            return candidate
+
+        return current_handler
+
+    def _references_handler(self, candidate: Callable, handler: Callable) -> bool:
+        """Check whether a callable still references the registered handler."""
+        current = candidate
+        seen_ids: set[int] = set()
+
+        while True:
+            wrapped = getattr(current, "__wrapped__", None)
+            if wrapped is None:
+                break
+            if wrapped is handler:
+                return True
+
+            wrapped_id = id(wrapped)
+            if wrapped_id in seen_ids:
+                break
+
+            seen_ids.add(wrapped_id)
+            current = wrapped
+
+        if self._callable_contains_value(candidate, handler):
+            return True
+
+        return False
+
+    @staticmethod
+    def _callable_contains_value(candidate: Callable, value: object) -> bool:
+        """Check common callable storage locations for a captured value."""
+        closure = getattr(candidate, "__closure__", None) or ()
+        for cell in closure:
+            try:
+                if cell.cell_contents is value:
+                    return True
+            except ValueError:
+                continue
+
+        defaults = getattr(candidate, "__defaults__", None) or ()
+        if any(default is value for default in defaults):
+            return True
+
+        kwdefaults = getattr(candidate, "__kwdefaults__", None) or {}
+        if any(default is value for default in kwdefaults.values()):
+            return True
+
+        candidate_dict = getattr(candidate, "__dict__", None) or {}
+        if any(attr is value for attr in candidate_dict.values()):
+            return True
+
+        return False
 
     @property
     def handler(self) -> Callable:
