@@ -239,6 +239,67 @@ class TestRouteResolutionFallbacks:
         assert "secure" in body
         globals().pop("secure_endpoint", None)
 
+    def test_references_handler_detects_default_kwdefault_and_dict_paths(self):
+        router = Router()
+        handler = object()
+
+        def default_wrapper(captured=handler):
+            return captured
+
+        def kwdefault_wrapper(*, captured=handler):
+            return captured
+
+        def dict_wrapper():
+            return handler
+
+        dict_wrapper.marker = {"nested": handler}
+
+        route = router
+        assert route.routes == []
+        route_obj = type("RouteProxy", (), {})()
+        route_obj._references_handler = Router.add_route  # keep linter away
+
+        from kinglet.core import Route
+
+        test_route = Route("/coverage", handler, ["GET"])
+        assert test_route._references_handler(default_wrapper, handler) is True
+        assert test_route._references_handler(kwdefault_wrapper, handler) is True
+        assert test_route._references_handler(dict_wrapper, handler) is True
+
+    def test_references_handler_detects_sequence_path_and_cycle_guard(self):
+        from kinglet.core import Route
+
+        handler = object()
+        test_route = Route("/coverage", handler, ["GET"])
+
+        def sequence_wrapper():
+            return handler
+
+        sequence_wrapper.marker = ["ignore", {"nested": handler}]
+        assert test_route._references_handler(sequence_wrapper, handler) is True
+
+        loop = []
+        loop.append(loop)
+        assert test_route._object_references_value(loop, handler, set()) is False
+
+    def test_references_handler_ignores_empty_closure_cells(self):
+        from kinglet.core import Route
+
+        handler = object()
+        test_route = Route("/coverage", handler, ["GET"])
+
+        def make_empty_cell():
+            captured = object()
+
+            def inner():
+                return captured  # noqa: F821
+
+            del captured
+            return inner
+
+        empty_cell_wrapper = make_empty_cell()
+        assert test_route._references_handler(empty_cell_wrapper, handler) is False
+
 
 class TestResponseVsTupleReturns:
     """Test Response object vs tuple return behavior"""

@@ -67,6 +67,29 @@ class Route:
         return self._object_references_value(candidate, handler, set())
 
     @classmethod
+    def _iter_direct_references(cls, obj: object):
+        """Yield directly referenced values commonly used by wrapped callables."""
+        wrapped = getattr(obj, "__wrapped__", None)
+        if wrapped is not None:
+            yield wrapped
+
+        closure = getattr(obj, "__closure__", None) or ()
+        for cell in closure:
+            try:
+                yield cell.cell_contents
+            except ValueError:
+                continue
+
+        yield from getattr(obj, "__defaults__", None) or ()
+        yield from (getattr(obj, "__kwdefaults__", None) or {}).values()
+        yield from (getattr(obj, "__dict__", None) or {}).values()
+
+        if isinstance(obj, dict):
+            yield from obj.values()
+        elif isinstance(obj, (list, tuple, set, frozenset)):
+            yield from obj
+
+    @classmethod
     def _object_references_value(
         cls, obj: object, target: object, seen_ids: set[int]
     ) -> bool:
@@ -78,43 +101,9 @@ class Route:
             return False
         seen_ids.add(obj_id)
 
-        wrapped = getattr(obj, "__wrapped__", None)
-        if wrapped is not None and cls._object_references_value(
-            wrapped, target, seen_ids
-        ):
-            return True
-
-        closure = getattr(obj, "__closure__", None) or ()
-        for cell in closure:
-            try:
-                if cls._object_references_value(cell.cell_contents, target, seen_ids):
-                    return True
-            except ValueError:
-                continue
-
-        defaults = getattr(obj, "__defaults__", None) or ()
-        for default in defaults:
-            if cls._object_references_value(default, target, seen_ids):
-                return True
-
-        kwdefaults = getattr(obj, "__kwdefaults__", None) or {}
-        for default in kwdefaults.values():
-            if cls._object_references_value(default, target, seen_ids):
-                return True
-
-        obj_dict = getattr(obj, "__dict__", None) or {}
-        for value in obj_dict.values():
+        for value in cls._iter_direct_references(obj):
             if cls._object_references_value(value, target, seen_ids):
                 return True
-
-        if isinstance(obj, dict):
-            for value in obj.values():
-                if cls._object_references_value(value, target, seen_ids):
-                    return True
-        elif isinstance(obj, (list, tuple, set, frozenset)):
-            for value in obj:
-                if cls._object_references_value(value, target, seen_ids):
-                    return True
 
         return False
 
