@@ -246,6 +246,72 @@ class TestRouteResolutionFallbacks:
         assert status == 200
         assert "secret" in body
 
+    def test_references_handler_supports_multiple_wrapper_shapes(self):
+        handler = object()
+
+        def make_route(candidate_name: str, candidate):
+            route = Route("/coverage", handler, ["GET"])
+            route.handler_module = __name__
+            route.handler_name = candidate_name
+            globals()[candidate_name] = candidate
+            return route
+
+        def module_level_wrapped():
+            return handler
+
+        module_level_wrapped.__wrapped__ = handler
+        route = make_route("module_level_wrapped", module_level_wrapped)
+        assert route._references_handler(module_level_wrapped, handler) is True
+
+        def closure_wrapper():
+            captured = handler
+
+            def wrapped():
+                return captured
+
+            return wrapped
+
+        route = make_route("closure_wrapper", closure_wrapper())
+        assert route._references_handler(closure_wrapper(), handler) is True
+
+        def default_wrapper(captured=handler):
+            return captured
+
+        route = make_route("default_wrapper", default_wrapper)
+        assert route._references_handler(default_wrapper, handler) is True
+
+        def kwdefault_wrapper(*, captured=handler):
+            return captured
+
+        route = make_route("kwdefault_wrapper", kwdefault_wrapper)
+        assert route._references_handler(kwdefault_wrapper, handler) is True
+
+        def dict_wrapper():
+            return handler
+
+        dict_wrapper.marker = handler
+        route = make_route("dict_wrapper", dict_wrapper)
+        assert route._references_handler(dict_wrapper, handler) is True
+
+        class LoopWrapper:
+            def __call__(self):
+                return handler
+
+        loop_wrapper = LoopWrapper()
+        loop_wrapper.__wrapped__ = loop_wrapper
+        route = make_route("loop_wrapper", loop_wrapper)
+        assert route._references_handler(loop_wrapper, handler) is False
+
+        for name in (
+            "module_level_wrapped",
+            "closure_wrapper",
+            "default_wrapper",
+            "kwdefault_wrapper",
+            "dict_wrapper",
+            "loop_wrapper",
+        ):
+            globals().pop(name, None)
+
 
 class TestResponseVsTupleReturns:
     """Test Response object vs tuple return behavior"""
