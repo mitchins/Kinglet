@@ -18,13 +18,13 @@ from typing import Any
 
 AESGCM = None
 InvalidTag = None
-TOTP_SECRET_ENCRYPTION_ERROR = (
+TOTP_ENCRYPTION_ERROR_MESSAGE = (
     "TOTP secret encryption requires the optional 'cryptography' package"
 )
 
 
-def _totp_secret_encryption_error() -> RuntimeError:
-    return RuntimeError(TOTP_SECRET_ENCRYPTION_ERROR)
+def _totp_encryption_error() -> RuntimeError:
+    return RuntimeError(TOTP_ENCRYPTION_ERROR_MESSAGE)
 
 
 def _import_cryptography_aead():
@@ -85,7 +85,7 @@ def _load_cryptography_aead():
     if _cryptography_aead_available():
         return AESGCM, InvalidTag
 
-    raise _totp_secret_encryption_error()
+    raise _totp_encryption_error()
 
 
 def _looks_like_totp_secret(secret: str) -> bool:
@@ -427,10 +427,10 @@ def _webcrypto_aesgcm_transform(
         from js import Array, Object, Uint8Array, crypto
         from pyodide.webloop import can_run_sync, run_sync
     except ImportError as exc:
-        raise _totp_secret_encryption_error() from exc
+        raise _totp_encryption_error() from exc
 
     if not can_run_sync():
-        raise _totp_secret_encryption_error()
+        raise _totp_encryption_error()
 
     algorithm = Object.fromEntries([["name", "AES-GCM"]])
     params = Object.fromEntries([["name", "AES-GCM"], ["iv", Uint8Array.new(nonce)]])
@@ -447,14 +447,14 @@ def _webcrypto_aesgcm_transform(
         )
     except Exception as exc:
         if _is_pyodide_js_exception(exc):
-            raise _totp_secret_encryption_error() from exc
+            raise _totp_encryption_error() from exc
         raise
     transform = getattr(crypto.subtle, operation)
     try:
         transformed = run_sync(transform(params, crypto_key, Uint8Array.new(payload)))
     except Exception as exc:
         if _is_pyodide_js_exception(exc):
-            raise _totp_secret_encryption_error() from exc
+            raise _totp_encryption_error() from exc
         raise
     return bytes(Uint8Array.new(transformed).to_py())
 
