@@ -16,10 +16,50 @@ import time
 
 import pytest
 
-from kinglet import Kinglet, Response, Router, TestClient, is_route_registered
-from kinglet.authz import require_auth, require_claim
+from kinglet import (
+    Kinglet,
+    Response,
+    Router,
+    TestClient,
+    geo_restrict,
+    is_route_registered,
+    require_dev,
+    require_field,
+    validate_json_body,
+)
+from kinglet.authz import (
+    allow_public_or_owner,
+    require_auth,
+    require_claim,
+    require_elevated_claim,
+    require_elevated_session,
+    require_owner,
+    require_participant,
+)
 
 SECRET = "unit-test-secret"
+
+
+async def _load_stub(req, rid):
+    return None
+
+
+# Every built-in security/access/validation decorator must reject a handler
+# that is already route-registered. If a decorator loses its guard call, the
+# parametrized test below goes red for exactly that decorator.
+ALL_GUARDED_DECORATORS = [
+    ("require_auth", lambda: require_auth),
+    ("require_elevated_session", lambda: require_elevated_session),
+    ("require_claim", lambda: require_claim("admin")),
+    ("require_elevated_claim", lambda: require_elevated_claim("admin")),
+    ("require_owner", lambda: require_owner(_load_stub)),
+    ("require_participant", lambda: require_participant(_load_stub)),
+    ("allow_public_or_owner", lambda: allow_public_or_owner(_load_stub)),
+    ("require_dev", lambda: require_dev()),
+    ("geo_restrict", lambda: geo_restrict(allowed=["US"])),
+    ("validate_json_body", lambda: validate_json_body),
+    ("require_field", lambda: require_field("name")),
+]
 
 
 def make_jwt(payload: dict, secret: str = SECRET) -> str:
@@ -204,3 +244,46 @@ class TestUnmarkableHandlers:
         assert not is_route_registered(Controller().secret)
         # Wrapping before registration stays allowed.
         require_auth(Controller().secret)
+
+
+class TestEveryBuiltinDecoratorIsGuarded:
+    """One red test per decorator if its guard call is ever removed."""
+
+    @pytest.mark.parametrize(
+        ("name", "factory"),
+        ALL_GUARDED_DECORATORS,
+        ids=[name for name, _ in ALL_GUARDED_DECORATORS],
+    )
+    def test_reversed_order_raises(self, name, factory):
+        router = Router()
+
+        @router.get("/guarded")
+        async def handler(request):
+            return {"ok": True}
+
+        with pytest.raises(RuntimeError, match=name):
+            factory()(handler)
+
+
+class TestLegitimatePatternsStayAllowed:
+    """Guard must not fire on supported usage - protects against an
+    overzealous future guard (e.g. one added to wrap_exceptions or the
+    route decorators themselves, which would break route stacking)."""
+
+    def test_stacked_route_decorators_do_not_trip_guard(self):
+        app = Kinglet()
+
+        # Registering one handler for two methods is supported; the inner
+        # route decorator marks the handler, the outer one re-wraps it.
+        @app.get("/things")
+        @app.post("/things")
+        @require_auth
+        async def things(request):
+            return {"ok": True}
+
+        client = TestClient(app, env={"JWT_SECRET": SECRET})
+        for method in ("GET", "POST"):
+            status, _, _ = client.request(method, "/things")
+            assert status == 401, f"{method} /things must stay protected"
+            status, _, _ = client.request(method, "/things", headers=auth_header({}))
+            assert status == 200, f"{method} /things must work with auth"
