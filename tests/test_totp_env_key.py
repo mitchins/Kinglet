@@ -231,7 +231,7 @@ def test_workers_webcrypto_backend_translates_js_exception_on_decrypt():
 
     with patch.object(totp, "_cryptography_aead_available", return_value=False), patch.dict(
         sys.modules, modules, clear=False
-    ), patch.object(totp, "_decrypt_totp_secret_legacy", return_value="not-a-secret"):
+    ), patch.object(totp, "_decrypt_totp_secret_legacy", return_value="not-a-secret!"):
         with pytest.raises(ValueError, match="Failed to decrypt TOTP secret"):
             decrypt_totp_secret(encrypted, env)
 
@@ -266,10 +266,10 @@ def test_decrypt_totp_secret_rejects_invalid_envelope_payload():
     env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
     key_bytes = hashlib.sha256(env.TOTP_ENCRYPTION_KEY.encode()).digest()
     nonce = b"0123456789ab"
-    ciphertext = AESGCM(key_bytes).encrypt(nonce, b"not-a-secret", None)
+    ciphertext = AESGCM(key_bytes).encrypt(nonce, b"not-a-secret!", None)
     encrypted = base64.b64encode(nonce + ciphertext).decode()
 
-    with patch.object(totp, "_decrypt_totp_secret_legacy", return_value="not-a-secret"):
+    with patch.object(totp, "_decrypt_totp_secret_legacy", return_value="not-a-secret!"):
         with pytest.raises(ValueError, match="Failed to decrypt TOTP secret"):
             decrypt_totp_secret(encrypted, env)
 
