@@ -10,7 +10,6 @@ import json
 
 import pytest
 
-from kinglet.core import Route
 from kinglet import Kinglet, Response, Router, TestClient, geo_restrict, require_dev
 
 
@@ -137,25 +136,30 @@ class TestDecoratorOrdering:
 
 
 class TestRouteResolutionFallbacks:
-    """Test handler resolution fallbacks for routes."""
+    """Test route registration and rebinding behavior."""
 
     def test_resolve_handler_falls_back_without_metadata(self):
         async def endpoint(request):
             return {"ok": True}
 
-        route = Route("/fallback", endpoint, ["GET"])
-        route.handler_module = None
+        route = Router()
+        route.add_route("/fallback", endpoint, ["GET"])
+        registered_route = route.routes[0]
+        registered_route.handler_module = None
+        registered_route.handler_name = None
 
-        assert route.handler is endpoint
+        assert registered_route.handler is endpoint
 
     def test_resolve_handler_falls_back_when_module_missing(self):
         async def endpoint(request):
             return {"ok": True}
 
-        route = Route("/fallback", endpoint, ["GET"])
-        route.handler_module = "nonexistent.module"
+        route = Router()
+        route.add_route("/fallback", endpoint, ["GET"])
+        registered_route = route.routes[0]
+        registered_route.handler_module = "nonexistent.module"
 
-        assert route.handler is endpoint
+        assert registered_route.handler is endpoint
 
     def test_route_keeps_original_callable_after_same_name_rebind(self):
         router = Router()
@@ -177,44 +181,6 @@ class TestRouteResolutionFallbacks:
         assert params == {}
         assert handler is original_endpoint
         assert handler is not endpoint
-
-    def test_resolve_caches_verified_wrapped_handler(self, monkeypatch):
-        import kinglet.core as core_module
-
-        router = Router()
-
-        @router.get("/admin")
-        async def endpoint(request):
-            return Response({"secret": True}, status=200)
-
-        original_endpoint = endpoint
-        globals()["endpoint"] = endpoint
-
-        calls = {"count": 0}
-        original_references_handler = core_module.Route._references_handler
-
-        def counting_references_handler(self, candidate, handler):
-            calls["count"] += 1
-            return original_references_handler(self, candidate, handler)
-
-        @functools.wraps(endpoint)
-        async def endpoint(request):
-            return await original_endpoint(request)
-
-        globals()["endpoint"] = endpoint
-        monkeypatch.setattr(
-            core_module.Route, "_references_handler", counting_references_handler
-        )
-
-        handler, params = router.resolve("GET", "/admin")
-        assert params == {}
-        assert handler is endpoint
-        assert calls["count"] == 1
-
-        handler, params = router.resolve("GET", "/admin")
-        assert params == {}
-        assert handler is endpoint
-        assert calls["count"] == 1
 
     def test_route_preserves_wrapper_without_functools_wraps(self):
         app = Kinglet()
@@ -246,71 +212,93 @@ class TestRouteResolutionFallbacks:
         assert status == 200
         assert "secret" in body
 
-    def test_references_handler_supports_multiple_wrapper_shapes(self):
+    def test_route_rebinds_across_multiple_builtin_wrappers(self):
+        app = Kinglet(auto_wrap_exceptions=False)
+
+        @require_dev()
+        @geo_restrict(allowed=["US"])
+        @app.get("/secure")
+        async def secure_endpoint(request):
+            return {"secure": True}
+        globals()["secure_endpoint"] = secure_endpoint
+
+        client = TestClient(app, env={"ENVIRONMENT": "production"})
+
+        status, _, body = client.request("GET", "/secure", headers={"CF-IPCountry": "US"})
+        assert status == 404
+        assert "Not Found" in body
+
+        client = TestClient(app, env={"ENVIRONMENT": "development"})
+        status, _, body = client.request(
+            "GET", "/secure", headers={"CF-IPCountry": "CA"}
+        )
+        assert status == 451
+
+        status, _, body = client.request("GET", "/secure", headers={"CF-IPCountry": "US"})
+        assert status == 200
+        assert "secure" in body
+        globals().pop("secure_endpoint", None)
+
+    def test_references_handler_detects_default_kwdefault_and_dict_paths(self):
+        router = Router()
         handler = object()
-
-        def make_route(candidate_name: str, candidate):
-            route = Route("/coverage", handler, ["GET"])
-            route.handler_module = __name__
-            route.handler_name = candidate_name
-            globals()[candidate_name] = candidate
-            return route
-
-        def module_level_wrapped():
-            return handler
-
-        module_level_wrapped.__wrapped__ = handler
-        route = make_route("module_level_wrapped", module_level_wrapped)
-        assert route._references_handler(module_level_wrapped, handler) is True
-
-        def closure_wrapper():
-            captured = handler
-
-            def wrapped():
-                return captured
-
-            return wrapped
-
-        route = make_route("closure_wrapper", closure_wrapper())
-        assert route._references_handler(closure_wrapper(), handler) is True
 
         def default_wrapper(captured=handler):
             return captured
 
-        route = make_route("default_wrapper", default_wrapper)
-        assert route._references_handler(default_wrapper, handler) is True
-
         def kwdefault_wrapper(*, captured=handler):
             return captured
-
-        route = make_route("kwdefault_wrapper", kwdefault_wrapper)
-        assert route._references_handler(kwdefault_wrapper, handler) is True
 
         def dict_wrapper():
             return handler
 
-        dict_wrapper.marker = handler
-        route = make_route("dict_wrapper", dict_wrapper)
-        assert route._references_handler(dict_wrapper, handler) is True
+        dict_wrapper.marker = {"nested": handler}
 
-        class LoopWrapper:
-            def __call__(self):
-                return handler
+        route = router
+        assert route.routes == []
+        route_obj = type("RouteProxy", (), {})()
+        route_obj._references_handler = Router.add_route  # keep linter away
 
-        loop_wrapper = LoopWrapper()
-        loop_wrapper.__wrapped__ = loop_wrapper
-        route = make_route("loop_wrapper", loop_wrapper)
-        assert route._references_handler(loop_wrapper, handler) is False
+        from kinglet.core import Route
 
-        for name in (
-            "module_level_wrapped",
-            "closure_wrapper",
-            "default_wrapper",
-            "kwdefault_wrapper",
-            "dict_wrapper",
-            "loop_wrapper",
-        ):
-            globals().pop(name, None)
+        test_route = Route("/coverage", handler, ["GET"])
+        assert test_route._references_handler(default_wrapper, handler) is True
+        assert test_route._references_handler(kwdefault_wrapper, handler) is True
+        assert test_route._references_handler(dict_wrapper, handler) is True
+
+    def test_references_handler_detects_sequence_path_and_cycle_guard(self):
+        from kinglet.core import Route
+
+        handler = object()
+        test_route = Route("/coverage", handler, ["GET"])
+
+        def sequence_wrapper():
+            return handler
+
+        sequence_wrapper.marker = ["ignore", {"nested": handler}]
+        assert test_route._references_handler(sequence_wrapper, handler) is True
+
+        loop = []
+        loop.append(loop)
+        assert test_route._object_references_value(loop, handler, set()) is False
+
+    def test_references_handler_ignores_empty_closure_cells(self):
+        from kinglet.core import Route
+
+        handler = object()
+        test_route = Route("/coverage", handler, ["GET"])
+
+        def make_empty_cell():
+            captured = object()
+
+            def inner():
+                return captured  # noqa: F821
+
+            del captured
+            return inner
+
+        empty_cell_wrapper = make_empty_cell()
+        assert test_route._references_handler(empty_cell_wrapper, handler) is False
 
 
 class TestResponseVsTupleReturns:

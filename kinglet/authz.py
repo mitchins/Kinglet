@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import hmac
 import json
@@ -161,6 +162,7 @@ async def r2_media_owner(env, bucket_binding: str, key: str) -> dict | None:
 
 # ---------- Decorators ----------
 def require_auth(handler: Callable[[Any], Awaitable[Any]]):
+    @functools.wraps(handler)
     async def wrapped(req):
         user = await get_user(req)
         if not user:
@@ -183,6 +185,7 @@ def allow_public_or_owner(
     """
 
     def deco(handler):
+        @functools.wraps(handler)
         async def wrapped(req):
             rid = req.path_param(id_param)
             rec = await load_fn(req, rid)
@@ -212,6 +215,7 @@ def require_owner(
     allow_admin_env="ADMIN_IDS",
 ):
     def deco(handler):
+        @functools.wraps(handler)
         async def wrapped(req):
             user = await get_user(req)
             if not user:
@@ -243,6 +247,7 @@ def require_participant(
     allow_admin_env="ADMIN_IDS",
 ):
     def deco(handler):
+        @functools.wraps(handler)
         async def wrapped(req):
             user = await get_user(req)
             if not user:
@@ -270,6 +275,7 @@ def require_participant(
 def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
     """Require elevated session (TOTP verified) - skips if TOTP_ENABLED=false"""
 
+    @functools.wraps(handler)
     async def wrapped(req):
         user = await get_user(req)
         if not user:
@@ -320,6 +326,7 @@ def require_claim(claim_name: str, claim_value: Any = True):
     """Require specific claim in JWT (app-specific like 'publisher', 'host')"""
 
     def deco(handler):
+        @functools.wraps(handler)
         async def wrapped(req):
             user = await get_user(req)
             if not user:
@@ -352,6 +359,7 @@ def require_elevated_claim(claim_name: str, claim_value: Any = True):
     """Require both elevated session AND specific claim - skips elevation if TOTP_ENABLED=false"""
 
     def deco(handler):
+        @functools.wraps(handler)
         async def wrapped(req):
             user = await get_user(req)
             if not user:
