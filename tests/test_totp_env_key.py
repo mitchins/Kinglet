@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+import kinglet.totp as totp
 from kinglet.totp import (
     decrypt_totp_secret,
     encrypt_totp_secret,
@@ -56,6 +57,10 @@ class _FakeObject:
         return {key: value for key, value in entries}
 
 
+class _FakeJsException(Exception):
+    pass
+
+
 class _FakeSubtleCrypto:
     def importKey(self, format_name, key_data, algorithm, extractable, usages):
         assert format_name == "raw"
@@ -70,7 +75,7 @@ class _FakeSubtleCrypto:
         return AESGCM(crypto_key).decrypt(bytes(params["iv"].to_py()), bytes(data.to_py()), None)
 
 
-def _fake_workers_webcrypto_modules():
+def _fake_workers_webcrypto_modules(*, can_run_sync=True):
     js_module = ModuleType("js")
     js_module.Array = _FakeArray
     js_module.Object = _FakeObject
@@ -78,14 +83,18 @@ def _fake_workers_webcrypto_modules():
     js_module.crypto = SimpleNamespace(subtle=_FakeSubtleCrypto())
 
     pyodide_module = ModuleType("pyodide")
+    ffi_module = ModuleType("pyodide.ffi")
+    ffi_module.JsException = _FakeJsException
     webloop_module = ModuleType("pyodide.webloop")
-    webloop_module.can_run_sync = lambda: True
+    webloop_module.can_run_sync = lambda: can_run_sync
     webloop_module.run_sync = lambda value: value
+    pyodide_module.ffi = ffi_module
     pyodide_module.webloop = webloop_module
 
     return {
         "js": js_module,
         "pyodide": pyodide_module,
+        "pyodide.ffi": ffi_module,
         "pyodide.webloop": webloop_module,
     }
 
@@ -150,6 +159,83 @@ def test_workers_webcrypto_backend_encrypts_and_decrypts_round_trip():
         assert decrypt_totp_secret(encrypted, env) == secret
 
 
+def test_cryptography_backend_probe_caches_missing_backend():
+    original_aesgcm = totp.AESGCM
+    original_invalid_tag = totp.InvalidTag
+    try:
+        totp.AESGCM = None
+        totp.InvalidTag = None
+
+        with patch.object(totp.importlib, "import_module", side_effect=ImportError):
+            assert totp._cryptography_aead_available() is False
+            assert totp.AESGCM is False
+            assert totp.InvalidTag is False
+    finally:
+        totp.AESGCM = original_aesgcm
+        totp.InvalidTag = original_invalid_tag
+
+
+def test_load_cryptography_aead_requires_backend():
+    with patch.object(totp, "_cryptography_aead_available", return_value=False):
+        with pytest.raises(RuntimeError, match="optional 'cryptography' package"):
+            totp._load_cryptography_aead()
+
+
+def test_webcrypto_backend_import_failure_raises_optional_crypto_error():
+    with patch.dict(
+        sys.modules,
+        {"js": None, "pyodide": None, "pyodide.ffi": None, "pyodide.webloop": None},
+        clear=False,
+    ):
+        with pytest.raises(RuntimeError, match="optional 'cryptography' package"):
+            totp._webcrypto_aesgcm_encrypt(b"0" * 32, b"0" * 12, b"payload")
+
+
+def test_workers_webcrypto_backend_rejects_non_sync_runtime():
+    env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
+
+    with patch.object(totp, "_cryptography_aead_available", return_value=False), patch.dict(
+        sys.modules, _fake_workers_webcrypto_modules(can_run_sync=False), clear=False
+    ):
+        with pytest.raises(RuntimeError, match="optional 'cryptography' package"):
+            encrypt_totp_secret("JBSWY3DPEHPK3PXP", env)
+
+
+def test_workers_webcrypto_backend_translates_js_exception():
+    env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
+
+    class _ExplodingSubtleCrypto(_FakeSubtleCrypto):
+        def encrypt(self, params, crypto_key, data):
+            raise _FakeJsException("boom")
+
+    modules = _fake_workers_webcrypto_modules()
+    modules["js"].crypto = SimpleNamespace(subtle=_ExplodingSubtleCrypto())
+
+    with patch.object(totp, "_cryptography_aead_available", return_value=False), patch.dict(
+        sys.modules, modules, clear=False
+    ):
+        with pytest.raises(RuntimeError, match="optional 'cryptography' package"):
+            encrypt_totp_secret("JBSWY3DPEHPK3PXP", env)
+
+
+def test_workers_webcrypto_backend_translates_js_exception_on_decrypt():
+    env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
+    encrypted = encrypt_totp_secret("JBSWY3DPEHPK3PXP", env)
+
+    class _ExplodingSubtleCrypto(_FakeSubtleCrypto):
+        def decrypt(self, params, crypto_key, data):
+            raise _FakeJsException("boom")
+
+    modules = _fake_workers_webcrypto_modules()
+    modules["js"].crypto = SimpleNamespace(subtle=_ExplodingSubtleCrypto())
+
+    with patch.object(totp, "_cryptography_aead_available", return_value=False), patch.dict(
+        sys.modules, modules, clear=False
+    ), patch.object(totp, "_decrypt_totp_secret_legacy", return_value="not-a-secret"):
+        with pytest.raises(ValueError, match="Failed to decrypt TOTP secret"):
+            decrypt_totp_secret(encrypted, env)
+
+
 def test_totp_ciphertext_envelope_is_base64_nonce_plus_ciphertext():
     env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
     secret = "JBSWY3DPEHPK3PXP"
@@ -167,6 +253,25 @@ def test_decrypt_totp_secret_supports_legacy_ciphertext():
     env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
 
     assert decrypt_totp_secret(legacy_ciphertext, env) == secret
+
+
+def test_decrypt_totp_secret_rejects_too_short_ciphertext():
+    env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
+
+    with pytest.raises(ValueError, match="Failed to decrypt TOTP secret"):
+        decrypt_totp_secret("AAAA", env)
+
+
+def test_decrypt_totp_secret_rejects_invalid_envelope_payload():
+    env = SimpleNamespace(TOTP_ENCRYPTION_KEY="totp-secret-value")
+    key_bytes = hashlib.sha256(env.TOTP_ENCRYPTION_KEY.encode()).digest()
+    nonce = b"0123456789ab"
+    ciphertext = AESGCM(key_bytes).encrypt(nonce, b"not-a-secret", None)
+    encrypted = base64.b64encode(nonce + ciphertext).decode()
+
+    with patch.object(totp, "_decrypt_totp_secret_legacy", return_value="not-a-secret"):
+        with pytest.raises(ValueError, match="Failed to decrypt TOTP secret"):
+            decrypt_totp_secret(encrypted, env)
 
 
 def test_old_totp_fixture_decrypts_under_1_9_0():
