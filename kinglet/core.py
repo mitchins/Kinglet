@@ -161,7 +161,14 @@ class Router:
         return self.route(path, ["OPTIONS"], public=public)
 
     def include_router(self, prefix: str, router: Router):
-        """Include another router with a path prefix"""
+        """Include another router with a path prefix.
+
+        Routes are re-validated against *this* router's policy as they are
+        merged (strict wins), so a sub-router built with
+        ``enforce_route_policy=False`` must still declare each route
+        ``public=True`` or secured before it can be included into an enforcing
+        parent - otherwise ``include_router`` raises ``RuntimeError``.
+        """
         # Normalize prefix: ensure it starts with / and doesn't end with /
         if not prefix.startswith("/"):
             prefix = "/" + prefix
@@ -255,7 +262,13 @@ class Kinglet:
         return self.route(path, ["OPTIONS"], public=public)
 
     def include_router(self, prefix: str, router: Router):
-        """Include a sub-router with path prefix"""
+        """Include a sub-router with path prefix.
+
+        Routes are re-validated against the app's policy as they are merged, so
+        a sub-router built with ``enforce_route_policy=False`` must still declare
+        each route ``public=True`` or secured before it can be included into an
+        enforcing app - otherwise this raises ``RuntimeError``.
+        """
         self.router.include_router(self.root_path + prefix, router)
 
     def exception_handler(self, status_code: int):
