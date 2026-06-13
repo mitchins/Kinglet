@@ -76,6 +76,16 @@ def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:
 # lookup: at registration time the handler is simply inspected for the marker.
 # ---------------------------------------------------------------------------
 
+
+class RoutePolicyWarning(UserWarning):
+    """Emitted when the default-deny route policy is disabled.
+
+    Disabling enforcement removes a framework-level guard against accidentally
+    unprotected routes; the warning leaves an audit signal so an intentional
+    opt-out is not mistaken for one forgotten during migration.
+    """
+
+
 # Set on the wrapper produced by a recognized access-control decorator. Stored
 # as a normal function attribute so it lives in ``__dict__`` and therefore
 # propagates outward through ``functools.wraps`` when decorators are stacked.
@@ -153,15 +163,20 @@ def assert_route_security(handler: Callable, *, public: bool, path: str = "") ->
     if public or is_secured(handler):
         return
     where = f" for {path!r}" if path else ""
+    name = getattr(handler, "__name__", None) or repr(handler)
     raise RuntimeError(
-        f"Route{where} has no declared security posture. Under the default "
-        f"route policy every route must be explicitly public or protected by "
-        f"a recognized access-control decorator.\n\n"
+        f"Route{where} (handler {name!r}) has no declared security posture. "
+        f"Under the default route policy every route must be explicitly public "
+        f"or protected by a recognized access-control decorator. If {name!r} is "
+        f"protected by a custom decorator, that decorator must be wrapped with "
+        f"@security_decorator to be recognized.\n\n"
         f"  - Public endpoint:    @app.get('/path', public=True)\n"
         f"  - Built-in auth:      @app.get('/path')\n"
         f"                        @require_auth   # (route decorator outermost)\n"
         f"  - Custom decorator:   wrap it with @security_decorator so Kinglet\n"
         f"                        recognizes it as access control.\n\n"
+        f"Note: geo_restrict is a network filter, not an identity check - a\n"
+        f"geo-restricted route still needs public=True or a real auth decorator.\n\n"
         f"To opt out during migration: Kinglet(enforce_route_policy=False)."
     )
 
@@ -275,7 +290,14 @@ def geo_restrict(*, allowed: list = None, blocked: list = None):
 
             return await handler(request)
 
-        return mark_secured(wrapped)
+        # Deliberately NOT mark_secured: geo-restriction is a forgeable
+        # network-layer hint (CF-IPCountry; bypassable via VPN or off-Cloudflare
+        # header spoofing), not an identity/authorization control. It fails OPEN
+        # in production, so it cannot by itself satisfy the route security
+        # policy. A geo-restricted route must also be public=True or carry a
+        # real auth decorator. (Contrast require_dev, which fails CLOSED -> 404
+        # in production - and so does mark the route secured.)
+        return wrapped
 
     return decorator
 

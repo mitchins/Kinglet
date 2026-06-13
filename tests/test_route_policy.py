@@ -22,6 +22,7 @@ import pytest
 from kinglet import (
     Kinglet,
     Response,
+    RoutePolicyWarning,
     Router,
     TestClient,
     is_secured,
@@ -210,12 +211,96 @@ class TestSecurityDecorator:
         assert is_secured(guarded(handler))
 
 
+class TestGeoRestrictIsNotAPosture:
+    """CodeRabbit S1: geo_restrict is a forgeable network filter (fails OPEN in
+    production), not an identity control, so it must not satisfy the policy."""
+
+    def test_geo_restrict_alone_is_refused(self):
+        from kinglet import geo_restrict
+
+        app = Kinglet()
+        with pytest.raises(RuntimeError, match="security posture"):
+
+            @app.get("/geo")
+            @geo_restrict(allowed=["US"])
+            async def geo(request):
+                return {"ok": True}
+
+    def test_require_dev_alone_is_accepted(self):
+        """Contrast: require_dev fails CLOSED (404 in prod) so it IS a posture."""
+        from kinglet import require_dev
+
+        app = Kinglet()
+
+        @app.get("/debug")
+        @require_dev()
+        async def debug(request):
+            return {"debug": True}
+
+        # 404 blackhole in production - registered without public=True.
+        assert (
+            TestClient(app, env={"ENVIRONMENT": "production"}).request("GET", "/debug")[
+                0
+            ]
+            == 404
+        )
+
+
+class TestPolicyErrorMessage:
+    """CodeRabbit R2: the registration error must name the offending handler."""
+
+    def test_error_names_handler_and_security_decorator(self):
+        app = Kinglet()
+        try:
+
+            @app.get("/x")
+            async def my_unprotected_view(request):
+                return {"ok": True}
+        except RuntimeError as e:
+            msg = str(e)
+            assert "my_unprotected_view" in msg
+            assert "security_decorator" in msg
+        else:
+            raise AssertionError("expected RuntimeError")
+
+
+class TestOptOutWarns:
+    """CodeRabbit S3: disabling the policy must leave an audit signal."""
+
+    def test_disabling_policy_warns(self):
+        with pytest.warns(RoutePolicyWarning):
+            Kinglet(enforce_route_policy=False)
+
+    def test_router_disabling_policy_warns(self):
+        with pytest.warns(RoutePolicyWarning):
+            Router(enforce_route_policy=False)
+
+
+class TestHeadOptionsVerbs:
+    """CodeRabbit: Kinglet.head/options existed only on Router - API gap."""
+
+    def test_app_head_and_options_accept_public(self):
+        app = Kinglet()
+
+        @app.head("/h", public=True)
+        async def h(request):
+            return {}
+
+        @app.options("/o", public=True)
+        async def o(request):
+            return {}
+
+        assert app.router.resolve("HEAD", "/h")[0] is not None
+        assert app.router.resolve("OPTIONS", "/o")[0] is not None
+
+
 class TestOptOut:
     """enforce_route_policy=False restores legacy registration for staged
     migration / middleware-based authorization."""
 
     def test_opt_out_allows_bare_routes(self):
-        app = Kinglet(enforce_route_policy=False)
+        with pytest.warns(RoutePolicyWarning):
+            app = Kinglet(enforce_route_policy=False)
 
         @app.get("/anything")
         async def anything(request):

@@ -1520,22 +1520,40 @@ class TestCreativeAttacks:
             status, _, _ = client.request("GET", path, headers=auth_bearer({}))
             assert status == 200
 
-    def test_e6_geo_restrict_marks_secured(self):
-        """geo_restrict is a security decorator and marks the handler secured."""
+    def test_e6_geo_restrict_alone_does_not_satisfy_policy(self):
+        """geo_restrict is a forgeable network filter (fails OPEN in prod), NOT
+        an identity control - it must NOT by itself satisfy the route policy.
+        A geo-only route is refused at registration; it needs public=True or a
+        real auth decorator. (Regression gate for CodeRabbit S1.)"""
         from kinglet import geo_restrict
 
         app = Kinglet()
 
-        @app.get("/us-only")
+        with pytest.raises(RuntimeError, match="security posture"):
+
+            @app.get("/us-only")
+            @geo_restrict(allowed=["US"])
+            async def us_only(req):
+                return {"ok": True}
+
+    def test_e6_geo_restrict_with_explicit_public_is_accepted_and_filters(self):
+        """Declared public + geo filter: registers, and the filter still runs."""
+        from kinglet import geo_restrict
+
+        app = Kinglet()
+
+        @app.get("/us-only", public=True)
         @geo_restrict(allowed=["US"])
         async def us_only(req):
             return {"ok": True}
 
         client = TestClient(app)
-        # No CF-IPCountry header → defaults to XX → geo-restricted
-        status, _, _ = client.request("GET", "/us-only")
-        # GeoRestrictedError → 451 Unavailable For Legal Reasons
-        assert status == 451
+        # No CF-IPCountry → XX → geo-restricted → 451 Unavailable For Legal Reasons
+        assert client.request("GET", "/us-only")[0] == 451
+        # Allowed country → served
+        assert (
+            client.request("GET", "/us-only", headers={"CF-IPCountry": "US"})[0] == 200
+        )
 
     def test_e7_require_dev_blackhole_in_production(self):
         """require_dev() returns 404 in production (not 403, not exposing existence)."""

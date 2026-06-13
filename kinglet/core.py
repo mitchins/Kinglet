@@ -5,9 +5,14 @@ Kinglet Core - Routing and application framework
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Callable
 
-from .decorators import assert_route_security, mark_route_registered
+from .decorators import (
+    RoutePolicyWarning,
+    assert_route_security,
+    mark_route_registered,
+)
 from .exceptions import HTTPError
 from .http import Request, Response
 from .middleware import Middleware
@@ -97,6 +102,15 @@ class Router:
         # recognized access-control marker. Opt out for staged migration or
         # middleware-based authorization.
         self.enforce_route_policy = enforce_route_policy
+        if not enforce_route_policy:
+            warnings.warn(
+                "Route security policy is disabled (enforce_route_policy=False): "
+                "routes may register without declaring a security posture. This "
+                "removes a guard against accidentally unprotected routes - ensure "
+                "authorization is enforced elsewhere (e.g. middleware).",
+                RoutePolicyWarning,
+                stacklevel=2,
+            )
 
     def add_route(
         self, path: str, handler: Callable, methods: list[str], public: bool = False
@@ -231,6 +245,14 @@ class Kinglet:
     def patch(self, path: str, *, public: bool = False):
         """PATCH route decorator"""
         return self.route(path, ["PATCH"], public=public)
+
+    def head(self, path: str, *, public: bool = False):
+        """HEAD route decorator"""
+        return self.route(path, ["HEAD"], public=public)
+
+    def options(self, path: str, *, public: bool = False):
+        """OPTIONS route decorator"""
+        return self.route(path, ["OPTIONS"], public=public)
 
     def include_router(self, prefix: str, router: Router):
         """Include a sub-router with path prefix"""

@@ -81,7 +81,9 @@ async def clear_cache(request):
 # === GEO-RESTRICTED ENDPOINTS ===
 
 
-@app.get("/api/games-us")
+# geo_restrict is a network filter, not auth, so it does not satisfy the route
+# policy on its own - these are public game listings with a regional filter.
+@app.get("/api/games-us", public=True)
 @geo_restrict(allowed=["US"])
 async def us_only_games(request):
     """Games only available in the US"""
@@ -92,7 +94,7 @@ async def us_only_games(request):
     }
 
 
-@app.get("/api/games-global")
+@app.get("/api/games-global", public=True)
 @geo_restrict(blocked=["CN", "RU"])
 async def global_games_with_restrictions(request):
     """Games available globally except in specific countries"""

@@ -45,14 +45,23 @@ def _route_policy_default(request, monkeypatch):
     if request.node.get_closest_marker("route_policy"):
         return
 
+    import warnings
+
     import kinglet.core as core
+    from kinglet.decorators import RoutePolicyWarning
 
     for cls in (core.Kinglet, core.Router):
         original_init = cls.__init__
 
         def patched_init(self, *args, _orig=original_init, **kwargs):
             kwargs.setdefault("enforce_route_policy", False)
-            _orig(self, *args, **kwargs)
+            # This relaxation is intentional for mechanics tests; silence the
+            # opt-out warning so it does not spam the suite. Tests that probe
+            # the opt-out behavior are marked @pytest.mark.route_policy and run
+            # without this patch, so they still observe the warning.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RoutePolicyWarning)
+                _orig(self, *args, **kwargs)
 
         monkeypatch.setattr(cls, "__init__", patched_init)
 

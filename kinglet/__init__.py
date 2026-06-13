@@ -12,6 +12,7 @@ from .core import Kinglet, Route, Router
 
 # Decorators
 from .decorators import (
+    RoutePolicyWarning,
     geo_restrict,
     is_route_registered,
     is_secured,
@@ -260,6 +261,7 @@ __all__ = [
     "security_decorator",
     "mark_secured",
     "is_secured",
+    "RoutePolicyWarning",
     # Utilities
     "CacheService",
     "cache_aside",

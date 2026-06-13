@@ -46,7 +46,9 @@ A route executes exactly the callable registered at declaration time. Kinglet ne
 Since **2.0**, route registration is **default-deny**: every route must declare its access posture, or registration raises `RuntimeError` (at import for module-level routes). A route is accepted only if:
 
 1. It is explicitly **public**: `@app.get("/health", public=True)`, or
-2. Its handler carries a recognized **access-control marker** — set by the built-in auth decorators (`require_auth`, `require_owner`, `require_participant`, `require_claim`, `require_elevated_session`, `require_elevated_claim`, `allow_public_or_owner`, `require_dev`, `geo_restrict`) applied with the route decorator **outermost**, or by a custom decorator wrapped with `@security_decorator`.
+2. Its handler carries a recognized **access-control marker** — set by the built-in auth decorators (`require_auth`, `require_owner`, `require_participant`, `require_claim`, `require_elevated_session`, `require_elevated_claim`, `allow_public_or_owner`, `require_dev`) applied with the route decorator **outermost**, or by a custom decorator wrapped with `@security_decorator`.
+
+> **`geo_restrict` is intentionally NOT a security posture.** Geo-restriction reads `CF-IPCountry`, a forgeable network-layer hint (bypassable via VPN, or by spoofing the header off-Cloudflare), and it fails **open** in production. It is a supplementary filter, not an identity check, so a geo-restricted route still needs `public=True` or a real auth decorator. (Contrast `require_dev`, which fails **closed** — a 404 blackhole in production — and therefore does count as a posture.)
 
 > Validation decorators (`validate_json_body`, `require_field`) are **not** access control and do not satisfy the policy on their own.
 

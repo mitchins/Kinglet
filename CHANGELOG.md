@@ -73,8 +73,20 @@ For each route, do **one** of the following:
 
 - Built-in auth/access decorators (`require_auth`, `require_owner`,
   `require_participant`, `require_claim`, `require_elevated_session`,
-  `require_elevated_claim`, `allow_public_or_owner`, `require_dev`,
-  `geo_restrict`) now mark their routes as secured automatically.
+  `require_elevated_claim`, `allow_public_or_owner`, `require_dev`) now mark
+  their routes as secured automatically.
+- **`geo_restrict` does NOT satisfy the policy.** It reads the forgeable
+  `CF-IPCountry` hint and fails open in production, so it is a supplementary
+  filter, not an identity posture. A geo-restricted route needs `public=True`
+  or a real auth decorator. (`require_dev` fails closed → 404 in production, so
+  it does count.)
+- Disabling the policy (`enforce_route_policy=False`) emits a
+  `RoutePolicyWarning` so an intentional opt-out is not mistaken for one
+  forgotten during migration.
+- `Kinglet` now also exposes `head()` and `options()` route decorators (were
+  previously only on `Router`).
+- The registration error names the offending handler and points at
+  `@security_decorator`.
 - Dispatch is unchanged: a route still executes exactly the callable registered
   at declaration time. No module/global name lookup, closure walking, or
   `__wrapped__` traversal is used to select handlers.
