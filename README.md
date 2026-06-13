@@ -25,12 +25,13 @@ app = Kinglet(root_path="/api")
 # Flexible middleware (v1.4.2+)
 app.add_middleware(CorsMiddleware(allow_origin="*"))
 
-@app.post("/auth/login")
+# Routes are default-deny (2.0): each is public=True or carries an auth decorator
+@app.post("/auth/login", public=True)
 async def login(request):
     data = await request.json()
     return {"token": "jwt-token", "user": data["email"]}
 
-@app.get("/api/data")
+@app.get("/api/data", public=True)
 @cache_aside_d1(cache_type="api_data", ttl=1800)  # D1 caching (v1.5.0+)
 async def get_data(request):
     return {"data": "cached_in_prod_fresh_in_dev"}
@@ -49,7 +50,7 @@ async def get_data(request):
 **Core:** Decorator routing, typed parameters, flexible middleware, auto error handling, serverless testing
 **Cloudflare:** D1/R2/KV helpers, D1-backed caching, environment-aware policies, CDN-aware URLs
 **Database:** Micro-ORM for D1 with migrations, field validation, bulk operations (v1.6.0+)
-**Security:** JWT validation, TOTP/2FA, geo-restrictions, fine-grained auth decorators
+**Security:** Default-deny routes, JWT validation, TOTP/2FA, fine-grained auth/ownership decorators
 **Developer:** Full type hints, debug mode, request validation, zero-dependency testing
 **OpenAPI:** Auto-generated Swagger/ReDoc docs from routes and models (v1.8.0+)
 
@@ -57,15 +58,14 @@ async def get_data(request):
 
 **Typed Parameters & Auth:**
 ```python
+from kinglet.authz import require_auth   # or wrap your own with @security_decorator
+
 @app.get("/users/{user_id}")
+@require_auth                            # JWT auth; route decorator stays outermost
 async def get_user(request):
     user_id = request.path_param_int("user_id")  # Validates or returns 400
-    auth_header = request.header("authorization", "")
-    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
-    if token != os.environ.get("API_TOKEN"):
-        return Response({"error": "Authentication required"}, status=401)
     limit = request.query_int("limit", 10)       # Query params with defaults
-    return {"user": user_id, "token": "validated"}
+    return {"user": user_id}
 ```
 
 **Flexible Middleware & Caching:**
@@ -75,13 +75,13 @@ cors = CorsMiddleware(allow_origin="*", allow_methods="GET,POST")
 app.add_middleware(cors)
 
 # D1-backed caching (v1.5.0+) - faster and cheaper for <1MB responses
-@app.get("/api/data")
+@app.get("/api/data", public=True)
 @cache_aside_d1(cache_type="api_data", ttl=1800)  # D1 primary, R2 fallback
 async def get_data(request):
     return {"data": "expensive_query_result"}
 
 # R2-backed caching for larger responses
-@app.get("/api/large")
+@app.get("/api/large", public=True)
 @cache_aside(cache_type="large_data", ttl=3600)  # Environment-aware
 async def get_large_data(request):
     return {"data": "large_expensive_query_result"}
@@ -103,8 +103,8 @@ top_games = await Game.objects.filter(db, score__gte=90).order_by("-score").all(
 **Security & Access Control:**
 ```python
 @app.get("/admin/debug")
-@require_dev()                    # 404 in production (blackhole)
-@geo_restrict(allowed=["US"])     # HTTP 451 for other countries
+@require_dev()                    # 404 in production (blackhole) - satisfies the route policy
+@geo_restrict(allowed=["US"])     # 451 elsewhere - a filter, not auth (needs public/auth too)
 async def debug_endpoint(request):
     return {"debug": "sensitive data"}
 ```
@@ -121,12 +121,12 @@ def test_api():
 ```python
 from kinglet import SchemaGenerator, Response
 
-@app.get("/openapi.json")
+@app.get("/openapi.json", public=True)
 async def openapi_spec(request):
     generator = SchemaGenerator(app, title="My API", version="1.0.0")
     return Response(generator.generate_spec())
 
-@app.get("/docs")
+@app.get("/docs", public=True)
 async def swagger_ui(request):
     generator = SchemaGenerator(app, title="My API")
     return Response(generator.serve_swagger_ui(), content_type="text/html")
