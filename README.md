@@ -65,7 +65,7 @@ from kinglet.authz import require_auth   # or wrap your own with @security_decor
 async def get_user(request):
     user_id = request.path_param_int("user_id")  # Validates or returns 400
     limit = request.query_int("limit", 10)       # Query params with defaults
-    return {"user": user_id}
+    return {"user": user_id, "limit": limit}
 ```
 
 **Flexible Middleware & Caching:**
