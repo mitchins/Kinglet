@@ -39,26 +39,59 @@ async def get_sensitive_data(request):
 3. The route executes exactly the callable it registered — the security wrapper is never called
 4. **Result: Complete authentication bypass**
 
-### Built-in Guardrail (Fail Closed)
+### Default-Deny Route Policy (2.0)
+
 A route executes exactly the callable registered at declaration time. Kinglet never recovers handlers by module/global name lookup or wrapper inspection.
 
-All built-in security and validation decorators (`require_auth`, `require_owner`, `require_participant`, `require_claim`, `require_elevated_session`, `require_elevated_claim`, `allow_public_or_owner`, `require_dev`, `geo_restrict`, `validate_json_body`, `require_field`) detect when they are applied above/outside a route decorator and **raise `RuntimeError` at import time** instead of leaving the route silently unprotected:
+Since **2.0**, route registration is **default-deny**: every route must declare its access posture, or registration raises `RuntimeError` (at import for module-level routes). A route is accepted only if:
+
+1. It is explicitly **public**: `@app.get("/health", public=True)`, or
+2. Its handler carries a recognized **access-control marker** — set by the built-in auth decorators (`require_auth`, `require_owner`, `require_participant`, `require_claim`, `require_elevated_session`, `require_elevated_claim`, `allow_public_or_owner`, `require_dev`) applied with the route decorator **outermost**, or by a custom decorator wrapped with `@security_decorator`.
+
+> **`geo_restrict` is intentionally NOT a security posture.** Geo-restriction reads `CF-IPCountry`, a forgeable network-layer hint (bypassable via VPN, or by spoofing the header off-Cloudflare), and it fails **open** in production. It is a supplementary filter, not an identity check, so a geo-restricted route still needs `public=True` or a real auth decorator. (Contrast `require_dev`, which fails **closed** — a 404 blackhole in production — and therefore does count as a posture.)
+
+> Validation decorators (`validate_json_body`, `require_field`) are **not** access control and do not satisfy the policy on their own.
+
+This makes the reversed-order bypass fail closed **by default**, including for custom decorators:
 
 ```python
-@require_auth          # ← RuntimeError at import: cannot protect the route
-@app.get("/secret")
-async def secret(request): ...
+@require_admin          # custom decorator, reversed order
+@app.get("/admin")      # registers a bare handler first ->
+async def admin(request):
+    ...                 # RuntimeError: route has no declared security posture
 ```
 
-Custom security decorators do not get this guardrail automatically. If you write your own, you can opt in:
+```python
+@app.get("/admin")      # correct order
+@require_auth           # built-in marks the route secured -> OK
+async def admin(request): ...
+
+@app.get("/health", public=True)   # explicit public -> OK
+async def health(request): ...
+```
+
+**Making a custom decorator Kinglet-aware** — one line:
 
 ```python
-from kinglet import reject_if_route_registered
+from kinglet import security_decorator
 
+@security_decorator
 def require_admin(handler):
-    reject_if_route_registered(handler, "require_admin")
-    ...
+    @functools.wraps(handler)
+    async def wrapped(request):
+        ...
+    return wrapped
 ```
+
+`@security_decorator` both marks the route as secured *and* makes reversed order fail fast.
+
+**Opting out (staged migration / middleware-based auth).** Apps that authorize in global middleware rather than per-route decorators, or that need to upgrade incrementally, can disable the policy:
+
+```python
+app = Kinglet(enforce_route_policy=False)   # legacy behavior; you own route security
+```
+
+With the policy off, the older guardrail still applies: built-in decorators (and any wrapped with `@security_decorator`) raise if applied above a route decorator. The reversed-order **custom unguarded** decorator bypass is only possible in this opt-out mode.
 
 ### Testing for Decorator Order Issues
 ```python

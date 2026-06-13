@@ -37,6 +37,8 @@ from kinglet.authz import (
     require_participant,
 )
 
+pytestmark = pytest.mark.route_policy
+
 SECRET = "unit-test-secret"
 
 
@@ -110,27 +112,26 @@ class TestCorrectDecoratorOrder:
         assert "secret" in body
 
 
-class TestReversedDecoratorOrderFailsAtImport:
-    def test_single_security_decorator_above_route_raises(self):
+class TestReversedDecoratorOrderFailsClosed:
+    """Default (enforce_route_policy on): a security decorator above the route
+    decorator leaves the route decorator innermost, so it registers a bare
+    handler. The route policy rejects that handler at registration - before
+    the request ever runs - so no route is left silently unprotected."""
+
+    def test_single_reversed_raises(self):
         app = Kinglet()
 
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises(RuntimeError, match="security posture"):
 
             @require_auth
             @app.get("/secret")
             async def secret(request):
                 return {"secret": True}
 
-        message = str(exc_info.value)
-        assert "require_auth" in message
-        assert "@app.get('/path')" in message  # explains the correct order
-
-    def test_nested_security_decorators_above_route_raise(self):
-        """The innermost security decorator sees the registered handler and
-        raises immediately - no route is left silently unprotected."""
+    def test_nested_reversed_raises(self):
         app = Kinglet()
 
-        with pytest.raises(RuntimeError, match="require_claim"):
+        with pytest.raises(RuntimeError, match="security posture"):
 
             @require_auth
             @require_claim("admin", True)
@@ -138,10 +139,10 @@ class TestReversedDecoratorOrderFailsAtImport:
             async def secret(request):
                 return {"secret": True}
 
-    def test_router_decorators_are_guarded_too(self):
+    def test_router_reversed_raises(self):
         router = Router()
 
-        with pytest.raises(RuntimeError, match="require_auth"):
+        with pytest.raises(RuntimeError, match="security posture"):
 
             @require_auth
             @router.get("/secret")
@@ -161,7 +162,7 @@ class TestNoHandlerRebinding:
         try:
             globals()["endpoint"] = endpoint
 
-            @app.get("/public")
+            @app.get("/public", public=True)
             async def endpoint(request):
                 return {"public": True}
 
@@ -190,7 +191,7 @@ class TestNoHandlerRebinding:
         closure and __wrapped__) is ignored unless it was actually registered."""
         app = Kinglet(auto_wrap_exceptions=False)
 
-        @app.get("/data")
+        @app.get("/data", public=True)
         async def data(request):
             return Response({"original": True}, status=200)
 
@@ -228,7 +229,9 @@ class TestUnmarkableHandlers:
         controller = Controller()
         router = Router()
         # Bound methods reject setattr; the weak registry must catch them.
-        router.add_route("/secret", controller.secret, ["GET"])
+        # public=True only satisfies the route policy; the route-registered
+        # marker (what this test exercises) is independent of it.
+        router.add_route("/secret", controller.secret, ["GET"], public=True)
 
         # Every `controller.secret` access creates a fresh bound-method object;
         # it must still be recognised via (instance, function) equality.
@@ -257,7 +260,11 @@ class TestEveryBuiltinDecoratorIsGuarded:
     def test_reversed_order_raises(self, name, factory):
         router = Router()
 
-        @router.get("/guarded")
+        # public=True lets the route register; the handler is then marked
+        # route-registered, so applying a security decorator on top of it must
+        # be rejected by that decorator's own guard (isolates the guard from
+        # the route policy, which would otherwise also fire).
+        @router.get("/guarded", public=True)
         async def handler(request):
             return {"ok": True}
 

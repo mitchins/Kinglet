@@ -28,7 +28,7 @@ set_default_cache_policy(
 
 
 # Example 1: Basic Environment-Aware Caching
-@app.get("/api/basic-data")
+@app.get("/api/basic-data", public=True)
 @cache_aside(cache_type="basic_data", ttl=1800)  # 30 minutes
 async def get_basic_data(request):
     """
@@ -46,7 +46,7 @@ async def get_basic_data(request):
 
 
 # Example 2: Always Cache (Critical Production Data)
-@app.get("/api/critical-data")
+@app.get("/api/critical-data", public=True)
 @cache_aside(
     cache_type="critical_data",
     ttl=3600,  # 1 hour
@@ -66,7 +66,7 @@ async def get_critical_data(request):
 
 
 # Example 3: Never Cache (Sensitive Data)
-@app.get("/api/sensitive-data")
+@app.get("/api/sensitive-data", public=True)
 @cache_aside(
     cache_type="sensitive_data",
     ttl=300,  # TTL ignored due to policy
@@ -95,7 +95,7 @@ class BusinessHoursCachePolicy:
         return 9 <= hour <= 17
 
 
-@app.get("/api/business-reports")
+@app.get("/api/business-reports", public=True)
 @cache_aside(cache_type="business_reports", ttl=1800, policy=BusinessHoursCachePolicy())
 async def get_business_reports(request):
     """
@@ -118,7 +118,7 @@ class FeatureFlagCachePolicy:
         return getattr(request.env, "FEATURE_CACHE_ENABLED", True)
 
 
-@app.get("/api/feature-data")
+@app.get("/api/feature-data", public=True)
 @cache_aside(
     cache_type="feature_data",
     ttl=900,  # 15 minutes
@@ -136,14 +136,14 @@ async def get_feature_data(request):
 
 
 # Example 6: Different TTL for Different Data Types
-@app.get("/api/static-config")
+@app.get("/api/static-config", public=True)
 @cache_aside(cache_type="static_config", ttl=86400)  # 24 hours
 async def get_static_config(request):
     """Long-lived cache for configuration data"""
     return {"config": "rarely_changing_settings", "version": "1.0"}
 
 
-@app.get("/api/live-stats")
+@app.get("/api/live-stats", public=True)
 @cache_aside(cache_type="live_stats", ttl=30)  # 30 seconds
 async def get_live_stats(request):
     """Short-lived cache for frequently changing data"""
@@ -151,7 +151,7 @@ async def get_live_stats(request):
 
 
 # Example 7: Cache with Path Parameters
-@app.get("/api/user/{user_id}/profile")
+@app.get("/api/user/{user_id}/profile", public=True)
 @cache_aside(cache_type="user_profile", ttl=1800)
 async def get_user_profile(request):
     """
@@ -168,7 +168,7 @@ async def get_user_profile(request):
 
 
 # Example 8: Cache with Query Parameters
-@app.get("/api/search")
+@app.get("/api/search", public=True)
 @cache_aside(cache_type="search_results", ttl=600)  # 10 minutes
 async def search_data(request):
     """
@@ -188,7 +188,7 @@ async def search_data(request):
 
 
 # Example 9: Custom Storage Binding
-@app.get("/api/custom-storage")
+@app.get("/api/custom-storage", public=True)
 @cache_aside(
     storage_binding="CUSTOM_CACHE",  # Use different KV namespace
     cache_type="custom_data",
@@ -207,7 +207,7 @@ async def get_custom_storage_data(request):
 
 
 # Example 10: Cache Status Endpoint
-@app.get("/api/cache-status")
+@app.get("/api/cache-status", public=True)
 async def cache_status(request):
     """
     Helper endpoint to check cache configuration.

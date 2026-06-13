@@ -10,13 +10,13 @@ import sys
 # Add parent directory to path so we can import kinglet
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from kinglet import Kinglet, Response, SchemaGenerator, TestClient
+from kinglet import Kinglet, Response, SchemaGenerator, TestClient, security_decorator
 
 # Create app with root path for /api endpoints
 app = Kinglet(root_path="/api", debug=True)
 
 
-@app.get("/")
+@app.get("/", public=True)
 async def health_check(request):
     """Health check endpoint"""
     import sys
@@ -31,7 +31,7 @@ async def health_check(request):
     }
 
 
-@app.get("/search")
+@app.get("/search", public=True)
 async def search_users(request):
     """Example with typed query parameters"""
     page = request.query_int("page", 1)
@@ -47,25 +47,42 @@ async def search_users(request):
     }
 
 
-@app.get("/users/{user_id}")
+@security_decorator
+def require_api_token(handler):
+    """
+    Validates the Bearer token in the Authorization header against the API_TOKEN
+    environment variable.  Demonstrates using @security_decorator for a custom,
+    non-JWT auth scheme.
+    """
+
+    async def wrapped(request):
+        auth_header = request.header("authorization", "")
+        token = (
+            auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+        )
+        expected_token = os.environ.get("API_TOKEN")
+        if not expected_token or token != expected_token:
+            return Response.error(
+                "Authentication required", status=401, request_id=request.request_id
+            )
+        # Stash validated token on request state for the handler
+        request.state = getattr(request, "state", type("State", (), {})())
+        request.state.token = token
+        return await handler(request)
+
+    return wrapped
+
+
+@app.get("/users/{user_id}")  # ← route decorator OUTERMOST
+@require_api_token  # ← security decorator below
 async def get_user(request):
-    """Example with typed path parameters and authentication"""
+    """Example with typed path parameters and authentication (via @require_api_token)."""
     # Typed path parameter with validation
     user_id = request.path_param_int("user_id")
-
-    # Check authentication by validating the bearer token against a trusted source.
-    auth_header = request.header("authorization", "")
-    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
-    expected_token = os.environ.get("API_TOKEN")
-    if not expected_token or token != expected_token:
-        return Response.error(
-            "Authentication required", status=401, request_id=request.request_id
-        )
-
-    return {"user_id": user_id, "authenticated": True, "token": token}
+    return {"user_id": user_id, "authenticated": True, "token": request.state.token}
 
 
-@app.post("/auth/register")
+@app.post("/auth/register", public=True)
 async def register(request):
     """Example with JSON body and validation"""
     data = await request.json()
@@ -87,7 +104,7 @@ async def register(request):
 
 
 # OpenAPI Documentation Endpoints
-@app.get("/openapi.json")
+@app.get("/openapi.json", public=True)
 async def openapi_spec(request):
     """
     OpenAPI 3.0 Specification
@@ -104,7 +121,7 @@ async def openapi_spec(request):
     return Response(generator.generate_spec())
 
 
-@app.get("/docs")
+@app.get("/docs", public=True)
 async def swagger_ui(request):
     """
     Interactive API Documentation (Swagger UI)
@@ -118,7 +135,7 @@ async def swagger_ui(request):
     )
 
 
-@app.get("/redoc")
+@app.get("/redoc", public=True)
 async def redoc_ui(request):
     """
     API Documentation (ReDoc)

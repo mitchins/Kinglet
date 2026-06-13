@@ -12,6 +12,12 @@ import pytest
 
 from kinglet import Kinglet, Response, Router, TestClient, geo_restrict, require_dev
 
+# This file predates the 2.0 default-deny policy and exercises the
+# reject-if-route-registered guard and the route-binding invariant, both of
+# which still hold in the opt-out (enforce_route_policy=False) mode the conftest
+# relaxation supplies. The default-deny policy itself is covered authoritatively
+# by tests/test_route_policy.py and tests/test_route_binding_security.py.
+
 
 def parse_body(body):
     """Helper to parse JSON body from TestClient response"""

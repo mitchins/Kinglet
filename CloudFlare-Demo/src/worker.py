@@ -2,7 +2,7 @@
 Kinglet Demo - Testing all features
 """
 
-from kinglet import Kinglet, Response, Router
+from kinglet import Kinglet, Response, Router, security_decorator
 from kinglet.authz import (
     allow_public_or_owner,
     get_user,
@@ -20,7 +20,7 @@ def _is_local_demo_allowed(request) -> bool:
 
 
 # ============ Basic Routes ============
-@app.get("/")
+@app.get("/", public=True)
 async def hello(request):
     return {
         "message": "Kinglet Demo",
@@ -34,7 +34,7 @@ async def hello(request):
     }
 
 
-@app.get("/health")
+@app.get("/health", public=True)
 async def health_check(request):
     return {"status": "healthy"}
 
@@ -43,7 +43,7 @@ async def health_check(request):
 auth_router = Router()
 
 
-@auth_router.get("/public")
+@auth_router.get("/public", public=True)
 async def public_endpoint(request):
     """Public endpoint - no auth required"""
     return {"message": "This is public", "auth_required": False}
@@ -144,7 +144,7 @@ app.include_router("/totp", totp_router)
 db_router = Router()
 
 
-@db_router.get("/users")
+@db_router.get("/users", public=True)
 async def list_users(request):
     """List users from D1 database"""
     try:
@@ -170,7 +170,7 @@ async def list_users(request):
     }
 
 
-@db_router.post("/users")
+@db_router.post("/users", public=True)
 async def create_user(request):
     """Create user in D1 database"""
     body = await request.json() or {}
@@ -206,7 +206,7 @@ app.include_router("/db", db_router)
 r2_router = Router()
 
 
-@r2_router.get("/files")
+@r2_router.get("/files", public=True)
 async def list_files(request):
     """List files in R2 bucket"""
     try:
@@ -230,7 +230,7 @@ async def list_files(request):
     }
 
 
-@r2_router.get("/file/{key:path}")
+@r2_router.get("/file/{key:path}", public=True)
 async def get_file(request):
     """Get file from R2"""
     key = request.path_params.get("key")
@@ -270,6 +270,7 @@ app.include_router("/r2", r2_router)
 admin_router = Router()
 
 
+@security_decorator
 def require_admin(handler):
     """Admin authentication decorator"""
 
@@ -311,7 +312,9 @@ app.include_router("/admin", admin_router)
 
 
 # ============ SES Email Test ============
-@app.get("/ses/test")
+@app.get(
+    "/ses/test", public=True
+)  # TODO: consider a security decorator — currently guarded only by inline env/demo check
 async def test_ses_signing(request):
     """Test SES SigV4 signing without actually sending email"""
     from kinglet.ses import _sign_aws_request, _get_env_var
@@ -340,10 +343,13 @@ async def test_ses_signing(request):
 
         # Convert JS object to dict for display
         import js
+
         headers_dict = {}
         keys = js.Object.keys(signed_headers).to_py()
         for key in keys:
-            headers_dict[key] = getattr(signed_headers, key, None) or str(js.Reflect.get(signed_headers, key))
+            headers_dict[key] = getattr(signed_headers, key, None) or str(
+                js.Reflect.get(signed_headers, key)
+            )
 
         return {
             "success": True,
@@ -360,7 +366,9 @@ async def test_ses_signing(request):
         }
 
 
-@app.get("/ses/demo")
+@app.get(
+    "/ses/demo", public=True
+)  # TODO: consider a security decorator — currently guarded only by inline _is_local_demo_allowed check
 async def ses_demo_form(request):
     """Simple HTML form for testing email sends - LOCAL ONLY"""
     if not _is_local_demo_allowed(request):
@@ -447,7 +455,9 @@ async def ses_demo_form(request):
     return Response(html, headers={"Content-Type": "text/html"})
 
 
-@app.post("/ses/send")
+@app.post(
+    "/ses/send", public=True
+)  # TODO: consider a security decorator — currently guarded only by inline _is_local_demo_allowed check
 async def send_test_email(request):
     """Actually send a test email via SES"""
     if not _is_local_demo_allowed(request):

@@ -66,6 +66,151 @@ def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Route security policy: default-deny route registration
+#
+# Under enforce_route_policy (default in 2.0), a route may only be registered
+# if it is explicitly declared public (``public=True``) or its handler carries
+# a recognized access-control marker. This makes the reversed-order custom
+# decorator bypass fail closed *by default*, without any module/global name
+# lookup: at registration time the handler is simply inspected for the marker.
+# ---------------------------------------------------------------------------
+
+
+class RoutePolicyWarning(UserWarning):
+    """Emitted when the default-deny route policy is disabled.
+
+    Disabling enforcement removes a framework-level guard against accidentally
+    unprotected routes; the warning leaves an audit signal so an intentional
+    opt-out is not mistaken for one forgotten during migration.
+    """
+
+
+# Set on the wrapper produced by a recognized access-control decorator. Stored
+# as a normal function attribute so it lives in ``__dict__`` and therefore
+# propagates outward through ``functools.wraps`` when decorators are stacked.
+SECURED_ATTR = "__kinglet_secured__"
+
+# Fallback registry for secured callables that cannot carry attributes.
+_UNMARKABLE_SECURED_HANDLERS: weakref.WeakSet = weakref.WeakSet()
+
+
+def mark_secured(handler: Callable) -> Callable:
+    """Mark a callable as carrying an access-control posture.
+
+    Recognized built-in access decorators call this on their wrapper, and
+    :func:`security_decorator` calls it for custom decorators. The route
+    policy then accepts the route without requiring ``public=True``.
+    """
+    try:
+        setattr(handler, SECURED_ATTR, True)
+    except (AttributeError, TypeError):
+        with contextlib.suppress(TypeError):
+            _UNMARKABLE_SECURED_HANDLERS.add(handler)
+    return handler
+
+
+def is_secured(handler: Callable) -> bool:
+    """Return True if the callable carries a recognized access-control marker."""
+    if getattr(handler, SECURED_ATTR, False):
+        return True
+    try:
+        return handler in _UNMARKABLE_SECURED_HANDLERS
+    except TypeError:
+        return False
+
+
+def security_decorator(decorator_fn: Callable) -> Callable:
+    """Make a custom *simple* security decorator Kinglet-aware.
+
+    A simple decorator has the shape ``def deco(handler) -> wrapped``. Wrapping
+    it with ``@security_decorator`` makes its output satisfy the default-deny
+    route policy and makes reversed decorator order fail fast::
+
+        @security_decorator
+        def require_admin(handler):
+            @functools.wraps(handler)
+            async def wrapped(request): ...
+            return wrapped
+
+        @app.get("/admin")   # correct order: enforced
+        @require_admin
+        async def admin(request): ...
+
+        @require_admin        # reversed order: RuntimeError at import
+        @app.get("/admin")
+        async def admin(request): ...
+
+    **Parameterized factories** (``def require_role(role) -> deco -> wrapped``)
+    take an argument, so they are NOT simple decorators. Apply
+    ``@security_decorator`` to the *inner* decorator the factory returns, not to
+    the factory itself::
+
+        def require_role(role):
+            @security_decorator
+            def deco(handler):
+                @functools.wraps(handler)
+                async def wrapped(request): ...
+                return wrapped
+            return deco
+
+        @app.get("/admin")
+        @require_role("admin")   # works: the inner deco is the secured one
+        async def admin(request): ...
+
+    Applying ``@security_decorator`` directly to a factory is rejected at call
+    time with a ``TypeError`` (rather than silently mis-marking the factory
+    instead of the handler, which would leave the route unprotected).
+    """
+
+    @functools.wraps(decorator_fn)
+    def aware_decorator(handler: Callable) -> Callable:
+        if not callable(handler):
+            raise TypeError(
+                f"@security_decorator expects a simple decorator "
+                f"`def {getattr(decorator_fn, '__name__', 'deco')}(handler): ...`, "
+                f"but it was invoked with a non-callable argument {handler!r}. "
+                f"This usually means it was applied to a decorator FACTORY "
+                f"(e.g. require_role('admin')). Apply @security_decorator to the "
+                f"INNER decorator the factory returns instead - see its docstring."
+            )
+        reject_if_route_registered(
+            handler, getattr(decorator_fn, "__name__", "decorator")
+        )
+        wrapped = decorator_fn(handler)
+        return mark_secured(wrapped)
+
+    return aware_decorator
+
+
+def assert_route_security(handler: Callable, *, public: bool, path: str = "") -> None:
+    """Fail closed if a route is neither explicitly public nor secured.
+
+    Called at route registration. Deterministic: it only inspects the handler
+    that will actually be dispatched - no module scanning, name lookup, or
+    closure inspection.
+    """
+    if public or is_secured(handler):
+        return
+    where = f" for {path!r}" if path else ""
+    name = getattr(handler, "__name__", None) or repr(handler)
+    raise RuntimeError(
+        f"Route{where} (handler {name!r}) has no declared security posture. "
+        f"Under the default route policy every route must be explicitly public "
+        f"or protected by a recognized access-control decorator. If {name!r} is "
+        f"protected by a custom decorator, that decorator must be wrapped with "
+        f"@security_decorator to be recognized.\n\n"
+        f"  - Public endpoint:    @app.get('/path', public=True)\n"
+        f"  - Built-in auth:      @app.get('/path')\n"
+        f"                        @require_auth   # (route decorator outermost)\n"
+        f"  - Custom decorator:   wrap it with @security_decorator so Kinglet\n"
+        f"                        recognizes it as access control.\n\n"
+        f"Note: geo_restrict is a network filter, not an identity check - a\n"
+        f"geo-restricted route still needs public=True or a real auth decorator.\n\n"
+        f"To opt out during migration: Kinglet(enforce_route_policy=False)."
+    )
+
+
 def wrap_exceptions(step: str = None, expose_details: bool = None):
     """
     Decorator to automatically wrap exceptions in standardized error responses.
@@ -137,7 +282,7 @@ def require_dev():
 
             return await handler(request)
 
-        return wrapped
+        return mark_secured(wrapped)
 
     return decorator
 
@@ -175,6 +320,13 @@ def geo_restrict(*, allowed: list = None, blocked: list = None):
 
             return await handler(request)
 
+        # Deliberately NOT mark_secured: geo-restriction is a forgeable
+        # network-layer hint (CF-IPCountry; bypassable via VPN or off-Cloudflare
+        # header spoofing), not an identity/authorization control. It fails OPEN
+        # in production, so it cannot by itself satisfy the route security
+        # policy. A geo-restricted route must also be public=True or carry a
+        # real auth decorator. (Contrast require_dev, which fails CLOSED -> 404
+        # in production - and so does mark the route secured.)
         return wrapped
 
     return decorator

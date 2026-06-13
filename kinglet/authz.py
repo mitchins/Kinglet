@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .constants import AUTH_REQUIRED, NOT_FOUND, TOTP_STEP_UP_PATH
-from .decorators import reject_if_route_registered
+from .decorators import mark_secured, reject_if_route_registered
 from .http import Response  # Import directly from http module
 
 
@@ -174,7 +174,7 @@ def require_auth(handler: Callable[[Any], Awaitable[Any]]):
         req.state.user = user
         return await handler(req)
 
-    return wrapped
+    return mark_secured(wrapped)
 
 
 def allow_public_or_owner(
@@ -208,7 +208,7 @@ def allow_public_or_owner(
                 return Response({"error": NOT_FOUND}, status=404)
             return Response({"error": "forbidden"}, status=403)
 
-        return wrapped
+        return mark_secured(wrapped)
 
     return deco
 
@@ -242,7 +242,7 @@ def require_owner(
                 return await handler(req, obj=rec)
             return Response({"error": "forbidden"}, status=403)
 
-        return wrapped
+        return mark_secured(wrapped)
 
     return deco
 
@@ -273,7 +273,7 @@ def require_participant(
                 return await handler(req)
             return Response({"error": "forbidden"}, status=403)
 
-        return wrapped
+        return mark_secured(wrapped)
 
     return deco
 
@@ -329,7 +329,7 @@ def require_elevated_session(handler: Callable[[Any], Awaitable[Any]]):
         req.state.user = user
         return await handler(req)
 
-    return wrapped
+    return mark_secured(wrapped)
 
 
 def require_claim(claim_name: str, claim_value: Any = True):
@@ -362,7 +362,7 @@ def require_claim(claim_name: str, claim_value: Any = True):
             req.state.user = user
             return await handler(req)
 
-        return wrapped
+        return mark_secured(wrapped)
 
     return deco
 
@@ -412,7 +412,7 @@ def require_elevated_claim(claim_name: str, claim_value: Any = True):
             req.state.user = user
             return await handler(req)
 
-        return wrapped
+        return mark_secured(wrapped)
 
     return deco
 

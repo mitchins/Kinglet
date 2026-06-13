@@ -18,7 +18,7 @@ app = Kinglet(debug=True, auto_wrap_exceptions=True)
 # All endpoints automatically get exception wrapping when auto_wrap_exceptions=True
 
 
-@app.get("/api/games")
+@app.get("/api/games", public=True)
 async def get_games(request):
     """Example endpoint that might throw errors - automatically wrapped"""
     # Simulate database access that might fail
@@ -40,7 +40,7 @@ async def get_games(request):
 app_manual = Kinglet(auto_wrap_exceptions=False)
 
 
-@app_manual.get("/api/manual")
+@app_manual.get("/api/manual", public=True)
 @wrap_exceptions(step="manual_endpoint", expose_details=True)
 async def manual_wrapped(request):
     """Manually wrapped endpoint with specific step identifier"""
@@ -81,7 +81,9 @@ async def clear_cache(request):
 # === GEO-RESTRICTED ENDPOINTS ===
 
 
-@app.get("/api/games-us")
+# geo_restrict is a network filter, not auth, so it does not satisfy the route
+# policy on its own - these are public game listings with a regional filter.
+@app.get("/api/games-us", public=True)
 @geo_restrict(allowed=["US"])
 async def us_only_games(request):
     """Games only available in the US"""
@@ -92,7 +94,7 @@ async def us_only_games(request):
     }
 
 
-@app.get("/api/games-global")
+@app.get("/api/games-global", public=True)
 @geo_restrict(blocked=["CN", "RU"])
 async def global_games_with_restrictions(request):
     """Games available globally except in specific countries"""

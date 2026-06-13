@@ -19,7 +19,7 @@ from kinglet import (
 app = Kinglet()
 
 
-@app.get("/api/games")
+@app.get("/api/games", public=True)
 async def list_games(request):
     """Example using D1 helpers to safely unwrap database results"""
 
@@ -41,7 +41,7 @@ async def list_games(request):
     return {"games": games, "count": len(games)}
 
 
-@app.get("/api/games/{game_id}")
+@app.get("/api/games/{game_id}", public=True)
 async def get_game(request):
     """Example using d1_unwrap for single results"""
     game_id = request.path_param("game_id")
@@ -62,7 +62,7 @@ async def get_game(request):
     return {"game": game}
 
 
-@app.post("/api/media")
+@app.post("/api/media", public=True)
 async def upload_media(request):
     """Example using R2 helpers for file upload"""
 
@@ -103,7 +103,7 @@ async def upload_media(request):
     }
 
 
-@app.get("/api/media/{file_id}")
+@app.get("/api/media/{file_id}", public=True)
 async def get_media(request):
     """Example using R2 helpers for file metadata"""
     file_id = request.path_param("file_id")
@@ -144,7 +144,7 @@ async def get_media(request):
     }
 
 
-@app.delete("/api/media/{file_id}")
+@app.delete("/api/media/{file_id}", public=True)
 async def delete_media(request):
     """Example using R2 delete helper"""
     file_id = request.path_param("file_id")
@@ -155,7 +155,7 @@ async def delete_media(request):
     return {"success": True, "message": f"File {file_id} deleted"}
 
 
-@app.get("/api/media")
+@app.get("/api/media", public=True)
 async def list_media(request):
     """Example using R2 list helper"""
     prefix = request.query("prefix", "")
@@ -168,7 +168,7 @@ async def list_media(request):
     return {"files": result, "prefix": prefix}
 
 
-@app.get("/api/export/games")
+@app.get("/api/export/games", public=True)
 async def export_games(request):
     """Example showing lazy iteration for large datasets"""
 
@@ -201,7 +201,7 @@ async def export_games(request):
     return {"exported_games": len(export_data), "sample": export_data[:5]}
 
 
-@app.get("/api/admin/stats")
+@app.get("/api/admin/stats", public=True)
 async def get_stats(request):
     """Example for small datasets - use list version"""
 
