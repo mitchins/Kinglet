@@ -228,16 +228,31 @@ class TestUnmarkableHandlers:
 
         controller = Controller()
         router = Router()
-        # Bound methods reject setattr; the weak registry must catch them.
-        # public=True only satisfies the route policy; the route-registered
-        # marker (what this test exercises) is independent of it.
-        router.add_route("/secret", controller.secret, ["GET"], public=True)
+        # Bound methods are recreated on each access and are identity-tracked
+        # (same model as mark_secured), so capture the reference once and use the
+        # SAME object for registration and the guard check.
+        handler = controller.secret
+        router.add_route("/secret", handler, ["GET"], public=True)
 
-        # Every `controller.secret` access creates a fresh bound-method object;
-        # it must still be recognised via (instance, function) equality.
-        assert is_route_registered(controller.secret)
+        assert is_route_registered(handler)
         with pytest.raises(RuntimeError, match="require_auth"):
-            require_auth(controller.secret)
+            require_auth(handler)
+
+    def test_fresh_bound_method_access_is_not_matched(self):
+        """Identity tracking: a FRESH `obj.method` access is a different object
+        and is not recognized - bound methods must be captured once (consistent
+        with the mark_secured rule). This is a fail-loud limitation of the order
+        guard, never a bypass (the default-deny policy is the real backstop)."""
+
+        class Controller:
+            async def secret(self, request):
+                return {"secret": True}
+
+        controller = Controller()
+        router = Router()
+        router.add_route("/secret", controller.secret, ["GET"], public=True)
+        # A different access object → not matched.
+        assert not is_route_registered(controller.secret)
 
     def test_unregistered_bound_method_is_not_flagged(self):
         class Controller:
@@ -247,6 +262,29 @@ class TestUnmarkableHandlers:
         assert not is_route_registered(Controller().secret)
         # Wrapping before registration stays allowed.
         require_auth(Controller().secret)
+
+    def test_unhashable_callable_handler_is_tracked(self):
+        """Regression: an UNHASHABLE callable object (defines __eq__ without
+        __hash__) cannot live in a set, but the identity registry tracks it by
+        id(), so the decorator-order guard still fires. A WeakSet-only registry
+        silently skipped these, letting a late security decorator pass."""
+
+        class UnhashableHandler:
+            def __eq__(self, other):
+                return isinstance(other, UnhashableHandler)
+
+            __hash__ = None  # unhashable, but weakref-able
+
+            async def __call__(self, request):
+                return {"secret": True}
+
+        handler = UnhashableHandler()
+        router = Router()
+        router.add_route("/x", handler, ["GET"], public=True)
+
+        assert is_route_registered(handler)
+        with pytest.raises(RuntimeError, match="require_auth"):
+            require_auth(handler)
 
     def test_wraps_wrapper_of_registered_handler_is_not_route_registered(self):
         """The route-registered marker is a weak registry, not a function
