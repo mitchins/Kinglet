@@ -86,13 +86,20 @@ class RoutePolicyWarning(UserWarning):
     """
 
 
-# Set on the wrapper produced by a recognized access-control decorator. Stored
-# as a normal function attribute so it lives in ``__dict__`` and therefore
-# propagates outward through ``functools.wraps`` when decorators are stacked.
-SECURED_ATTR = "__kinglet_secured__"
-
-# Fallback registry for secured callables that cannot carry attributes.
-_UNMARKABLE_SECURED_HANDLERS: weakref.WeakSet = weakref.WeakSet()
+# Identity registry of callables that a recognized access-control decorator
+# actually produced. Membership is by OBJECT IDENTITY and is therefore NOT
+# copied by ``functools.wraps`` (which only copies ``__dict__`` and a few dunder
+# attributes). This is deliberate: storing the posture as a function attribute
+# let an unrelated outer wrapper - e.g. a short-circuiting cache/maintenance/
+# feature-flag decorator that uses ``functools.wraps`` but never calls the inner
+# handler - launder the "secured" marker onto itself and bypass auth. With an
+# identity registry, such a wrapper is a different object that was never marked,
+# so it fails the policy closed.
+#
+# Weak references: entries die with the callable. The check runs synchronously
+# at route registration while the route holds a strong reference to the
+# registered callable, so liveness is never a concern at check time.
+_SECURED_HANDLERS: weakref.WeakSet = weakref.WeakSet()
 
 
 def mark_secured(handler: Callable) -> Callable:
@@ -100,22 +107,24 @@ def mark_secured(handler: Callable) -> Callable:
 
     Recognized built-in access decorators call this on their wrapper, and
     :func:`security_decorator` calls it for custom decorators. The route
-    policy then accepts the route without requiring ``public=True``.
+    policy then accepts the route without requiring ``public=True``. The mark
+    is recorded by object identity, so wrapping the result in an unrelated
+    decorator does NOT carry the posture across - the wrapper must enforce
+    (or re-mark) auth itself.
     """
     try:
-        setattr(handler, SECURED_ATTR, True)
-    except (AttributeError, TypeError):
-        with contextlib.suppress(TypeError):
-            _UNMARKABLE_SECURED_HANDLERS.add(handler)
+        _SECURED_HANDLERS.add(handler)
+    except TypeError:
+        # Not weakref-able (exotic callable): cannot be marked, so it is treated
+        # as unsecured and the route must be declared public=True. Fail closed.
+        pass
     return handler
 
 
 def is_secured(handler: Callable) -> bool:
-    """Return True if the callable carries a recognized access-control marker."""
-    if getattr(handler, SECURED_ATTR, False):
-        return True
+    """Return True if the callable was produced by a recognized access decorator."""
     try:
-        return handler in _UNMARKABLE_SECURED_HANDLERS
+        return handler in _SECURED_HANDLERS
     except TypeError:
         return False
 
@@ -221,6 +230,15 @@ def wrap_exceptions(step: str = None, expose_details: bool = None):
     """
 
     def decorator(handler):
+        # wrap_exceptions is framework-applied, transparent infrastructure: it
+        # ALWAYS calls the inner handler (try/except around it), so it cannot
+        # hide an access check. It must therefore preserve the inner handler's
+        # security posture - otherwise auto-wrapping every route would strip the
+        # marker and break auth'd routes. Capture it before wrapping and re-mark
+        # by identity. (An ordinary user decorator is NOT trusted this way - only
+        # this provably-transparent wrapper is.)
+        inner_secured = is_secured(handler)
+
         @functools.wraps(handler)
         async def wrapped(request):
             try:
@@ -250,6 +268,8 @@ def wrap_exceptions(step: str = None, expose_details: bool = None):
                     status=500,
                 )
 
+        if inner_secured:
+            mark_secured(wrapped)
         return wrapped
 
     return decorator

@@ -126,12 +126,13 @@ class TestRegistrationPolicyEvasion:
     # ---- A2: mixed/correct orders with built-in + custom ----
 
     def test_a2_builtin_then_custom_notwraps_correct_order(self):
-        """A custom decorator without functools.wraps strips the __kinglet_secured__
-        attribute; the policy must reject the outer wrapper."""
+        """A custom (non-Kinglet) decorator wrapping a real auth decorator is a
+        different, unmarked object, so the policy rejects the outer wrapper -
+        whether or not it uses functools.wraps (the posture is tracked by
+        identity, not a copyable attribute)."""
         app = Kinglet()
 
         def logging_wrapper(handler):
-            # deliberately no functools.wraps → strips marker
             async def wrapped(req):
                 return await handler(req)
 
@@ -145,27 +146,51 @@ class TestRegistrationPolicyEvasion:
             async def logged(req):
                 return {}
 
-    def test_a2_logging_wrapper_with_wraps_outer_preserves_marker(self):
-        """When functools.wraps IS used the marker propagates and policy accepts."""
+    def test_a2_wraps_wrapper_outside_auth_fails_closed(self):
+        """A wrapper using functools.wraps OUTSIDE a real auth decorator no
+        longer inherits the secured posture. The posture is tracked by object
+        identity (a registry), not a functools.wraps-copyable attribute, so an
+        outer wrapper is a different, unmarked object. The framework cannot tell
+        a call-through wrapper from a short-circuiting one at registration, so it
+        conservatively fails closed (this is what blocks the marker-laundering
+        bypass)."""
         app = Kinglet()
 
         def logging_wrapper(handler):
-            @functools.wraps(handler)  # marker propagates outward
+            @functools.wraps(handler)  # copies __dict__, but not registry identity
             async def wrapped(req):
                 return await handler(req)
 
             return wrapped
 
-        # Should NOT raise
+        with pytest.raises(RuntimeError, match="security posture"):
+
+            @app.get("/logged")
+            @logging_wrapper
+            @require_auth
+            async def logged(req):
+                return {}
+
+    def test_a2_auth_outermost_is_accepted(self):
+        """The correct fix for the above: put the auth decorator outside the
+        plain wrapper so the registered callable is the secured one."""
+        app = Kinglet()
+
+        def logging_wrapper(handler):
+            @functools.wraps(handler)
+            async def wrapped(req):
+                return await handler(req)
+
+            return wrapped
+
         @app.get("/logged")
+        @require_auth  # outermost of the two → registered callable is secured
         @logging_wrapper
-        @require_auth
         async def logged(req):
             return {}
 
         client = TestClient(app, env={"JWT_SECRET": SECRET})
-        status, _, _ = client.request("GET", "/logged")
-        assert status == 401  # auth still enforced at runtime
+        assert client.request("GET", "/logged")[0] == 401  # auth enforced
 
     # ---- A3: custom decorator without @security_decorator ----
 
@@ -231,27 +256,20 @@ class TestRegistrationPolicyEvasion:
 
     # ---- A4: marker forgery ----
 
-    def test_a4_handler_self_sets_secured_marker_bypasses_policy(self):
-        """A handler that manually sets __kinglet_secured__ = True on a regular
-        function is accepted by the policy. This is BY-DESIGN: mark_secured() is
-        exported public API for advanced use cases. The test pins that a handler
-        with a forged marker registers and serves unauthenticated."""
+    def test_a4_forged_attribute_no_longer_bypasses_policy(self):
+        """Setting __kinglet_secured__ by hand no longer fools the policy: the
+        posture is tracked by object identity in a registry, not a copyable
+        attribute, so a forged attribute is simply ignored and the route fails
+        closed. (The supported opt-in is mark_secured(), see the next test.)"""
         app = Kinglet()
 
         async def unprotected(req):
             return {"forged": True}
 
-        # Manually set the marker directly (same as calling mark_secured())
-        unprotected.__kinglet_secured__ = True  # type: ignore[attr-defined]
+        unprotected.__kinglet_secured__ = True  # forged attribute - now ignored
 
-        # This should NOT raise because the marker is present
-        app.router.add_route("/forged", unprotected, ["GET"])
-
-        client = TestClient(app)
-        status, _, body = client.request("GET", "/forged")
-        # BY-DESIGN: marker accepted, no auth enforced
-        assert status == 200
-        assert "forged" in body
+        with pytest.raises(RuntimeError, match="security posture"):
+            app.router.add_route("/forged", unprotected, ["GET"])
 
     def test_a4_mark_secured_public_api_is_by_design(self):
         """mark_secured() is exported public API - using it is intentional opt-in,

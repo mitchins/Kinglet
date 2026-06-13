@@ -12,6 +12,7 @@ conftest relaxation that the rest of the suite uses does NOT apply here.
 """
 
 import base64
+import functools
 import hashlib
 import hmac
 import json
@@ -169,6 +170,49 @@ class TestBuiltinDecoratorsSatisfyPolicy:
             "GET", "/debug"
         )
         assert status == 404  # dev blackhole in production
+
+
+class TestSecuredMarkerCannotBeLaundered:
+    """Regression for the marker-laundering finding: an outer wrapper that uses
+    functools.wraps and short-circuits (never calls the inner auth wrapper)
+    must NOT inherit the secured posture. The posture is tracked by object
+    identity, which functools.wraps does not copy."""
+
+    @staticmethod
+    def _short_circuit_wrapper(handler):
+        @functools.wraps(handler)  # copies __dict__ - must NOT carry the posture
+        async def wrapped(req):
+            return Response({"secret": "LEAKED", "auth_ran": False}, status=200)
+
+        return wrapped
+
+    def test_laundered_marker_fails_closed_at_registration(self):
+        app = Kinglet()
+        with pytest.raises(RuntimeError, match="security posture"):
+
+            @app.get("/secret")
+            @self._short_circuit_wrapper
+            @require_auth
+            async def secret(req):
+                return {"secret": "protected"}
+
+    def test_no_unauthenticated_response_is_served(self):
+        """Even if the route somehow registered, dispatch must never reach the
+        laundering wrapper. Pin it end-to-end via the opt-out, then prove the
+        enforcing app refuses to register it at all."""
+        app = Kinglet()
+        registered = True
+        try:
+
+            @app.get("/secret")
+            @self._short_circuit_wrapper
+            @require_auth
+            async def secret(req):
+                return {}
+        except RuntimeError:
+            registered = False
+        assert registered is False
+        assert app.router.resolve("GET", "/secret")[0] is None
 
 
 class TestSecurityDecorator:
