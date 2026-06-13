@@ -83,6 +83,12 @@ For each route, do **one** of the following:
 - Disabling the policy (`enforce_route_policy=False`) emits a
   `RoutePolicyWarning` so an intentional opt-out is not mistaken for one
   forgotten during migration.
+- The "secured" posture is tracked by **object identity** in an internal
+  registry, set via `mark_secured()` / `@security_decorator`. There is no public
+  `__kinglet_secured__` attribute: hand-setting that attribute does nothing
+  (use `mark_secured()`), and it cannot be laundered onto an outer wrapper by
+  `functools.wraps`. The route-registered order guard uses a weak registry for
+  the same reason (no `functools.wraps` false positives).
 - `Kinglet` now also exposes `head()` and `options()` route decorators (were
   previously only on `Router`).
 - The registration error names the offending handler and points at

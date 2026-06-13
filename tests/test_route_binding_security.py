@@ -248,6 +248,81 @@ class TestUnmarkableHandlers:
         # Wrapping before registration stays allowed.
         require_auth(Controller().secret)
 
+    def test_wraps_wrapper_of_registered_handler_is_not_route_registered(self):
+        """The route-registered marker is a weak registry, not a function
+        attribute, so functools.wraps does NOT propagate it. A wrapper that
+        wraps a registered handler must not be falsely treated as registered
+        (which would make the decorator-order guard reject it spuriously)."""
+        import functools
+
+        app = Kinglet()
+
+        @app.get("/data", public=True)
+        async def data(request):
+            return {}
+
+        assert is_route_registered(data)
+
+        @functools.wraps(data)  # copies __dict__ - must NOT carry registration
+        async def wrapper(request):
+            return await data(request)
+
+        assert not is_route_registered(wrapper)
+        # Applying a security decorator to the wrapper must NOT falsely raise.
+        require_auth(wrapper)
+
+
+class TestRouteHandlerMarkedInvariant:
+    """Pin the load-bearing invariant: ``Route.handler`` is exactly the object
+    that was marked route-registered. The marker is a weak registry whose entry
+    (for bound methods) is kept alive only by that strong reference, so a future
+    refactor that stored a different/copied handler while marking the original
+    would silently weaken the decorator-order guard. These tests fail if that
+    invariant is ever broken."""
+
+    def test_registered_function_handler_is_marked(self):
+        router = Router()
+
+        @router.get("/fn", public=True)
+        async def fn(request):
+            return {}
+
+        route = router.routes[-1]
+        assert is_route_registered(route.handler), (
+            "Route.handler must be the object that was marked route-registered"
+        )
+
+    def test_app_route_handler_is_marked_through_auto_wrap(self):
+        # Kinglet.route auto-wraps with wrap_exceptions, so the REGISTERED
+        # handler is the wrapper - it must itself be the marked object.
+        app = Kinglet()
+
+        @app.get("/x", public=True)
+        async def x(request):
+            return {}
+
+        route = app.router.routes[-1]
+        assert is_route_registered(route.handler)
+
+    def test_registered_bound_method_entry_survives_gc(self):
+        import gc
+
+        class Controller:
+            async def handle(self, request):
+                return {}
+
+        router = Router()
+        controller = Controller()
+        router.add_route("/bm", controller.handle, ["GET"], public=True)
+        route = router.routes[-1]
+
+        # Drop the external handle; the bound method (and its instance) now stay
+        # alive ONLY via Route.handler. The weak registry entry must survive,
+        # which is exactly the invariant the Route's strong ref guarantees.
+        del controller
+        gc.collect()
+        assert is_route_registered(route.handler)
+
 
 class TestEveryBuiltinDecoratorIsGuarded:
     """One red test per decorator if its guard call is ever removed."""

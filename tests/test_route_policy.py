@@ -12,6 +12,7 @@ conftest relaxation that the rest of the suite uses does NOT apply here.
 """
 
 import base64
+import functools
 import hashlib
 import hmac
 import json
@@ -26,6 +27,7 @@ from kinglet import (
     Router,
     TestClient,
     is_secured,
+    mark_secured,
     require_dev,
     security_decorator,
 )
@@ -169,6 +171,159 @@ class TestBuiltinDecoratorsSatisfyPolicy:
             "GET", "/debug"
         )
         assert status == 404  # dev blackhole in production
+
+
+class TestOriginalCustomDecoratorReversedBypass:
+    """Literal regression for the original High (commit 0f4a5e3): a CUSTOM auth
+    decorator applied ABOVE the route decorator used to register successfully
+    and let unauthenticated requests reach the handler with the custom wrapper
+    never invoked. Under default-deny it fails closed at registration; with
+    @security_decorator in the correct order the wrapper actually runs.
+
+    Mirrors the finding's exact PoC, including the @router.get form and a
+    call-log that proves the wrapper is/ isn't invoked.
+    """
+
+    @staticmethod
+    def _make_require_admin(call_log):
+        def require_admin(handler):
+            async def wrapped(request):
+                call_log.append("wrapper")
+                if request.header("x-admin-token") != "valid":
+                    return Response({"error": "forbidden"}, status=403)
+                return await handler(request)
+
+            return wrapped
+
+        return require_admin
+
+    def test_reversed_over_router_get_fails_closed(self):
+        call_log = []
+        require_admin = self._make_require_admin(call_log)
+        router = Router()
+
+        with pytest.raises(RuntimeError, match="security posture"):
+
+            @require_admin
+            @router.get("/admin")
+            async def admin(request):
+                return {"admin": "data"}
+
+        # The broken route never registered, and the wrapper never ran.
+        assert router.resolve("GET", "/admin")[0] is None
+        assert call_log == []
+
+    def test_reversed_over_app_get_fails_closed(self):
+        call_log = []
+        require_admin = self._make_require_admin(call_log)
+        app = Kinglet()
+
+        with pytest.raises(RuntimeError, match="security posture"):
+
+            @require_admin
+            @app.get("/admin")
+            async def admin(request):
+                return {"admin": "data"}
+
+        assert app.router.resolve("GET", "/admin")[0] is None
+        assert call_log == []
+
+    def test_correct_order_with_security_decorator_invokes_wrapper(self):
+        call_log = []
+        require_admin = security_decorator(self._make_require_admin(call_log))
+        app = Kinglet()
+
+        @app.get("/admin")
+        @require_admin
+        async def admin(request):
+            return {"admin": "data"}
+
+        client = TestClient(app)
+
+        # Unauthenticated: the custom wrapper RUNS and forbids (counterexample).
+        status, _, body = client.request("GET", "/admin")
+        assert status == 403
+        assert call_log == ["wrapper"]
+        assert "data" not in body
+
+        # Authenticated: wrapper runs and reaches the handler.
+        status, _, body = client.request(
+            "GET", "/admin", headers={"x-admin-token": "valid"}
+        )
+        assert status == 200
+        assert "data" in body
+
+
+class TestSecuredMarkerCannotBeLaundered:
+    """Regression for the marker-laundering finding: an outer wrapper that uses
+    functools.wraps and short-circuits (never calls the inner auth wrapper)
+    must NOT inherit the secured posture. The posture is tracked by object
+    identity, which functools.wraps does not copy."""
+
+    @staticmethod
+    def _short_circuit_wrapper(handler):
+        @functools.wraps(handler)  # copies __dict__ - must NOT carry the posture
+        async def wrapped(req):
+            return Response({"secret": "LEAKED", "auth_ran": False}, status=200)
+
+        return wrapped
+
+    def test_laundered_marker_fails_closed_at_registration(self):
+        app = Kinglet()
+        with pytest.raises(RuntimeError, match="security posture"):
+
+            @app.get("/secret")
+            @self._short_circuit_wrapper
+            @require_auth
+            async def secret(req):
+                return {"secret": "protected"}
+
+    def test_no_unauthenticated_response_is_served(self):
+        """Even if the route somehow registered, dispatch must never reach the
+        laundering wrapper. Pin it end-to-end via the opt-out, then prove the
+        enforcing app refuses to register it at all."""
+        app = Kinglet()
+        registered = True
+        try:
+
+            @app.get("/secret")
+            @self._short_circuit_wrapper
+            @require_auth
+            async def secret(req):
+                return {}
+        except RuntimeError:
+            registered = False
+        assert registered is False
+        assert app.router.resolve("GET", "/secret")[0] is None
+
+    def test_value_equal_callable_cannot_launder_marker(self):
+        """The secured registry is keyed by object identity, not value equality.
+        A distinct callable that merely compares equal to a marked one (e.g. a
+        callable class with value-based __eq__/__hash__) is NOT secured and a
+        route using it fails closed."""
+
+        class CallableHandler:
+            def __init__(self, name):
+                self.name = name
+
+            def __eq__(self, other):
+                return isinstance(other, CallableHandler) and self.name == other.name
+
+            def __hash__(self):
+                return hash(self.name)
+
+            async def __call__(self, request):
+                return {"secret": True}
+
+        marked = mark_secured(CallableHandler("admin"))
+        equal_but_distinct = CallableHandler("admin")
+        assert is_secured(marked)
+        assert marked == equal_but_distinct and marked is not equal_but_distinct
+        assert not is_secured(equal_but_distinct)
+
+        app = Kinglet()
+        with pytest.raises(RuntimeError, match="security posture"):
+            app.router.add_route("/x", equal_but_distinct, ["GET"])
 
 
 class TestSecurityDecorator:

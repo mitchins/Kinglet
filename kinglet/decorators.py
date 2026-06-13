@@ -2,48 +2,55 @@
 Kinglet Decorators and Utility Functions
 """
 
-import contextlib
 import functools
 import json
+import warnings
 import weakref
 from collections.abc import Callable
 
 from .exceptions import GeoRestrictedError, HTTPError
 from .http import Response
 
-# Attribute set on every callable registered with a route. Security decorators
-# use it to fail closed when applied in an order that cannot protect the route.
-ROUTE_REGISTERED_ATTR = "__kinglet_route_registered__"
-
-# Fallback registry for callables that cannot carry attributes (bound methods,
-# functools.partial, ...). Weak references: entries vanish when the registered
-# handler is garbage collected. Bound methods are ephemeral objects but hash
-# and compare by (instance, function), so a fresh `obj.method` reference still
-# matches the one the route registered.
-_UNMARKABLE_ROUTE_HANDLERS: weakref.WeakSet = weakref.WeakSet()
+# Registry of callables registered to a route, used by the decorator-order
+# guard. A WeakSet (value-equality membership) so a fresh access of a registered
+# bound method still matches via (instance, function) equality. Crucially,
+# WeakSet membership is NOT copied by functools.wraps - unlike a function
+# attribute, which wraps copies into outer wrappers and which previously made
+# the order guard reject a wrapper that merely inherited the copied attribute.
+#
+# Contrast _SECURED_HANDLERS, which must use STRICT identity to stop value-
+# equality laundering of the auth posture. Here value-equality is fine: it only
+# ever over-triggers the fail-loud order guard (never a bypass), so matching a
+# fresh bound-method access is the desired behaviour.
+_ROUTE_REGISTERED_HANDLERS: weakref.WeakSet = weakref.WeakSet()
 
 
 def mark_route_registered(handler: Callable) -> Callable:
     """Mark a callable as registered with a route.
 
-    Callables that reject attribute assignment are tracked in a weak registry
-    instead, so the decorator-order guard still detects them.
+    Membership is held weakly and is not propagated by functools.wraps, so the
+    decorator-order guard recognizes exactly the registered callables (and fresh
+    accesses of registered bound methods) without false positives from wrapping.
     """
     try:
-        setattr(handler, ROUTE_REGISTERED_ATTR, True)
-    except (AttributeError, TypeError):
-        # Not weakref-able or not hashable: best effort ends here.
-        with contextlib.suppress(TypeError):
-            _UNMARKABLE_ROUTE_HANDLERS.add(handler)
+        _ROUTE_REGISTERED_HANDLERS.add(handler)
+    except TypeError:
+        # Not weakref-able / not hashable: cannot be tracked, so the
+        # decorator-order guard is skipped for this callable. Surface it for
+        # consistency with mark_secured (still fail-loud only - never a bypass).
+        warnings.warn(
+            f"mark_route_registered: {handler!r} is not trackable; the "
+            f"decorator-order guard is skipped for this callable.",
+            RoutePolicyWarning,
+            stacklevel=2,
+        )
     return handler
 
 
 def is_route_registered(handler: Callable) -> bool:
     """Return True if the callable was already registered with a route."""
-    if getattr(handler, ROUTE_REGISTERED_ATTR, False):
-        return True
     try:
-        return handler in _UNMARKABLE_ROUTE_HANDLERS
+        return handler in _ROUTE_REGISTERED_HANDLERS
     except TypeError:  # unhashable callable
         return False
 
@@ -86,13 +93,24 @@ class RoutePolicyWarning(UserWarning):
     """
 
 
-# Set on the wrapper produced by a recognized access-control decorator. Stored
-# as a normal function attribute so it lives in ``__dict__`` and therefore
-# propagates outward through ``functools.wraps`` when decorators are stacked.
-SECURED_ATTR = "__kinglet_secured__"
-
-# Fallback registry for secured callables that cannot carry attributes.
-_UNMARKABLE_SECURED_HANDLERS: weakref.WeakSet = weakref.WeakSet()
+# Registry of callables that a recognized access-control decorator actually
+# produced. Keyed by ``id()`` and verified with ``is``, so membership is by true
+# OBJECT IDENTITY - never value equality. This matters twice:
+#
+#   * ``functools.wraps`` copies ``__dict__`` and a few dunders but not registry
+#     identity, so an unrelated outer wrapper (e.g. a short-circuiting cache /
+#     maintenance / feature-flag decorator) cannot launder the "secured" posture
+#     onto itself and bypass auth.
+#   * A plain ``WeakSet`` would use the element's ``__eq__``/``__hash__``, so a
+#     distinct callable that merely *compares equal* to a marked one (a callable
+#     class with value-based equality, a bound method, ...) would pass the check
+#     unmarked. Id-keying + an ``is`` check accepts only the exact object.
+#
+# Values are held weakly so entries die with the callable; the ``is`` check also
+# guards against id reuse after garbage collection. The check runs synchronously
+# at registration while the route holds a strong reference, so liveness is never
+# a concern at check time.
+_SECURED_HANDLERS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 
 def mark_secured(handler: Callable) -> Callable:
@@ -101,23 +119,44 @@ def mark_secured(handler: Callable) -> Callable:
     Recognized built-in access decorators call this on their wrapper, and
     :func:`security_decorator` calls it for custom decorators. The route
     policy then accepts the route without requiring ``public=True``.
+
+    The mark is recorded by object **identity** (not value or a copyable
+    attribute), so wrapping the result in an unrelated decorator does NOT carry
+    the posture across - the wrapper must enforce (or re-mark) auth itself. Two
+    consequences for callers:
+
+    - **Bound methods**: ``obj.method`` creates a NEW object on each access, so
+      ``mark_secured(obj.method)`` marks one object while a later ``obj.method``
+      is a different one that is not secured. Capture the reference once and
+      pass the SAME object to both ``mark_secured`` and route registration::
+
+          handler = controller.action
+          mark_secured(handler)
+          router.add_route("/x", handler, ["GET"])
+
+    - **Non-weakref-able callables** cannot be tracked: the mark is skipped (a
+      :class:`RoutePolicyWarning` is emitted) and the route must instead be
+      declared ``public=True``. This fails closed.
     """
     try:
-        setattr(handler, SECURED_ATTR, True)
-    except (AttributeError, TypeError):
-        with contextlib.suppress(TypeError):
-            _UNMARKABLE_SECURED_HANDLERS.add(handler)
+        _SECURED_HANDLERS[id(handler)] = handler
+    except TypeError:
+        # Not weakref-able (exotic callable): cannot be marked, so it is treated
+        # as unsecured and the route must be declared public=True. Fail closed,
+        # but surface it so the later "no security posture" error is not a
+        # mystery.
+        warnings.warn(
+            f"mark_secured: {handler!r} is not weakref-able and cannot be "
+            f"tracked as secured; the route must be declared public=True.",
+            RoutePolicyWarning,
+            stacklevel=2,
+        )
     return handler
 
 
 def is_secured(handler: Callable) -> bool:
-    """Return True if the callable carries a recognized access-control marker."""
-    if getattr(handler, SECURED_ATTR, False):
-        return True
-    try:
-        return handler in _UNMARKABLE_SECURED_HANDLERS
-    except TypeError:
-        return False
+    """Return True if this exact callable was produced by a recognized decorator."""
+    return _SECURED_HANDLERS.get(id(handler)) is handler
 
 
 def security_decorator(decorator_fn: Callable) -> Callable:
@@ -211,6 +250,32 @@ def assert_route_security(handler: Callable, *, public: bool, path: str = "") ->
     )
 
 
+def _should_expose_details(request, expose_details: bool | None) -> bool:
+    """Resolve whether exception detail should be exposed in the response."""
+    if expose_details is not None:
+        return expose_details
+    # Fall back to the request environment / app debug setting.
+    return getattr(request.env, "ENVIRONMENT", "production") == "development"
+
+
+def _exception_error_response(exc: Exception, request, step, expose_details):
+    """Build the standardized 500 response for a handler exception."""
+    error_message = (
+        str(exc)
+        if _should_expose_details(request, expose_details)
+        else ("Internal server error")
+    )
+    prefix = f"[{step}] " if step else ""
+    return Response(
+        {
+            "error": f"{prefix}{error_message}",
+            "status_code": 500,
+            "request_id": getattr(request, "request_id", "unknown"),
+        },
+        status=500,
+    )
+
+
 def wrap_exceptions(step: str = None, expose_details: bool = None):
     """
     Decorator to automatically wrap exceptions in standardized error responses.
@@ -221,6 +286,15 @@ def wrap_exceptions(step: str = None, expose_details: bool = None):
     """
 
     def decorator(handler):
+        # wrap_exceptions is framework-applied, transparent infrastructure: it
+        # ALWAYS calls the inner handler (try/except around it), so it cannot
+        # hide an access check. It must therefore preserve the inner handler's
+        # security posture - otherwise auto-wrapping every route would strip the
+        # marker and break auth'd routes. Capture it before wrapping and re-mark
+        # by identity. (An ordinary user decorator is NOT trusted this way - only
+        # this provably-transparent wrapper is.)
+        inner_secured = is_secured(handler)
+
         @functools.wraps(handler)
         async def wrapped(request):
             try:
@@ -229,27 +303,10 @@ def wrap_exceptions(step: str = None, expose_details: bool = None):
                 # Re-raise HTTP errors as-is (already properly formatted)
                 raise
             except Exception as e:
-                # Determine if we should expose details
-                should_expose = expose_details
-                if should_expose is None:
-                    # Fall back to checking request environment or app debug setting
-                    should_expose = (
-                        getattr(request.env, "ENVIRONMENT", "production")
-                        == "development"
-                    )
+                return _exception_error_response(e, request, step, expose_details)
 
-                error_message = str(e) if should_expose else "Internal server error"
-                prefix = f"[{step}] " if step else ""
-
-                return Response(
-                    {
-                        "error": f"{prefix}{error_message}",
-                        "status_code": 500,
-                        "request_id": getattr(request, "request_id", "unknown"),
-                    },
-                    status=500,
-                )
-
+        if inner_secured:
+            mark_secured(wrapped)
         return wrapped
 
     return decorator
@@ -276,8 +333,7 @@ def require_dev():
             if env_name not in ["development", "dev", "test"]:
                 # Security: In production, make dev endpoints a complete blackhole
                 # Return 404 as if the endpoint doesn't exist at all
-                from .exceptions import HTTPError
-
+                # (HTTPError is imported at module top.)
                 raise HTTPError(404, "Not Found", getattr(request, "request_id", None))
 
             return await handler(request)
