@@ -47,7 +47,11 @@ def mark_route_registered(handler: Callable) -> Callable:
 
 def is_route_registered(handler: Callable) -> bool:
     """Return True if this exact callable was already registered with a route."""
-    return _ROUTE_REGISTERED_HANDLERS.get(id(handler)) is handler
+    # `handler is not None` guards the degenerate case: get() returns None when
+    # the id is absent, and `None is None` would otherwise report True.
+    return (
+        handler is not None and _ROUTE_REGISTERED_HANDLERS.get(id(handler)) is handler
+    )
 
 
 def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:
@@ -152,7 +156,9 @@ def mark_secured(handler: Callable) -> Callable:
 
 def is_secured(handler: Callable) -> bool:
     """Return True if this exact callable was produced by a recognized decorator."""
-    return _SECURED_HANDLERS.get(id(handler)) is handler
+    # `handler is not None` guards the degenerate case (get() default is None,
+    # so `None is None` would otherwise report True for a None handler).
+    return handler is not None and _SECURED_HANDLERS.get(id(handler)) is handler
 
 
 def security_decorator(decorator_fn: Callable) -> Callable:

@@ -26,6 +26,7 @@ from kinglet import (
     RoutePolicyWarning,
     Router,
     TestClient,
+    is_route_registered,
     is_secured,
     mark_secured,
     require_dev,
@@ -171,6 +172,18 @@ class TestBuiltinDecoratorsSatisfyPolicy:
             "GET", "/debug"
         )
         assert status == 404  # dev blackhole in production
+
+
+class TestRegistryDegenerateInputs:
+    """The identity registries use ``get(id(h)) is h``; get() returns None when
+    the id is absent, so a None handler must not read back as registered/secured
+    (None is None would otherwise be True)."""
+
+    def test_none_is_not_secured(self):
+        assert is_secured(None) is False
+
+    def test_none_is_not_route_registered(self):
+        assert is_route_registered(None) is False
 
 
 class TestOriginalCustomDecoratorReversedBypass:
