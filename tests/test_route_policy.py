@@ -27,6 +27,7 @@ from kinglet import (
     Router,
     TestClient,
     is_secured,
+    mark_secured,
     require_dev,
     security_decorator,
 )
@@ -294,6 +295,35 @@ class TestSecuredMarkerCannotBeLaundered:
             registered = False
         assert registered is False
         assert app.router.resolve("GET", "/secret")[0] is None
+
+    def test_value_equal_callable_cannot_launder_marker(self):
+        """The secured registry is keyed by object identity, not value equality.
+        A distinct callable that merely compares equal to a marked one (e.g. a
+        callable class with value-based __eq__/__hash__) is NOT secured and a
+        route using it fails closed."""
+
+        class CallableHandler:
+            def __init__(self, name):
+                self.name = name
+
+            def __eq__(self, other):
+                return isinstance(other, CallableHandler) and self.name == other.name
+
+            def __hash__(self):
+                return hash(self.name)
+
+            async def __call__(self, request):
+                return {"secret": True}
+
+        marked = mark_secured(CallableHandler("admin"))
+        equal_but_distinct = CallableHandler("admin")
+        assert is_secured(marked)
+        assert marked == equal_but_distinct and marked is not equal_but_distinct
+        assert not is_secured(equal_but_distinct)
+
+        app = Kinglet()
+        with pytest.raises(RuntimeError, match="security posture"):
+            app.router.add_route("/x", equal_but_distinct, ["GET"])
 
 
 class TestSecurityDecorator:

@@ -86,20 +86,24 @@ class RoutePolicyWarning(UserWarning):
     """
 
 
-# Identity registry of callables that a recognized access-control decorator
-# actually produced. Membership is by OBJECT IDENTITY and is therefore NOT
-# copied by ``functools.wraps`` (which only copies ``__dict__`` and a few dunder
-# attributes). This is deliberate: storing the posture as a function attribute
-# let an unrelated outer wrapper - e.g. a short-circuiting cache/maintenance/
-# feature-flag decorator that uses ``functools.wraps`` but never calls the inner
-# handler - launder the "secured" marker onto itself and bypass auth. With an
-# identity registry, such a wrapper is a different object that was never marked,
-# so it fails the policy closed.
+# Registry of callables that a recognized access-control decorator actually
+# produced. Keyed by ``id()`` and verified with ``is``, so membership is by true
+# OBJECT IDENTITY - never value equality. This matters twice:
 #
-# Weak references: entries die with the callable. The check runs synchronously
-# at route registration while the route holds a strong reference to the
-# registered callable, so liveness is never a concern at check time.
-_SECURED_HANDLERS: weakref.WeakSet = weakref.WeakSet()
+#   * ``functools.wraps`` copies ``__dict__`` and a few dunders but not registry
+#     identity, so an unrelated outer wrapper (e.g. a short-circuiting cache /
+#     maintenance / feature-flag decorator) cannot launder the "secured" posture
+#     onto itself and bypass auth.
+#   * A plain ``WeakSet`` would use the element's ``__eq__``/``__hash__``, so a
+#     distinct callable that merely *compares equal* to a marked one (a callable
+#     class with value-based equality, a bound method, ...) would pass the check
+#     unmarked. Id-keying + an ``is`` check accepts only the exact object.
+#
+# Values are held weakly so entries die with the callable; the ``is`` check also
+# guards against id reuse after garbage collection. The check runs synchronously
+# at registration while the route holds a strong reference, so liveness is never
+# a concern at check time.
+_SECURED_HANDLERS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 
 def mark_secured(handler: Callable) -> Callable:
@@ -113,7 +117,7 @@ def mark_secured(handler: Callable) -> Callable:
     (or re-mark) auth itself.
     """
     try:
-        _SECURED_HANDLERS.add(handler)
+        _SECURED_HANDLERS[id(handler)] = handler
     except TypeError:
         # Not weakref-able (exotic callable): cannot be marked, so it is treated
         # as unsecured and the route must be declared public=True. Fail closed.
@@ -122,11 +126,8 @@ def mark_secured(handler: Callable) -> Callable:
 
 
 def is_secured(handler: Callable) -> bool:
-    """Return True if the callable was produced by a recognized access decorator."""
-    try:
-        return handler in _SECURED_HANDLERS
-    except TypeError:
-        return False
+    """Return True if this exact callable was produced by a recognized decorator."""
+    return _SECURED_HANDLERS.get(id(handler)) is handler
 
 
 def security_decorator(decorator_fn: Callable) -> Callable:
@@ -220,6 +221,32 @@ def assert_route_security(handler: Callable, *, public: bool, path: str = "") ->
     )
 
 
+def _should_expose_details(request, expose_details: bool | None) -> bool:
+    """Resolve whether exception detail should be exposed in the response."""
+    if expose_details is not None:
+        return expose_details
+    # Fall back to the request environment / app debug setting.
+    return getattr(request.env, "ENVIRONMENT", "production") == "development"
+
+
+def _exception_error_response(exc: Exception, request, step, expose_details):
+    """Build the standardized 500 response for a handler exception."""
+    error_message = (
+        str(exc)
+        if _should_expose_details(request, expose_details)
+        else ("Internal server error")
+    )
+    prefix = f"[{step}] " if step else ""
+    return Response(
+        {
+            "error": f"{prefix}{error_message}",
+            "status_code": 500,
+            "request_id": getattr(request, "request_id", "unknown"),
+        },
+        status=500,
+    )
+
+
 def wrap_exceptions(step: str = None, expose_details: bool = None):
     """
     Decorator to automatically wrap exceptions in standardized error responses.
@@ -247,26 +274,7 @@ def wrap_exceptions(step: str = None, expose_details: bool = None):
                 # Re-raise HTTP errors as-is (already properly formatted)
                 raise
             except Exception as e:
-                # Determine if we should expose details
-                should_expose = expose_details
-                if should_expose is None:
-                    # Fall back to checking request environment or app debug setting
-                    should_expose = (
-                        getattr(request.env, "ENVIRONMENT", "production")
-                        == "development"
-                    )
-
-                error_message = str(e) if should_expose else "Internal server error"
-                prefix = f"[{step}] " if step else ""
-
-                return Response(
-                    {
-                        "error": f"{prefix}{error_message}",
-                        "status_code": 500,
-                        "request_id": getattr(request, "request_id", "unknown"),
-                    },
-                    status=500,
-                )
+                return _exception_error_response(e, request, step, expose_details)
 
         if inner_secured:
             mark_secured(wrapped)
