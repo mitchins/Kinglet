@@ -66,9 +66,10 @@ class AuthMiddleware:
         self.exempt_paths = exempt_paths or ["/health", "/public"]
 
     async def process_request(self, request):
+        # Contract: return a Response to short-circuit, or None to continue.
         # Skip auth for exempt paths
         if any(request.path.startswith(path) for path in self.exempt_paths):
-            return request
+            return None
 
         # Check for API key
         api_key = request.header("X-API-Key")
@@ -77,9 +78,9 @@ class AuthMiddleware:
 
             return Response({"error": "API key required"}, status=401)
 
-        # Add user info to request
+        # Add user info to request, then continue to the route
         request.user = {"id": "demo-user", "api_key": api_key}
-        return request
+        return None
 
 
 auth = AuthMiddleware(exempt_paths=["/health", "/public"])
