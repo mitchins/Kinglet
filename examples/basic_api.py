@@ -10,7 +10,7 @@ import sys
 # Add parent directory to path so we can import kinglet
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from kinglet import Kinglet, Response, SchemaGenerator, TestClient
+from kinglet import Kinglet, Response, SchemaGenerator, TestClient, security_decorator
 
 # Create app with root path for /api endpoints
 app = Kinglet(root_path="/api", debug=True)
@@ -47,24 +47,39 @@ async def search_users(request):
     }
 
 
-@app.get(
-    "/users/{user_id}", public=True
-)  # TODO: consider a security decorator — handler does inline auth check
+@security_decorator
+def require_api_token(handler):
+    """
+    Validates the Bearer token in the Authorization header against the API_TOKEN
+    environment variable.  Demonstrates using @security_decorator for a custom,
+    non-JWT auth scheme.
+    """
+
+    async def wrapped(request):
+        auth_header = request.header("authorization", "")
+        token = (
+            auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+        )
+        expected_token = os.environ.get("API_TOKEN")
+        if not expected_token or token != expected_token:
+            return Response.error(
+                "Authentication required", status=401, request_id=request.request_id
+            )
+        # Stash validated token on request state for the handler
+        request.state = getattr(request, "state", type("State", (), {})())
+        request.state.token = token
+        return await handler(request)
+
+    return wrapped
+
+
+@app.get("/users/{user_id}")  # ← route decorator OUTERMOST
+@require_api_token  # ← security decorator below
 async def get_user(request):
-    """Example with typed path parameters and authentication"""
+    """Example with typed path parameters and authentication (via @require_api_token)."""
     # Typed path parameter with validation
     user_id = request.path_param_int("user_id")
-
-    # Check authentication by validating the bearer token against a trusted source.
-    auth_header = request.header("authorization", "")
-    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
-    expected_token = os.environ.get("API_TOKEN")
-    if not expected_token or token != expected_token:
-        return Response.error(
-            "Authentication required", status=401, request_id=request.request_id
-        )
-
-    return {"user_id": user_id, "authenticated": True, "token": token}
+    return {"user_id": user_id, "authenticated": True, "token": request.state.token}
 
 
 @app.post("/auth/register", public=True)

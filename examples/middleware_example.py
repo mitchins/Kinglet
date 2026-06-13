@@ -93,11 +93,16 @@ async def health_check(request):
     return {"status": "healthy", "middleware": "working"}
 
 
-@app.get(
-    "/api/protected", public=True
-)  # TODO: consider a security decorator — auth enforced by AuthMiddleware, not route-level decorator
+# public=True here only satisfies route registration (Kinglet requires every route
+# to declare a posture).  Actual authentication is enforced by AuthMiddleware above,
+# which runs BEFORE the route handler and short-circuits with HTTP 401 when the
+# X-API-Key header is missing or wrong.  This is the correct teaching pattern for
+# app-level middleware auth: the middleware acts as the gate, not the route decorator.
+# In production, prefer a @security_decorator on each route for explicit, per-route
+# security that is visible at a glance rather than relying solely on middleware.
+@app.get("/api/protected", public=True)
 async def protected_endpoint(request):
-    # This will require X-API-Key header
+    # Reaches here only if AuthMiddleware passed the request through.
     user = getattr(request, "user", None)
     return {"message": "Access granted", "user": user}
 

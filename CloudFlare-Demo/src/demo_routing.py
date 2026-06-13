@@ -1,5 +1,10 @@
 """
 Kinglet Routing Demo - Basic routing features
+
+# ⚠️ DEMO ONLY — NO AUTHENTICATION on the data endpoints below.
+# This file demonstrates routing primitives (path params, routers, prefixes).
+# Do not copy these routes to production without adding @require_auth (or your
+# own @security_decorator) to any endpoint that returns real user data.
 """
 
 from kinglet import Kinglet, Response, Router
@@ -34,6 +39,8 @@ async def api_status(request):
     return {"status": "ok", "api_version": "v1"}
 
 
+# ⚠️ DEMO ONLY — NO AUTHENTICATION. Do not copy to production. Real deployments
+# must add @require_auth (or your own @security_decorator) before exposing user data.
 @api_router.get("/users", public=True)
 async def list_users(request):
     return {"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]}

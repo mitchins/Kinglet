@@ -1,5 +1,11 @@
 """
 Kinglet Media Demo - R2 storage and binary file handling
+
+# ⚠️ DEMO ONLY — NO AUTHENTICATION on the storage endpoints below.
+# This file demonstrates R2 storage and binary-file handling primitives.
+# Do not copy these routes to production without adding @require_auth (or your
+# own @security_decorator) to any endpoint that reads, writes, or deletes R2
+# objects.
 """
 
 from kinglet import (
@@ -29,6 +35,8 @@ async def home(request):
     }
 
 
+# ⚠️ DEMO ONLY — NO AUTHENTICATION. Do not copy to production. Real deployments
+# must add @require_auth (or your own @security_decorator) before exposing this.
 @app.post("/upload", public=True)
 async def upload_file(request):
     """Upload file to R2 bucket"""
@@ -66,6 +74,8 @@ async def upload_file(request):
         return Response({"error": str(e)}, status=500)
 
 
+# ⚠️ DEMO ONLY — NO AUTHENTICATION. Do not copy to production. Real deployments
+# must add @require_auth (or your own @security_decorator) before exposing this.
 @app.get("/files", public=True)
 async def list_files(request):
     """List files in R2 bucket"""
@@ -103,6 +113,8 @@ async def list_files(request):
         return Response({"error": str(e)}, status=500)
 
 
+# ⚠️ DEMO ONLY — NO AUTHENTICATION. Do not copy to production. Real deployments
+# must add @require_auth (or your own @security_decorator) before exposing this.
 @app.get("/file/{key:path}", public=True)
 async def get_file(request):
     """Get file from R2 bucket"""
@@ -160,6 +172,8 @@ async def get_file(request):
         return Response({"error": str(e)}, status=500)
 
 
+# ⚠️ DEMO ONLY — NO AUTHENTICATION. Do not copy to production. Real deployments
+# must add @require_auth (or your own @security_decorator) before exposing this.
 @app.delete("/delete/{key:path}", public=True)
 async def delete_file(request):
     """Delete file from R2 bucket"""
@@ -190,6 +204,8 @@ async def delete_file(request):
         return Response({"error": str(e)}, status=500)
 
 
+# ⚠️ DEMO ONLY — NO AUTHENTICATION. Do not copy to production. Real deployments
+# must add @require_auth (or your own @security_decorator) before exposing this.
 @app.get("/asset/{asset_type}/{key:path}", public=True)
 async def get_asset_url(request):
     """Generate asset URL for different types"""
