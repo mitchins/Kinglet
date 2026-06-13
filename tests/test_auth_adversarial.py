@@ -302,11 +302,13 @@ class TestRegistrationPolicyEvasion:
             app.router.add_route("/ctrl", c.handle, ["GET"])
 
     def test_a5_bound_method_with_mark_secured_accepted(self):
-        """Bound method with mark_secured → accepted when a strong reference is held.
+        """Bound method with mark_secured → accepted when the SAME object is used.
 
-        Bound methods are ephemeral objects; mark_secured stores them in a WeakSet.
-        The caller must hold a strong reference to the same bound method object until
-        add_route completes, otherwise GC can drop the entry before the policy check.
+        Bound methods are ephemeral (each ``c.handle`` access is a new object).
+        mark_secured records them in a WeakValueDictionary keyed by id() and
+        is_secured matches by identity, so the caller must pass the exact same
+        bound-method object to both mark_secured and add_route (capturing it
+        once also keeps the weak entry alive until the policy check).
         """
         app = Kinglet()
 
@@ -315,7 +317,8 @@ class TestRegistrationPolicyEvasion:
                 return {"ok": True}
 
         c = Controller()
-        # Hold a strong reference so the WeakSet entry survives the policy check
+        # Capture once: the SAME object must reach mark_secured and add_route
+        # (identity-keyed registry), and the strong ref keeps the entry alive.
         bound_handle = c.handle
         mark_secured(bound_handle)
         app.router.add_route("/ctrl", bound_handle, ["GET"])

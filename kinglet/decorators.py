@@ -4,6 +4,7 @@ Kinglet Decorators and Utility Functions
 
 import functools
 import json
+import warnings
 import weakref
 from collections.abc import Callable
 
@@ -34,8 +35,15 @@ def mark_route_registered(handler: Callable) -> Callable:
     try:
         _ROUTE_REGISTERED_HANDLERS.add(handler)
     except TypeError:
-        # Not weakref-able / not hashable: cannot be tracked (order guard skipped).
-        pass
+        # Not weakref-able / not hashable: cannot be tracked, so the
+        # decorator-order guard is skipped for this callable. Surface it for
+        # consistency with mark_secured (still fail-loud only - never a bypass).
+        warnings.warn(
+            f"mark_route_registered: {handler!r} is not trackable; the "
+            f"decorator-order guard is skipped for this callable.",
+            RoutePolicyWarning,
+            stacklevel=2,
+        )
     return handler
 
 
@@ -137,8 +145,6 @@ def mark_secured(handler: Callable) -> Callable:
         # as unsecured and the route must be declared public=True. Fail closed,
         # but surface it so the later "no security posture" error is not a
         # mystery.
-        import warnings
-
         warnings.warn(
             f"mark_secured: {handler!r} is not weakref-able and cannot be "
             f"tracked as secured; the route must be declared public=True.",
@@ -327,8 +333,7 @@ def require_dev():
             if env_name not in ["development", "dev", "test"]:
                 # Security: In production, make dev endpoints a complete blackhole
                 # Return 404 as if the endpoint doesn't exist at all
-                from .exceptions import HTTPError
-
+                # (HTTPError is imported at module top.)
                 raise HTTPError(404, "Not Found", getattr(request, "request_id", None))
 
             return await handler(request)
