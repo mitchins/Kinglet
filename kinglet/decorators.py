@@ -3,6 +3,7 @@ Kinglet Decorators and Utility Functions
 """
 
 import functools
+import inspect
 import json
 import warnings
 import weakref
@@ -30,6 +31,22 @@ def mark_route_registered(handler: Callable) -> Callable:
     decorator-order guard recognizes exactly the registered callable without
     functools.wraps propagating the mark to outer wrappers.
     """
+    if inspect.ismethod(handler):
+        # A *raw* bound method only reaches here in a footgun-prone config: the
+        # default policy rejects an unsecured bound-method route, and a correctly
+        # secured one registers the (function) security wrapper, not the method.
+        # Bound methods are recreated on each attribute access, so the identity
+        # guard only recognizes the exact object registered. Warn eagerly rather
+        # than silently miss a reversed-order decorator on a fresh access.
+        warnings.warn(
+            "A bound method was registered as a route handler. Bound methods are "
+            "recreated on each attribute access and tracked by identity, so the "
+            "decorator-order guard only recognizes the exact object registered. "
+            "Capture it once (handler = obj.method) and reuse that reference, or "
+            "use a plain function handler.",
+            RoutePolicyWarning,
+            stacklevel=2,
+        )
     try:
         _ROUTE_REGISTERED_HANDLERS[id(handler)] = handler
     except TypeError:

@@ -19,6 +19,7 @@ import pytest
 from kinglet import (
     Kinglet,
     Response,
+    RoutePolicyWarning,
     Router,
     TestClient,
     geo_restrict,
@@ -262,6 +263,32 @@ class TestUnmarkableHandlers:
         assert not is_route_registered(Controller().secret)
         # Wrapping before registration stays allowed.
         require_auth(Controller().secret)
+
+    def test_raw_bound_method_registration_warns_eagerly(self):
+        """Eager amelioration of the bound-method footgun: registering a RAW
+        bound method as a handler (which only happens in public=True / enforce-
+        off configs) warns about the identity-tracking limitation. A plain
+        function handler does not warn."""
+        import warnings
+
+        class Controller:
+            async def handle(self, request):
+                return {}
+
+        router = Router()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            router.add_route("/bm", Controller().handle, ["GET"], public=True)
+        assert any(issubclass(c.category, RoutePolicyWarning) for c in caught)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+
+            async def fn(request):
+                return {}
+
+            router.add_route("/fn", fn, ["GET"], public=True)
+        assert not caught
 
     def test_unhashable_callable_handler_is_tracked(self):
         """Regression: an UNHASHABLE callable object (defines __eq__ without
