@@ -41,6 +41,11 @@ def _route_policy_default(request, monkeypatch):
     Tests that verify the policy itself (and the production default) carry
     @pytest.mark.route_policy and are left untouched, so they see the real
     enforce-on default that ships and that the scanner evaluates.
+
+    Timing constraint: this patches Kinglet/Router __init__, so an app only
+    benefits when it is constructed *inside* the test function (or a fixture
+    that runs after this one). Apps built at module import time register their
+    routes before the patch is installed and will still see enforce-on.
     """
     if request.node.get_closest_marker("route_policy"):
         return

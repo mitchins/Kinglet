@@ -884,27 +884,28 @@ class TestOwnershipBypass:
         status, _, _ = client.request("GET", "/item/abc", headers=auth_bearer({}))
         assert status == 403
 
-    def test_b3_admin_env_spaces_injection_no_bypass(self):
-        """ADMIN_IDS with spaces/commas doesn't include junk IDs."""
+    def test_b3_admin_env_whitespace_is_stripped_to_valid_match(self):
+        """ADMIN_IDS entries are whitespace-stripped, so '  user-123 ' lists
+        user-123 as an admin - a legitimate match via the admin escape hatch,
+        NOT an injection. (The junk / empty-entry injection case is covered by
+        test_b3_admin_env_injection_trailing_comma.)
+        """
         app = Kinglet()
 
         async def load(req, rid):
-            return {"owner_id": "real-owner"}
+            return {"owner_id": "real-owner"}  # requester is NOT the owner
 
         @app.get("/item/{uid}")
         @require_owner(load)
         async def item(req, obj):
             return {"ok": True}
 
-        # Try to inject ourselves by crafting a user id matching the spaces
+        # The token's sub (user-123) appears among padded ADMIN_IDS entries.
         client = TestClient(
             app, env={"JWT_SECRET": SECRET, "ADMIN_IDS": "  ,  , user-123 ,"}
         )
-        # user-123 is in ADMIN_IDS after strip – this IS a valid admin match
-        # Document result honestly: strips whitespace, so user-123 matches
         status, _, _ = client.request("GET", "/item/abc", headers=auth_bearer({}))
-        # user-123 after strip matches: BY-DESIGN (admin env intentionally provides access)
-        assert status in (200, 403)
+        assert status == 200  # admin escape hatch correctly grants access
 
     def test_b3_admin_env_injection_trailing_comma(self):
         """Trailing comma in ADMIN_IDS doesn't create an empty-string admin ID."""
@@ -950,13 +951,21 @@ class TestOwnershipBypass:
         status, _, _ = client.request("GET", "/item/x")
         assert status == 200  # BY-DESIGN: public resource
 
-    def test_b3_public_flag_true_string_truthy_does_not_bypass(self):
-        """Public flag as string 'true' (not bool): only actual True bypasses auth."""
+    def test_b3_truthy_public_value_opens_resource_by_design(self):
+        """allow_public_or_owner evaluates rec['public'] with truthiness, so a
+        load_fn returning a non-bool truthy value (e.g. the string "true")
+        opens the resource without an identity check. BY-DESIGN: load_fn is
+        developer code whose documented contract is to return a real bool.
+        Pinned so the semantics are explicit.
+
+        FOOTGUN pinned deliberately: a load_fn returning the string "false" is
+        ALSO truthy and would open the resource - load_fn must return actual
+        booleans, never strings.
+        """
         app = Kinglet()
 
         async def load(req, rid):
-            # rec.get("public", False) where public = "true" (string)
-            return {"owner_id": "owner-1", "public": "true"}  # string not bool
+            return {"owner_id": "owner-1", "public": "true"}  # non-bool, truthy
 
         @app.get("/item/{uid}")
         @allow_public_or_owner(load)
@@ -964,11 +973,8 @@ class TestOwnershipBypass:
             return {"ok": True}
 
         client = TestClient(app, env={"JWT_SECRET": SECRET})
-        # "true" is truthy in Python: rec.get("public", False) → "true" which is truthy
-        status, _, _ = client.request("GET", "/item/x")
-        # BY-DESIGN: Python truthiness check → "true" string bypasses auth
-        # This is a design consideration, not a bug, since the load_fn is developer code
-        assert status in (200, 404)
+        # Truthy "public" → treated as public → served without identity.
+        assert client.request("GET", "/item/x")[0] == 200
 
     def test_b3_non_participant_rejected(self):
         """User not in participants set → 403."""

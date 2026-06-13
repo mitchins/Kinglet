@@ -121,16 +121,16 @@ def is_secured(handler: Callable) -> bool:
 
 
 def security_decorator(decorator_fn: Callable) -> Callable:
-    """Make a custom security decorator Kinglet-aware.
+    """Make a custom *simple* security decorator Kinglet-aware.
 
-    Wrap your own access-control decorator so its output is recognized by the
-    default-deny route policy and so applying it in reversed order fails fast::
+    A simple decorator has the shape ``def deco(handler) -> wrapped``. Wrapping
+    it with ``@security_decorator`` makes its output satisfy the default-deny
+    route policy and makes reversed decorator order fail fast::
 
         @security_decorator
         def require_admin(handler):
             @functools.wraps(handler)
-            async def wrapped(request):
-                ...
+            async def wrapped(request): ...
             return wrapped
 
         @app.get("/admin")   # correct order: enforced
@@ -140,10 +140,40 @@ def security_decorator(decorator_fn: Callable) -> Callable:
         @require_admin        # reversed order: RuntimeError at import
         @app.get("/admin")
         async def admin(request): ...
+
+    **Parameterized factories** (``def require_role(role) -> deco -> wrapped``)
+    take an argument, so they are NOT simple decorators. Apply
+    ``@security_decorator`` to the *inner* decorator the factory returns, not to
+    the factory itself::
+
+        def require_role(role):
+            @security_decorator
+            def deco(handler):
+                @functools.wraps(handler)
+                async def wrapped(request): ...
+                return wrapped
+            return deco
+
+        @app.get("/admin")
+        @require_role("admin")   # works: the inner deco is the secured one
+        async def admin(request): ...
+
+    Applying ``@security_decorator`` directly to a factory is rejected at call
+    time with a ``TypeError`` (rather than silently mis-marking the factory
+    instead of the handler, which would leave the route unprotected).
     """
 
     @functools.wraps(decorator_fn)
     def aware_decorator(handler: Callable) -> Callable:
+        if not callable(handler):
+            raise TypeError(
+                f"@security_decorator expects a simple decorator "
+                f"`def {getattr(decorator_fn, '__name__', 'deco')}(handler): ...`, "
+                f"but it was invoked with a non-callable argument {handler!r}. "
+                f"This usually means it was applied to a decorator FACTORY "
+                f"(e.g. require_role('admin')). Apply @security_decorator to the "
+                f"INNER decorator the factory returns instead - see its docstring."
+            )
         reject_if_route_registered(
             handler, getattr(decorator_fn, "__name__", "decorator")
         )

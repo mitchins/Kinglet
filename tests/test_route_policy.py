@@ -210,6 +210,54 @@ class TestSecurityDecorator:
 
         assert is_secured(guarded(handler))
 
+    def test_parameterized_factory_via_inner_decorator(self):
+        """A factory (require_role(role)) is made Kinglet-aware by wrapping its
+        INNER decorator with @security_decorator (CodeRabbit/Gemini)."""
+
+        def require_role(role):
+            @security_decorator
+            def deco(handler):
+                async def wrapped(request):
+                    user = await __import__(
+                        "kinglet.authz", fromlist=["get_user"]
+                    ).get_user(request)
+                    if not user or user.get("claims", {}).get("role") != role:
+                        return Response({"error": "forbidden"}, status=403)
+                    return await handler(request)
+
+                return wrapped
+
+            return deco
+
+        app = Kinglet()
+
+        @app.get("/admin")
+        @require_role("admin")
+        async def admin(request):
+            return {"secret": True}
+
+        client = TestClient(app, env={"JWT_SECRET": SECRET})
+        assert client.request("GET", "/admin")[0] == 403  # no token → forbidden
+        assert client.request("GET", "/admin", headers=auth_header({}))[0] == 403
+        assert (
+            client.request("GET", "/admin", headers=auth_header({"role": "admin"}))[0]
+            == 200
+        )
+
+    def test_security_decorator_on_factory_raises_typeerror(self):
+        """Applying @security_decorator to a factory (not its inner decorator)
+        fails loudly instead of silently mis-marking the factory."""
+
+        @security_decorator
+        def require_role(role):  # WRONG: factory, not a simple decorator
+            def deco(handler):
+                return handler
+
+            return deco
+
+        with pytest.raises(TypeError, match="factory"):
+            require_role("admin")  # invoked with a non-callable role string
+
 
 class TestGeoRestrictIsNotAPosture:
     """CodeRabbit S1: geo_restrict is a forgeable network filter (fails OPEN in
