@@ -58,7 +58,9 @@ class User(Model):
 
 
 # Migration endpoint (secured with token)
-@app.post("/migrate")
+@app.post(
+    "/migrate", public=True
+)  # TODO: consider a security decorator — handler does inline token auth check
 async def migrate_database(request):
     """Initialize database schema"""
     # Simple security - in production use proper auth
@@ -80,7 +82,7 @@ async def migrate_database(request):
     }
 
 
-@app.get("/schema")
+@app.get("/schema", public=True)
 async def get_schema_sql(request):
     """Get schema SQL for manual setup"""
     models = [Game, User]
@@ -98,7 +100,7 @@ async def get_schema_sql(request):
 
 
 # Demo CRUD endpoints
-@app.post("/games")
+@app.post("/games", public=True)
 async def create_game(request):
     """Create a game - validates fields automatically"""
     try:
@@ -120,7 +122,7 @@ async def create_game(request):
         return {"error": f"Database error: {e}"}, 500
 
 
-@app.get("/games")
+@app.get("/games", public=True)
 async def list_games(request):
     """List games with optional filtering"""
     try:
@@ -158,7 +160,7 @@ async def list_games(request):
         return {"error": f"Query error: {e}"}, 400
 
 
-@app.get("/games/{game_id}")
+@app.get("/games/{game_id}", public=True)
 async def get_game(request):
     """Get specific game"""
     try:
@@ -173,7 +175,7 @@ async def get_game(request):
         return {"error": f"Invalid game ID: {e}"}, 400
 
 
-@app.put("/games/{game_id}")
+@app.put("/games/{game_id}", public=True)
 async def update_game(request):
     """Update game"""
     try:
@@ -196,7 +198,7 @@ async def update_game(request):
         return {"error": f"Validation error: {e}"}, 400
 
 
-@app.delete("/games/{game_id}")
+@app.delete("/games/{game_id}", public=True)
 async def delete_game(request):
     """Delete game"""
     try:
@@ -212,7 +214,7 @@ async def delete_game(request):
         return {"error": f"Invalid game ID: {e}"}, 400
 
 
-@app.post("/users")
+@app.post("/users", public=True)
 async def create_user(request):
     """Create user with uniqueness validation"""
     try:
@@ -235,7 +237,7 @@ async def create_user(request):
         return {"error": f"Validation error: {e}"}, 400
 
 
-@app.get("/users")
+@app.get("/users", public=True)
 async def list_users(request):
     """List users"""
     try:
@@ -252,7 +254,7 @@ async def list_users(request):
         return {"error": str(e)}, 500
 
 
-@app.get("/stats")
+@app.get("/stats", public=True)
 async def get_stats(request):
     """Get database statistics - demonstrates count queries"""
     try:
@@ -277,7 +279,7 @@ async def get_stats(request):
 
 
 # Demo data endpoints
-@app.post("/demo/seed")
+@app.post("/demo/seed", public=True)
 async def seed_demo_data(request):
     """Seed database with demo data - demonstrates bulk operations"""
     try:
@@ -387,7 +389,7 @@ async def seed_demo_data(request):
         return {"error": str(e)}, 500
 
 
-@app.get("/demo/test-queries")
+@app.get("/demo/test-queries", public=True)
 async def test_queries(request):
     """Demonstrate various query capabilities and D1 optimizations"""
     try:
@@ -421,7 +423,7 @@ async def test_queries(request):
         return {"error": str(e)}, 500
 
 
-@app.post("/demo/bulk-update")
+@app.post("/demo/bulk-update", public=True)
 async def demo_bulk_update(request):
     """Demonstrate bulk update operations"""
     try:
@@ -442,7 +444,7 @@ async def demo_bulk_update(request):
         return {"error": str(e)}, 500
 
 
-@app.post("/demo/bulk-delete")
+@app.post("/demo/bulk-delete", public=True)
 async def demo_bulk_delete(request):
     """Demonstrate bulk delete operations"""
     try:
@@ -461,7 +463,7 @@ async def demo_bulk_delete(request):
 
 
 # Health check endpoint
-@app.get("/")
+@app.get("/", public=True)
 async def health_check(request):
     """Health check and API info"""
     return {

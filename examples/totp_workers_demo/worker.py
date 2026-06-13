@@ -20,6 +20,7 @@ from kinglet.totp import (
 try:
     from workers import WorkerEntrypoint
 except ModuleNotFoundError:
+
     class WorkerEntrypoint:
         def __init__(self, ctx=None, env=None):
             self.ctx = ctx
@@ -41,12 +42,12 @@ class Default(WorkerEntrypoint):
         return await app(request, self.env)
 
 
-@app.get("/")
+@app.get("/", public=True)
 async def health(request):
     return {"status": "healthy", "demo": "kinglet-totp-workers-demo"}
 
 
-@app.get("/auth/totp/test-info")
+@app.get("/auth/totp/test-info", public=True)
 async def test_info(request):
     return {
         "environment": _env_get(request.env, "ENVIRONMENT", "unknown"),

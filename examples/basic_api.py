@@ -16,7 +16,7 @@ from kinglet import Kinglet, Response, SchemaGenerator, TestClient
 app = Kinglet(root_path="/api", debug=True)
 
 
-@app.get("/")
+@app.get("/", public=True)
 async def health_check(request):
     """Health check endpoint"""
     import sys
@@ -31,7 +31,7 @@ async def health_check(request):
     }
 
 
-@app.get("/search")
+@app.get("/search", public=True)
 async def search_users(request):
     """Example with typed query parameters"""
     page = request.query_int("page", 1)
@@ -47,7 +47,9 @@ async def search_users(request):
     }
 
 
-@app.get("/users/{user_id}")
+@app.get(
+    "/users/{user_id}", public=True
+)  # TODO: consider a security decorator — handler does inline auth check
 async def get_user(request):
     """Example with typed path parameters and authentication"""
     # Typed path parameter with validation
@@ -65,7 +67,7 @@ async def get_user(request):
     return {"user_id": user_id, "authenticated": True, "token": token}
 
 
-@app.post("/auth/register")
+@app.post("/auth/register", public=True)
 async def register(request):
     """Example with JSON body and validation"""
     data = await request.json()
@@ -87,7 +89,7 @@ async def register(request):
 
 
 # OpenAPI Documentation Endpoints
-@app.get("/openapi.json")
+@app.get("/openapi.json", public=True)
 async def openapi_spec(request):
     """
     OpenAPI 3.0 Specification
@@ -104,7 +106,7 @@ async def openapi_spec(request):
     return Response(generator.generate_spec())
 
 
-@app.get("/docs")
+@app.get("/docs", public=True)
 async def swagger_ui(request):
     """
     Interactive API Documentation (Swagger UI)
@@ -118,7 +120,7 @@ async def swagger_ui(request):
     )
 
 
-@app.get("/redoc")
+@app.get("/redoc", public=True)
 async def redoc_ui(request):
     """
     API Documentation (ReDoc)

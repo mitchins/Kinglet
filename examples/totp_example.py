@@ -339,12 +339,13 @@ async def admin_disable_totp(request):
 # ============================================
 
 
-@app.get("/auth/totp/test-info")
+@app.get("/auth/totp/test-info", public=True)
 async def get_test_info(request):
     """
     Development endpoint showing TOTP configuration
     Only available when TOTP_ENABLED=false
     """
+    # TODO: consider a security decorator if this should be restricted beyond the inline TOTP_ENABLED check
     totp_enabled = getattr(request.env, "TOTP_ENABLED", "true").lower() == "true"
 
     if totp_enabled:

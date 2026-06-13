@@ -8,7 +8,7 @@ from kinglet.authz import get_user, require_auth
 app = Kinglet()
 
 
-@app.get("/")
+@app.get("/", public=True)
 async def home(request):
     return {
         "demo": "Kinglet Authorization",
@@ -20,7 +20,7 @@ async def home(request):
     }
 
 
-@app.get("/public")
+@app.get("/public", public=True)
 async def public_endpoint(request):
     """Public endpoint - no auth required"""
     return {"message": "This is public", "auth_required": False}
@@ -40,7 +40,9 @@ async def protected_endpoint(request):
 
 
 # Manual auth check example
-@app.get("/manual-auth")
+@app.get(
+    "/manual-auth", public=True
+)  # TODO: consider a security decorator — handler does inline auth check
 async def manual_auth_check(request):
     """Example of manual authentication check"""
     user = await get_user(request)
@@ -56,7 +58,9 @@ async def manual_auth_check(request):
 
 
 # Admin example with proper security
-@app.post("/admin/action")
+@app.post(
+    "/admin/action", public=True
+)  # TODO: consider a security decorator — handler does inline role/admin check
 async def admin_action(request):
     """Admin action with confirmation requirement"""
     user = await get_user(request)
@@ -86,7 +90,7 @@ async def admin_action(request):
 
 
 # Mock JWT for testing
-@app.post("/mock-login")
+@app.post("/mock-login", public=True)
 async def mock_login(request):
     """Create a mock JWT for testing (demo only)"""
     body = await request.json() or {}

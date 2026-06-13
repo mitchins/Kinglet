@@ -25,7 +25,7 @@ async def setup_cache(request, handler):
 
 
 # Basic caching with D1 primary strategy
-@app.get("/products")
+@app.get("/products", public=True)
 @cache_aside_d1(cache_type="products", ttl=1800)  # 30 minutes
 async def get_products(request):
     """Get products with D1 caching"""
@@ -58,7 +58,7 @@ async def get_products(request):
 
 
 # Dynamic route caching
-@app.get("/products/{product_id}")
+@app.get("/products/{product_id}", public=True)
 @cache_aside_d1(cache_type="product_detail", ttl=3600)  # 1 hour
 async def get_product_detail(request):
     """Get product details with path-based cache key"""
@@ -78,7 +78,7 @@ async def get_product_detail(request):
 
 
 # Cache management endpoints
-@app.get("/cache/stats")
+@app.get("/cache/stats", public=True)
 async def get_cache_stats(request):
     """Get cache performance statistics"""
     if not hasattr(request.env, "DB"):
@@ -97,7 +97,7 @@ async def get_cache_stats(request):
     }
 
 
-@app.post("/cache/cleanup")
+@app.post("/cache/cleanup", public=True)
 async def cleanup_expired_cache(request):
     """Remove expired cache entries"""
     if not hasattr(request.env, "DB"):
@@ -113,7 +113,7 @@ async def cleanup_expired_cache(request):
     }
 
 
-@app.delete("/cache/invalidate")
+@app.delete("/cache/invalidate", public=True)
 async def invalidate_cache_pattern(request):
     """Invalidate cache entries matching a pattern"""
     body = await request.json() or {}
@@ -140,7 +140,7 @@ async def invalidate_cache_pattern(request):
 from kinglet import AlwaysCachePolicy
 
 
-@app.get("/admin/reports")
+@app.get("/admin/reports", public=True)
 @cache_aside_d1(
     cache_type="admin_reports",
     ttl=300,  # 5 minutes (shorter for admin data)
@@ -163,7 +163,7 @@ async def get_admin_reports(request):
 
 
 # Health check with cache info
-@app.get("/")
+@app.get("/", public=True)
 async def health_check(request):
     """Health check with cache backend info"""
     import sys

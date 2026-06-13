@@ -15,7 +15,7 @@ from kinglet import (
 app = Kinglet()
 
 
-@app.get("/")
+@app.get("/", public=True)
 async def home(request):
     return {
         "demo": "Kinglet Media/R2 Demo",
@@ -29,7 +29,7 @@ async def home(request):
     }
 
 
-@app.post("/upload")
+@app.post("/upload", public=True)
 async def upload_file(request):
     """Upload file to R2 bucket"""
     try:
@@ -66,7 +66,7 @@ async def upload_file(request):
         return Response({"error": str(e)}, status=500)
 
 
-@app.get("/files")
+@app.get("/files", public=True)
 async def list_files(request):
     """List files in R2 bucket"""
     try:
@@ -103,7 +103,7 @@ async def list_files(request):
         return Response({"error": str(e)}, status=500)
 
 
-@app.get("/file/{key:path}")
+@app.get("/file/{key:path}", public=True)
 async def get_file(request):
     """Get file from R2 bucket"""
     key = request.path_params.get("key")
@@ -160,7 +160,7 @@ async def get_file(request):
         return Response({"error": str(e)}, status=500)
 
 
-@app.delete("/delete/{key:path}")
+@app.delete("/delete/{key:path}", public=True)
 async def delete_file(request):
     """Delete file from R2 bucket"""
     key = request.path_params.get("key")
@@ -190,7 +190,7 @@ async def delete_file(request):
         return Response({"error": str(e)}, status=500)
 
 
-@app.get("/asset/{asset_type}/{key:path}")
+@app.get("/asset/{asset_type}/{key:path}", public=True)
 async def get_asset_url(request):
     """Generate asset URL for different types"""
     asset_type = request.path_params.get("asset_type", "media")

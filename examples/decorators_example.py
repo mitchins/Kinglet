@@ -18,7 +18,7 @@ app = Kinglet(debug=True, auto_wrap_exceptions=True)
 # All endpoints automatically get exception wrapping when auto_wrap_exceptions=True
 
 
-@app.get("/api/games")
+@app.get("/api/games", public=True)
 async def get_games(request):
     """Example endpoint that might throw errors - automatically wrapped"""
     # Simulate database access that might fail
@@ -40,7 +40,7 @@ async def get_games(request):
 app_manual = Kinglet(auto_wrap_exceptions=False)
 
 
-@app_manual.get("/api/manual")
+@app_manual.get("/api/manual", public=True)
 @wrap_exceptions(step="manual_endpoint", expose_details=True)
 async def manual_wrapped(request):
     """Manually wrapped endpoint with specific step identifier"""

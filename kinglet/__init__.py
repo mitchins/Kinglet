@@ -14,9 +14,12 @@ from .core import Kinglet, Route, Router
 from .decorators import (
     geo_restrict,
     is_route_registered,
+    is_secured,
+    mark_secured,
     reject_if_route_registered,
     require_dev,
     require_field,
+    security_decorator,
     validate_json_body,
     wrap_exceptions,
 )
@@ -181,7 +184,7 @@ try:
 except ImportError:
     _openapi_available = False
 
-__version__ = "1.9.0"
+__version__ = "2.0.0"
 __author__ = "Mitchell Currie"
 
 
@@ -254,6 +257,9 @@ __all__ = [
     "require_field",
     "is_route_registered",
     "reject_if_route_registered",
+    "security_decorator",
+    "mark_secured",
+    "is_secured",
     # Utilities
     "CacheService",
     "cache_aside",

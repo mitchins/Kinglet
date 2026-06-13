@@ -87,19 +87,21 @@ app.add_middleware(auth)
 
 
 # Routes to test middleware
-@app.get("/health")
+@app.get("/health", public=True)
 async def health_check(request):
     return {"status": "healthy", "middleware": "working"}
 
 
-@app.get("/api/protected")
+@app.get(
+    "/api/protected", public=True
+)  # TODO: consider a security decorator — auth enforced by AuthMiddleware, not route-level decorator
 async def protected_endpoint(request):
     # This will require X-API-Key header
     user = getattr(request, "user", None)
     return {"message": "Access granted", "user": user}
 
 
-@app.get("/api/data")
+@app.get("/api/data", public=True)
 async def api_data(request):
     # Simulate some processing time to see timing middleware
     import asyncio

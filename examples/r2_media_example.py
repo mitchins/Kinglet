@@ -23,7 +23,7 @@ app = Kinglet()
 router = Router()
 
 
-@router.post("/media")
+@router.post("/media", public=True)
 async def upload_media(request):
     """Upload binary content to R2"""
     import uuid
@@ -48,7 +48,7 @@ async def upload_media(request):
     return {"error": "No binary data provided"}
 
 
-@router.get("/media/{media_id}")
+@router.get("/media/{media_id}", public=True)
 async def get_media(request):
     """Serve binary content from R2 - The key technique"""
     media_id = request.path_param("media_id")

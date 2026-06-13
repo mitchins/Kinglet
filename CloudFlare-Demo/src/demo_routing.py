@@ -8,18 +8,18 @@ app = Kinglet()
 
 
 # Basic routes
-@app.get("/")
+@app.get("/", public=True)
 async def home(request):
     return {"message": "Kinglet Routing Demo", "version": "2"}
 
 
-@app.get("/hello/{name}")
+@app.get("/hello/{name}", public=True)
 async def hello(request):
     name = request.path_params.get("name", "World")
     return {"greeting": f"Hello, {name}!"}
 
 
-@app.post("/echo")
+@app.post("/echo", public=True)
 async def echo(request):
     body = await request.json() or {}
     return {"echo": body, "method": "POST"}
@@ -29,12 +29,12 @@ async def echo(request):
 api_router = Router()
 
 
-@api_router.get("/status")
+@api_router.get("/status", public=True)
 async def api_status(request):
     return {"status": "ok", "api_version": "v1"}
 
 
-@api_router.get("/users")
+@api_router.get("/users", public=True)
 async def list_users(request):
     return {"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]}
 
