@@ -55,7 +55,7 @@ app = Kinglet(debug=True, root_path="/api")
 # === EXPERIENCE API WITH CACHING ===
 
 
-@app.get("/homepage")
+@app.get("/homepage", public=True)
 @cache_aside(cache_type="homepage", ttl=3600)  # Cache for 1 hour
 async def get_homepage(request):
     """Homepage Experience API - cached R2 response"""
@@ -77,7 +77,7 @@ async def get_homepage(request):
     }
 
 
-@app.get("/games")
+@app.get("/games", public=True)
 @cache_aside(cache_type="games_list", ttl=1800)  # Cache for 30 minutes
 async def list_games(request):
     """Games list with filtering - cached by query parameters"""
@@ -108,7 +108,7 @@ async def list_games(request):
 # === MEDIA MANAGEMENT ===
 
 
-@app.post("/media")
+@app.post("/media", public=True)
 async def upload_media(request):
     """Upload media and return UID - demonstrates media_url usage"""
     # Simulate file upload
@@ -128,7 +128,7 @@ async def upload_media(request):
     }
 
 
-@app.get("/media/{uid}")
+@app.get("/media/{uid}", public=True)
 async def get_media(request):
     """Get media by UID - demonstrates URL generation"""
     uid = request.path_param("uid")
@@ -144,7 +144,7 @@ async def get_media(request):
 # === GAME DETAIL WITH DYNAMIC PATH CACHING ===
 
 
-@app.get("/games/{slug}")
+@app.get("/games/{slug}", public=True)
 @cache_aside(cache_type="game_detail", ttl=1800)  # Cache each game separately
 async def get_game_detail(request):
     """Game detail page - cached per game slug"""

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kinglet"
-version = "1.9.0"
+version = "2.0.0"
 description = "A lightweight routing framework for Python Workers"
 readme = "README.md"
 authors = [
@@ -77,7 +77,8 @@ markers = [
     "asyncio: marks tests as async",
     "unit: marks tests as unit tests",
     "integration: marks tests as integration tests",
-    "miniflare: marks tests requiring Miniflare/wrangler (will fail if not available)"
+    "miniflare: marks tests requiring Miniflare/wrangler (will fail if not available)",
+    "route_policy: keep the production default route-security policy (enforce on)"
 ]
 
 [tool.black]

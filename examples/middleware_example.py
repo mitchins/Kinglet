@@ -66,9 +66,10 @@ class AuthMiddleware:
         self.exempt_paths = exempt_paths or ["/health", "/public"]
 
     async def process_request(self, request):
+        # Contract: return a Response to short-circuit, or None to continue.
         # Skip auth for exempt paths
         if any(request.path.startswith(path) for path in self.exempt_paths):
-            return request
+            return None
 
         # Check for API key
         api_key = request.header("X-API-Key")
@@ -77,9 +78,9 @@ class AuthMiddleware:
 
             return Response({"error": "API key required"}, status=401)
 
-        # Add user info to request
+        # Add user info to request, then continue to the route
         request.user = {"id": "demo-user", "api_key": api_key}
-        return request
+        return None
 
 
 auth = AuthMiddleware(exempt_paths=["/health", "/public"])
@@ -87,19 +88,26 @@ app.add_middleware(auth)
 
 
 # Routes to test middleware
-@app.get("/health")
+@app.get("/health", public=True)
 async def health_check(request):
     return {"status": "healthy", "middleware": "working"}
 
 
-@app.get("/api/protected")
+# public=True here only satisfies route registration (Kinglet requires every route
+# to declare a posture).  Actual authentication is enforced by AuthMiddleware above,
+# which runs BEFORE the route handler and short-circuits with HTTP 401 when the
+# X-API-Key header is missing or wrong.  This is the correct teaching pattern for
+# app-level middleware auth: the middleware acts as the gate, not the route decorator.
+# In production, prefer a @security_decorator on each route for explicit, per-route
+# security that is visible at a glance rather than relying solely on middleware.
+@app.get("/api/protected", public=True)
 async def protected_endpoint(request):
-    # This will require X-API-Key header
+    # Reaches here only if AuthMiddleware passed the request through.
     user = getattr(request, "user", None)
     return {"message": "Access granted", "user": user}
 
 
-@app.get("/api/data")
+@app.get("/api/data", public=True)
 async def api_data(request):
     # Simulate some processing time to see timing middleware
     import asyncio

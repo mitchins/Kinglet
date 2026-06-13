@@ -29,6 +29,49 @@ def _resolve_wrangler_command() -> list[str]:
 
 
 @pytest.fixture(autouse=True)
+def _route_policy_default(request, monkeypatch):
+    """Relax the default-deny route policy for tests that are not about it.
+
+    Kinglet 2.0 defaults to enforce_route_policy=True: every route must be
+    explicitly public or carry an access-control marker. The bulk of the suite
+    exercises routing/response/middleware/ORM mechanics and registers plain
+    routes; annotating each adds no value. This fixture relaxes the *default*
+    for those tests only.
+
+    Tests that verify the policy itself (and the production default) carry
+    @pytest.mark.route_policy and are left untouched, so they see the real
+    enforce-on default that ships and that the scanner evaluates.
+
+    Timing constraint: this patches Kinglet/Router __init__, so an app only
+    benefits when it is constructed *inside* the test function (or a fixture
+    that runs after this one). Apps built at module import time register their
+    routes before the patch is installed and will still see enforce-on.
+    """
+    if request.node.get_closest_marker("route_policy"):
+        return
+
+    import warnings
+
+    import kinglet.core as core
+    from kinglet.decorators import RoutePolicyWarning
+
+    for cls in (core.Kinglet, core.Router):
+        original_init = cls.__init__
+
+        def patched_init(self, *args, _orig=original_init, **kwargs):
+            kwargs.setdefault("enforce_route_policy", False)
+            # This relaxation is intentional for mechanics tests; silence the
+            # opt-out warning so it does not spam the suite. Tests that probe
+            # the opt-out behavior are marked @pytest.mark.route_policy and run
+            # without this patch, so they still observe the warning.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RoutePolicyWarning)
+                _orig(self, *args, **kwargs)
+
+        monkeypatch.setattr(cls, "__init__", patched_init)
+
+
+@pytest.fixture(autouse=True)
 def d1_patches():
     """
     Auto-patch D1 unwrap functions for all tests

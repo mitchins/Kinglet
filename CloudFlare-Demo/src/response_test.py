@@ -7,7 +7,7 @@ from kinglet import Kinglet, Response
 app = Kinglet()
 
 
-@app.get("/")
+@app.get("/", public=True)
 async def home(request):
     return {
         "message": "Response Class Tests",
@@ -22,25 +22,25 @@ async def home(request):
     }
 
 
-@app.get("/text")
+@app.get("/text", public=True)
 async def handle_text_response(request):
     """Test plain text response - what content-type does it get?"""
     return "This is plain text"
 
 
-@app.get("/dict")
+@app.get("/dict", public=True)
 async def handle_dict_response(request):
     """Test dict response - should auto-convert to JSON"""
     return {"type": "dict", "auto_json": True}
 
 
-@app.get("/response-obj")
+@app.get("/response-obj", public=True)
 async def handle_response_object(request):
     """Test explicit Response object"""
     return Response("Explicit response content", status=201)
 
 
-@app.get("/custom-headers")
+@app.get("/custom-headers", public=True)
 async def handle_custom_headers(request):
     """Test Response with custom headers"""
     response = Response({"data": "with headers"}, status=200)
@@ -49,13 +49,13 @@ async def handle_custom_headers(request):
     return response
 
 
-@app.get("/error-static")
+@app.get("/error-static", public=True)
 async def handle_error_static(request):
     """Test Response.error() static method"""
     return Response.error("Something went wrong", 400, request.request_id)
 
 
-@app.get("/content-type")
+@app.get("/content-type", public=True)
 async def handle_content_type(request):
     """Test explicit content-type setting"""
     response = Response("Custom content", status=200)
@@ -63,7 +63,7 @@ async def handle_content_type(request):
     return response
 
 
-@app.get("/json-method")
+@app.get("/json-method", public=True)
 async def handle_json_method(request):
     """Test if Response has json() method"""
     try:

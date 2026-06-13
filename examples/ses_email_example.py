@@ -27,7 +27,7 @@ from kinglet import Kinglet, Response
 app = Kinglet()
 
 
-@app.post("/send-email")
+@app.post("/send-email", public=True)
 async def send_email_endpoint(request):
     """
     Send an email via SES
@@ -67,7 +67,7 @@ async def send_email_endpoint(request):
         return Response.error(result.error or "Failed to send email", status=500)
 
 
-@app.post("/notify")
+@app.post("/notify", public=True)
 async def send_notification(request):
     """
     Example: Send notification email with template

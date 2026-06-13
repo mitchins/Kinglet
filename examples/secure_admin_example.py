@@ -11,8 +11,8 @@ Demonstrates proper security patterns for admin endpoints including:
 This example reflects lessons learned from real-world security issues.
 """
 
-from kinglet import Kinglet, Response, Router
-from kinglet.authz import get_user
+import kinglet.authz
+from kinglet import Kinglet, Response, Router, security_decorator
 
 app = Kinglet(debug=False)  # Production security settings
 admin_router = Router()
@@ -22,6 +22,7 @@ admin_router = Router()
 # ============================================================================
 
 
+@security_decorator
 def require_admin(handler):
     """
     Multi-layer admin security decorator
@@ -33,8 +34,10 @@ def require_admin(handler):
     """
 
     async def wrapped(request):
-        # Layer 1: Require authentication
-        user = await get_user(request)
+        # Layer 1: Require authentication. Call through the module
+        # (kinglet.authz.get_user) rather than a directly-imported name so that
+        # tests/tools that monkeypatch kinglet.authz.get_user take effect.
+        user = await kinglet.authz.get_user(request)
         if not user:
             return Response(
                 {
@@ -276,7 +279,7 @@ async def get_cache_info(request):
 # ============================================================================
 
 
-@app.get("/health")
+@app.get("/health", public=True)
 async def health_check(request):
     """Public health check endpoint - no authentication required"""
     return {
@@ -287,7 +290,7 @@ async def health_check(request):
     }
 
 
-@app.get("/api/games")
+@app.get("/api/games", public=True)
 async def list_games(request):
     """Public games list - no authentication required"""
     return {
