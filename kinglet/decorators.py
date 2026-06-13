@@ -2,7 +2,6 @@
 Kinglet Decorators and Utility Functions
 """
 
-import contextlib
 import functools
 import json
 import weakref
@@ -11,39 +10,39 @@ from collections.abc import Callable
 from .exceptions import GeoRestrictedError, HTTPError
 from .http import Response
 
-# Attribute set on every callable registered with a route. Security decorators
-# use it to fail closed when applied in an order that cannot protect the route.
-ROUTE_REGISTERED_ATTR = "__kinglet_route_registered__"
-
-# Fallback registry for callables that cannot carry attributes (bound methods,
-# functools.partial, ...). Weak references: entries vanish when the registered
-# handler is garbage collected. Bound methods are ephemeral objects but hash
-# and compare by (instance, function), so a fresh `obj.method` reference still
-# matches the one the route registered.
-_UNMARKABLE_ROUTE_HANDLERS: weakref.WeakSet = weakref.WeakSet()
+# Registry of callables registered to a route, used by the decorator-order
+# guard. A WeakSet (value-equality membership) so a fresh access of a registered
+# bound method still matches via (instance, function) equality. Crucially,
+# WeakSet membership is NOT copied by functools.wraps - unlike a function
+# attribute, which wraps copies into outer wrappers and which previously made
+# the order guard reject a wrapper that merely inherited the copied attribute.
+#
+# Contrast _SECURED_HANDLERS, which must use STRICT identity to stop value-
+# equality laundering of the auth posture. Here value-equality is fine: it only
+# ever over-triggers the fail-loud order guard (never a bypass), so matching a
+# fresh bound-method access is the desired behaviour.
+_ROUTE_REGISTERED_HANDLERS: weakref.WeakSet = weakref.WeakSet()
 
 
 def mark_route_registered(handler: Callable) -> Callable:
     """Mark a callable as registered with a route.
 
-    Callables that reject attribute assignment are tracked in a weak registry
-    instead, so the decorator-order guard still detects them.
+    Membership is held weakly and is not propagated by functools.wraps, so the
+    decorator-order guard recognizes exactly the registered callables (and fresh
+    accesses of registered bound methods) without false positives from wrapping.
     """
     try:
-        setattr(handler, ROUTE_REGISTERED_ATTR, True)
-    except (AttributeError, TypeError):
-        # Not weakref-able or not hashable: best effort ends here.
-        with contextlib.suppress(TypeError):
-            _UNMARKABLE_ROUTE_HANDLERS.add(handler)
+        _ROUTE_REGISTERED_HANDLERS.add(handler)
+    except TypeError:
+        # Not weakref-able / not hashable: cannot be tracked (order guard skipped).
+        pass
     return handler
 
 
 def is_route_registered(handler: Callable) -> bool:
     """Return True if the callable was already registered with a route."""
-    if getattr(handler, ROUTE_REGISTERED_ATTR, False):
-        return True
     try:
-        return handler in _UNMARKABLE_ROUTE_HANDLERS
+        return handler in _ROUTE_REGISTERED_HANDLERS
     except TypeError:  # unhashable callable
         return False
 
@@ -111,17 +110,41 @@ def mark_secured(handler: Callable) -> Callable:
 
     Recognized built-in access decorators call this on their wrapper, and
     :func:`security_decorator` calls it for custom decorators. The route
-    policy then accepts the route without requiring ``public=True``. The mark
-    is recorded by object identity, so wrapping the result in an unrelated
-    decorator does NOT carry the posture across - the wrapper must enforce
-    (or re-mark) auth itself.
+    policy then accepts the route without requiring ``public=True``.
+
+    The mark is recorded by object **identity** (not value or a copyable
+    attribute), so wrapping the result in an unrelated decorator does NOT carry
+    the posture across - the wrapper must enforce (or re-mark) auth itself. Two
+    consequences for callers:
+
+    - **Bound methods**: ``obj.method`` creates a NEW object on each access, so
+      ``mark_secured(obj.method)`` marks one object while a later ``obj.method``
+      is a different one that is not secured. Capture the reference once and
+      pass the SAME object to both ``mark_secured`` and route registration::
+
+          handler = controller.action
+          mark_secured(handler)
+          router.add_route("/x", handler, ["GET"])
+
+    - **Non-weakref-able callables** cannot be tracked: the mark is skipped (a
+      :class:`RoutePolicyWarning` is emitted) and the route must instead be
+      declared ``public=True``. This fails closed.
     """
     try:
         _SECURED_HANDLERS[id(handler)] = handler
     except TypeError:
         # Not weakref-able (exotic callable): cannot be marked, so it is treated
-        # as unsecured and the route must be declared public=True. Fail closed.
-        pass
+        # as unsecured and the route must be declared public=True. Fail closed,
+        # but surface it so the later "no security posture" error is not a
+        # mystery.
+        import warnings
+
+        warnings.warn(
+            f"mark_secured: {handler!r} is not weakref-able and cannot be "
+            f"tracked as secured; the route must be declared public=True.",
+            RoutePolicyWarning,
+            stacklevel=2,
+        )
     return handler
 
 

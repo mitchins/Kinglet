@@ -248,6 +248,29 @@ class TestUnmarkableHandlers:
         # Wrapping before registration stays allowed.
         require_auth(Controller().secret)
 
+    def test_wraps_wrapper_of_registered_handler_is_not_route_registered(self):
+        """The route-registered marker is a weak registry, not a function
+        attribute, so functools.wraps does NOT propagate it. A wrapper that
+        wraps a registered handler must not be falsely treated as registered
+        (which would make the decorator-order guard reject it spuriously)."""
+        import functools
+
+        app = Kinglet()
+
+        @app.get("/data", public=True)
+        async def data(request):
+            return {}
+
+        assert is_route_registered(data)
+
+        @functools.wraps(data)  # copies __dict__ - must NOT carry registration
+        async def wrapper(request):
+            return await data(request)
+
+        assert not is_route_registered(wrapper)
+        # Applying a security decorator to the wrapper must NOT falsely raise.
+        require_auth(wrapper)
+
 
 class TestEveryBuiltinDecoratorIsGuarded:
     """One red test per decorator if its guard call is ever removed."""
