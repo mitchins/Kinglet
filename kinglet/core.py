@@ -32,6 +32,13 @@ class Route:
         self, path: str, handler: Callable, methods: list[str], public: bool = False
     ):
         self.path = path
+        # Invariant: self.handler must remain the exact object passed to
+        # mark_route_registered. The route-registered marker is a weak registry;
+        # for bound-method handlers the entry survives only while this strong
+        # reference does. Storing a re-wrapped/copied handler here while marking
+        # the original would let the entry be collected early and silently
+        # weaken the decorator-order guard (fail-loud -> fail-silent; still not
+        # an auth bypass, since the route policy is the backstop).
         self.handler = mark_route_registered(handler)
         self.methods = [m.upper() for m in methods]
         self.public = public  # explicit access posture, preserved for include_router
