@@ -83,12 +83,26 @@ For each route, do **one** of the following:
 - Disabling the policy (`enforce_route_policy=False`) emits a
   `RoutePolicyWarning` so an intentional opt-out is not mistaken for one
   forgotten during migration.
-- The "secured" posture is tracked by **object identity** in an internal
+- The "secured" posture is tracked by **object identity** in an internal weak
   registry, set via `mark_secured()` / `@security_decorator`. There is no public
   `__kinglet_secured__` attribute: hand-setting that attribute does nothing
   (use `mark_secured()`), and it cannot be laundered onto an outer wrapper by
-  `functools.wraps`. The route-registered order guard uses a weak registry for
-  the same reason (no `functools.wraps` false positives).
+  `functools.wraps`. The route-registered order guard uses the **same** identity
+  registry mechanism (no `functools.wraps` false positives, and it tracks
+  unhashable callable handlers too). Bound-method handlers must be captured once
+  (`h = obj.method`) and the same object reused, since each access is a new
+  object under identity tracking.
+- **Residual order-guard limitation (by design).** The decorator-order guard
+  tracks by identity, so it cannot recognize a *fresh* `obj.method` access of a
+  registered bound method, and it cannot track a non-weakref-able handler at
+  all. Kinglet warns (`RoutePolicyWarning`) at registration in these cases. This
+  is **not** a default-config risk: under the default policy an unsecured route
+  is refused before it registers. It only carries residual risk when the policy
+  is bypassed for the route (`public=True`) or disabled (`enforce_route_policy=
+  False`) **and** a security decorator is applied in reversed order — there the
+  guard is the only check, and the warning is the signal. Teams that want these
+  to fail rather than warn should treat `RoutePolicyWarning` as an error in CI:
+  `warnings.filterwarnings("error", category=RoutePolicyWarning)`.
 - `Kinglet` now also exposes `head()` and `options()` route decorators (were
   previously only on `Router`).
 - The registration error names the offending handler and points at

@@ -3,6 +3,7 @@ Kinglet Decorators and Utility Functions
 """
 
 import functools
+import inspect
 import json
 import warnings
 import weakref
@@ -11,48 +12,81 @@ from collections.abc import Callable
 from .exceptions import GeoRestrictedError, HTTPError
 from .http import Response
 
+
+class RoutePolicyWarning(UserWarning):
+    """Signals a route-security situation a developer should know about.
+
+    Emitted when: the default-deny policy is disabled (``enforce_route_policy=
+    False``); a raw bound method is registered as a handler (identity tracking
+    cannot match a fresh ``obj.method`` access); or a handler is not weakref-able
+    and cannot be tracked by the decorator-order guard.
+
+    These are warnings, not errors, because the situations have legitimate uses
+    and the default-deny policy remains the real backstop. Teams that want them
+    to fail can escalate in CI, e.g.::
+
+        warnings.filterwarnings("error", category=RoutePolicyWarning)
+        # or: python -W error::kinglet.decorators.RoutePolicyWarning
+    """
+
+
 # Registry of callables registered to a route, used by the decorator-order
-# guard. A WeakSet (value-equality membership) so a fresh access of a registered
-# bound method still matches via (instance, function) equality. Crucially,
-# WeakSet membership is NOT copied by functools.wraps - unlike a function
-# attribute, which wraps copies into outer wrappers and which previously made
-# the order guard reject a wrapper that merely inherited the copied attribute.
-#
-# Contrast _SECURED_HANDLERS, which must use STRICT identity to stop value-
-# equality laundering of the auth posture. Here value-equality is fine: it only
-# ever over-triggers the fail-loud order guard (never a bypass), so matching a
-# fresh bound-method access is the desired behaviour.
-_ROUTE_REGISTERED_HANDLERS: weakref.WeakSet = weakref.WeakSet()
+# guard. Keyed by id() and verified with `is` - the SAME identity mechanism as
+# _SECURED_HANDLERS below (one model, not two). Identity is the right match
+# here: id() works for any object (including unhashable callables, which a set
+# cannot hold), and registry membership is not copied by functools.wraps, so
+# wrapping a registered handler does not falsely mark the wrapper. Bound methods
+# are recreated on each attribute access, so - exactly as for mark_secured -
+# capture the reference once and pass the same object to registration and to any
+# later check.
+_ROUTE_REGISTERED_HANDLERS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 
 def mark_route_registered(handler: Callable) -> Callable:
     """Mark a callable as registered with a route.
 
-    Membership is held weakly and is not propagated by functools.wraps, so the
-    decorator-order guard recognizes exactly the registered callables (and fresh
-    accesses of registered bound methods) without false positives from wrapping.
+    Tracked by object identity (held weakly), not a function attribute, so the
+    decorator-order guard recognizes exactly the registered callable without
+    functools.wraps propagating the mark to outer wrappers.
     """
-    try:
-        _ROUTE_REGISTERED_HANDLERS.add(handler)
-    except TypeError:
-        # Not weakref-able / not hashable: cannot be tracked, so the
-        # decorator-order guard is skipped for this callable. Surface it for
-        # consistency with mark_secured (still fail-loud only - never a bypass).
+    if inspect.ismethod(handler):
+        # A *raw* bound method only reaches here in a footgun-prone config: the
+        # default policy rejects an unsecured bound-method route, and a correctly
+        # secured one registers the (function) security wrapper, not the method.
+        # Bound methods are recreated on each attribute access, so the identity
+        # guard only recognizes the exact object registered. Warn eagerly rather
+        # than silently miss a reversed-order decorator on a fresh access.
         warnings.warn(
-            f"mark_route_registered: {handler!r} is not trackable; the "
+            "A bound method was registered as a route handler. Bound methods are "
+            "recreated on each attribute access and tracked by identity, so the "
+            "decorator-order guard only recognizes the exact object registered. "
+            "Capture it once (handler = obj.method) and reuse that reference, or "
+            "use a plain function handler.",
+            RoutePolicyWarning,
+            stacklevel=4,
+        )
+    try:
+        _ROUTE_REGISTERED_HANDLERS[id(handler)] = handler
+    except TypeError:
+        # Not weakref-able: cannot be tracked, so the decorator-order guard is
+        # skipped for this callable. Surface it (still fail-loud only - never a
+        # bypass; the default-deny route policy remains the real backstop).
+        warnings.warn(
+            f"mark_route_registered: {handler!r} is not weakref-able; the "
             f"decorator-order guard is skipped for this callable.",
             RoutePolicyWarning,
-            stacklevel=2,
+            stacklevel=4,
         )
     return handler
 
 
 def is_route_registered(handler: Callable) -> bool:
-    """Return True if the callable was already registered with a route."""
-    try:
-        return handler in _ROUTE_REGISTERED_HANDLERS
-    except TypeError:  # unhashable callable
-        return False
+    """Return True if this exact callable was already registered with a route."""
+    # `handler is not None` guards the degenerate case: get() returns None when
+    # the id is absent, and `None is None` would otherwise report True.
+    return (
+        handler is not None and _ROUTE_REGISTERED_HANDLERS.get(id(handler)) is handler
+    )
 
 
 def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:
@@ -84,15 +118,6 @@ def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-class RoutePolicyWarning(UserWarning):
-    """Emitted when the default-deny route policy is disabled.
-
-    Disabling enforcement removes a framework-level guard against accidentally
-    unprotected routes; the warning leaves an audit signal so an intentional
-    opt-out is not mistaken for one forgotten during migration.
-    """
-
-
 # Registry of callables that a recognized access-control decorator actually
 # produced. Keyed by ``id()`` and verified with ``is``, so membership is by true
 # OBJECT IDENTITY - never value equality. This matters twice:
@@ -109,7 +134,8 @@ class RoutePolicyWarning(UserWarning):
 # Values are held weakly so entries die with the callable; the ``is`` check also
 # guards against id reuse after garbage collection. The check runs synchronously
 # at registration while the route holds a strong reference, so liveness is never
-# a concern at check time.
+# a concern at check time. (``_ROUTE_REGISTERED_HANDLERS`` above uses the exact
+# same mechanism - one identity model for both markers.)
 _SECURED_HANDLERS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 
@@ -156,7 +182,9 @@ def mark_secured(handler: Callable) -> Callable:
 
 def is_secured(handler: Callable) -> bool:
     """Return True if this exact callable was produced by a recognized decorator."""
-    return _SECURED_HANDLERS.get(id(handler)) is handler
+    # `handler is not None` guards the degenerate case (get() default is None,
+    # so `None is None` would otherwise report True for a None handler).
+    return handler is not None and _SECURED_HANDLERS.get(id(handler)) is handler
 
 
 def security_decorator(decorator_fn: Callable) -> Callable:
