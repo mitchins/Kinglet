@@ -97,20 +97,45 @@ class TestFieldValidation:
         assert field.default == 7
         assert field.index is False
 
-    def test_integer_field_boolean_defaults_are_preserved(self):
-        indexed_field = IntegerField(True)
-        explicit_default = IntegerField(default=True)
+    def test_integer_field_positional_field_arguments_are_forwarded(self):
+        field = IntegerField(1, False, True, True, index=True)
 
-        assert indexed_field.default is None
-        assert indexed_field.index is True
-        assert explicit_default.default is True
-        assert explicit_default.index is False
+        assert field.default == 1
+        assert field.null is False
+        assert field.unique is True
+        assert field.primary_key is True
+        assert field.index is True
+
+    def test_integer_field_positional_boolean_default_is_preserved(self):
+        field = IntegerField(True)
+
+        assert field.default is True
+        assert field.index is False
+
+    def test_integer_field_positional_default_is_used_by_model_instances(self):
+        class LegacyModel(Model):
+            score = IntegerField(7)
+
+        instance = LegacyModel()
+
+        assert instance.score == 7
 
     @pytest.mark.parametrize(
         "args, kwargs, message",
         [
-            ((1, 2), {}, "at most one positional argument"),
+            ((1, 2, 3, 4, 5), {}, "at most four positional arguments"),
             ((5,), {"default": 3}, "default provided both positionally and by keyword"),
+            ((5, False), {"null": True}, "null provided both positionally and by keyword"),
+            (
+                (1, False, True),
+                {"unique": False},
+                "unique provided both positionally and by keyword",
+            ),
+            (
+                (1, False, True, True),
+                {"primary_key": False},
+                "primary_key provided both positionally and by keyword",
+            ),
         ],
     )
     def test_integer_field_rejects_invalid_positional_arguments(

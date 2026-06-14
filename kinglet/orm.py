@@ -116,23 +116,22 @@ class IntegerField(Field):
     def __init__(
         self,
         *args: Any,
-        default: Any = None,
-        index: bool | None = None,
-        **kwargs,
-    ):
-        if len(args) > 1:
-            raise TypeError("IntegerField accepts at most one positional argument")
-        if args:
-            positional = args[0]
-            if isinstance(positional, bool) and default is None and index is None:
-                index = positional
-            elif default is None:
-                default = positional
-            else:
-                raise TypeError("default provided both positionally and by keyword")
-        if index is None:
-            index = False
-        super().__init__(default=default, **kwargs)
+        index: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        if len(args) > 4:
+            raise TypeError("IntegerField accepts at most four positional arguments")
+
+        field_arg_names = ("default", "null", "unique", "primary_key")
+        field_kwargs = dict(kwargs)
+        for name, value in zip(field_arg_names, args):
+            if name in field_kwargs:
+                raise TypeError(
+                    f"{name} provided both positionally and by keyword"
+                )
+            field_kwargs[name] = value
+
+        super().__init__(**field_kwargs)
         self.index = index  # Explicit indexing control
 
     def to_python(self, value: Any) -> int | None:

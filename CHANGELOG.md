@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### ORM
+
+- `IntegerField` once again accepts the legacy positional `Field` arguments
+  (`default`, `null`, `unique`, `primary_key`) for backward compatibility.
+- `index` should now be passed explicitly as a keyword: `IntegerField(index=True)`.
+  The ambiguous form `IntegerField(True)` is interpreted as `default=True`, matching
+  the base `Field` positional contract.
+
 ## 2.0.0 — Default-deny route security
 
 ### ⚠️ Breaking change: routes must declare their access posture
