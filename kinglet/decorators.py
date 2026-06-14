@@ -46,17 +46,18 @@ class RoutePolicyWarning(UserWarning):
 _ROUTE_REGISTERED_HANDLERS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 
-def _route_registry_key(handler: Callable):
-    """Logical-identity key for the route-registered registry.
+def _route_registry_key(handler: Callable) -> tuple[object, bool]:
+    """Return ``(registry_key, is_bound_method)`` for a handler.
 
     Bound methods are recreated on each attribute access, so key them by
     ``(id(instance), id(function))`` - stable across fresh accesses. While the
     route holds the registered bound method, it (and therefore its instance)
     stays alive, so neither id is reused. Everything else is keyed by ``id()``.
+    The ``is_bound_method`` flag is returned so callers compute it once.
     """
     if inspect.ismethod(handler):
-        return (id(handler.__self__), id(handler.__func__))
-    return id(handler)
+        return (id(handler.__self__), id(handler.__func__)), True
+    return id(handler), False
 
 
 def mark_route_registered(handler: Callable) -> Callable:
@@ -67,8 +68,9 @@ def mark_route_registered(handler: Callable) -> Callable:
     a fresh access of a registered bound method - without functools.wraps
     propagating the mark to outer wrappers.
     """
+    key, _ = _route_registry_key(handler)
     try:
-        _ROUTE_REGISTERED_HANDLERS[_route_registry_key(handler)] = handler
+        _ROUTE_REGISTERED_HANDLERS[key] = handler
     except TypeError:
         # Not weakref-able: cannot be tracked, so the decorator-order guard is
         # skipped for this callable. Surface it (still fail-loud only - never a
@@ -86,8 +88,9 @@ def is_route_registered(handler: Callable) -> bool:
     """Return True if this callable (or a fresh access of it) was registered."""
     if handler is None:
         return False
-    stored = _ROUTE_REGISTERED_HANDLERS.get(_route_registry_key(handler))
-    if inspect.ismethod(handler):
+    key, is_method = _route_registry_key(handler)
+    stored = _ROUTE_REGISTERED_HANDLERS.get(key)
+    if is_method:
         # Logical match: a live entry under the (instance, function) key is the
         # same logical method, even if this is a different bound-method object.
         return stored is not None
@@ -143,6 +146,10 @@ def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:
 # a concern at check time. (``_ROUTE_REGISTERED_HANDLERS`` above uses the same
 # weak-registry storage but keys bound methods by logical identity; the secured
 # marker must NOT - strict identity is what stops value-equality laundering.)
+#
+# MUST NOT use logical / value keying (unlike _ROUTE_REGISTERED_HANDLERS): a
+# value-equal callable that did not pass through a recognized access decorator
+# must never satisfy is_secured(), or it would launder the auth posture.
 _SECURED_HANDLERS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 

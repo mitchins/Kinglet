@@ -222,7 +222,11 @@ class TestNoHandlerRebinding:
 class TestUnmarkableHandlers:
     """Callables that cannot carry attributes must still trip the guard."""
 
-    def test_route_registered_bound_method_is_guarded(self):
+    def test_fresh_bound_method_access_matches_registry_predicate(self):
+        """Predicate level: after registering a bound method, a FRESH
+        `controller.secret` access (a different bound-method object, same
+        (instance, function)) reads back as route-registered."""
+
         class Controller:
             async def secret(self, request):
                 return {"secret": True}
@@ -231,18 +235,13 @@ class TestUnmarkableHandlers:
         router = Router()
         router.add_route("/secret", controller.secret, ["GET"], public=True)
 
-        # A FRESH `controller.secret` access is a different bound-method object,
-        # but the registry keys bound methods by (instance, function), so the
-        # guard still recognizes it.
-        assert is_route_registered(controller.secret)
-        with pytest.raises(RuntimeError, match="require_auth"):
-            require_auth(controller.secret)
+        assert is_route_registered(controller.secret)  # fresh access
 
     def test_fresh_bound_method_reversed_decoration_is_caught(self):
-        """The bound-method order-guard High: registering a raw bound method and
-        then applying a security decorator to a FRESH access of it must raise -
-        the route would otherwise keep dispatching the unauthenticated handler.
-        Logical (instance, function) keying catches the fresh access."""
+        """The bound-method order-guard High, end to end: registering a raw bound
+        method and then applying a security decorator to a FRESH access of it
+        must raise - the route would otherwise keep dispatching the original
+        unauthenticated handler. Logical (instance, function) keying catches it."""
 
         class Controller:
             async def secret(self, request):
@@ -255,6 +254,25 @@ class TestUnmarkableHandlers:
         # Fresh access != the registered object, but same logical method.
         with pytest.raises(RuntimeError, match="require_auth"):
             require_auth(controller.secret)
+
+    def test_registered_bound_method_entry_removed_after_route_drop(self):
+        """Negative GC: once the route (the only strong ref to the registered
+        bound method) is dropped, the weak entry disappears - no stale positive
+        from is_route_registered for a deregistered handler."""
+        import gc
+
+        class Controller:
+            async def handle(self, request):
+                return {}
+
+        router = Router()
+        controller = Controller()
+        router.add_route("/bm", controller.handle, ["GET"], public=True)
+        assert is_route_registered(controller.handle)
+
+        router.routes.clear()  # drop the Route's strong ref to the bound method
+        gc.collect()
+        assert not is_route_registered(controller.handle)  # entry gone
 
     def test_unregistered_bound_method_is_not_flagged(self):
         class Controller:

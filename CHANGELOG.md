@@ -89,7 +89,7 @@ For each route, do **one** of the following:
   (use `mark_secured()`), and it cannot be laundered onto an outer wrapper by
   `functools.wraps`. The route-registered order guard uses a single weak
   registry keyed by **logical identity**: `id()` for ordinary callables, and
-  `(instance, function)` for bound methods, so a *fresh* `obj.method` access of
+  `(id(instance), id(function))` for bound methods, so a *fresh* `obj.method` access of
   a registered bound method is still recognized and the reversed-order guard
   still fires. It also tracks unhashable callable handlers, and is not copied by
   `functools.wraps`. (The secured marker deliberately stays strict-`id` only:
