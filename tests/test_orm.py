@@ -126,6 +126,16 @@ class TestFieldValidation:
             ((1, 2, 3, 4, 5), {}, "at most four positional arguments"),
             ((5,), {"default": 3}, "default provided both positionally and by keyword"),
             ((5, False), {"null": True}, "null provided both positionally and by keyword"),
+            (
+                (1, False, True),
+                {"unique": False},
+                "unique provided both positionally and by keyword",
+            ),
+            (
+                (1, False, True, True),
+                {"primary_key": False},
+                "primary_key provided both positionally and by keyword",
+            ),
         ],
     )
     def test_integer_field_rejects_invalid_positional_arguments(

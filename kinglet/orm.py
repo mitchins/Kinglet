@@ -124,7 +124,7 @@ class IntegerField(Field):
 
         field_arg_names = ("default", "null", "unique", "primary_key")
         field_kwargs = dict(kwargs)
-        for name, value in zip(field_arg_names, args, strict=False):
+        for name, value in zip(field_arg_names, args):
             if name in field_kwargs:
                 raise TypeError(
                     f"{name} provided both positionally and by keyword"
