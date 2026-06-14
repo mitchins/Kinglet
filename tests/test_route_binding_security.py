@@ -229,68 +229,56 @@ class TestUnmarkableHandlers:
 
         controller = Controller()
         router = Router()
-        # Bound methods are recreated on each access and are identity-tracked
-        # (same model as mark_secured), so capture the reference once and use the
-        # SAME object for registration and the guard check.
-        handler = controller.secret
-        router.add_route("/secret", handler, ["GET"], public=True)
+        router.add_route("/secret", controller.secret, ["GET"], public=True)
 
-        assert is_route_registered(handler)
+        # A FRESH `controller.secret` access is a different bound-method object,
+        # but the registry keys bound methods by (instance, function), so the
+        # guard still recognizes it.
+        assert is_route_registered(controller.secret)
         with pytest.raises(RuntimeError, match="require_auth"):
-            require_auth(handler)
+            require_auth(controller.secret)
 
-    def test_fresh_bound_method_access_is_not_matched(self):
-        """Identity tracking: a FRESH `obj.method` access is a different object
-        and is not recognized - bound methods must be captured once (consistent
-        with the mark_secured rule). This is a fail-loud limitation of the order
-        guard, never a bypass (the default-deny policy is the real backstop)."""
+    def test_fresh_bound_method_reversed_decoration_is_caught(self):
+        """The bound-method order-guard High: registering a raw bound method and
+        then applying a security decorator to a FRESH access of it must raise -
+        the route would otherwise keep dispatching the unauthenticated handler.
+        Logical (instance, function) keying catches the fresh access."""
 
         class Controller:
             async def secret(self, request):
-                return {"secret": True}
+                return {"secret": "DATA"}
 
+        app = Kinglet()
         controller = Controller()
-        router = Router()
-        router.add_route("/secret", controller.secret, ["GET"], public=True)
-        # A different access object → not matched.
-        assert not is_route_registered(controller.secret)
+        app.router.add_route("/secret", controller.secret, ["GET"], public=True)
+
+        # Fresh access != the registered object, but same logical method.
+        with pytest.raises(RuntimeError, match="require_auth"):
+            require_auth(controller.secret)
 
     def test_unregistered_bound_method_is_not_flagged(self):
         class Controller:
             async def secret(self, request):
                 return {"secret": True}
 
+        # A different instance's method was never registered.
         assert not is_route_registered(Controller().secret)
         # Wrapping before registration stays allowed.
         require_auth(Controller().secret)
 
-    def test_raw_bound_method_registration_warns_eagerly(self):
-        """Eager amelioration of the bound-method footgun: registering a RAW
-        bound method as a handler (which only happens in public=True / enforce-
-        off configs) warns about the identity-tracking limitation. A plain
-        function handler does not warn."""
-        import warnings
+    def test_other_instance_same_method_is_not_matched(self):
+        """Logical keying is (instance, function): a different INSTANCE of the
+        same class is a different logical method and must not match."""
 
         class Controller:
-            async def handle(self, request):
-                return {}
+            async def secret(self, request):
+                return {"secret": True}
 
+        a, b = Controller(), Controller()
         router = Router()
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            router.add_route("/bm", Controller().handle, ["GET"], public=True)
-        assert any(issubclass(c.category, RoutePolicyWarning) for c in caught)
-
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-
-            async def fn(request):
-                return {}
-
-            router.add_route("/fn", fn, ["GET"], public=True)
-        # Only assert the absence of OUR warning - an unrelated warning from the
-        # environment must not fail this test.
-        assert not any(issubclass(c.category, RoutePolicyWarning) for c in caught)
+        router.add_route("/secret", a.secret, ["GET"], public=True)
+        assert is_route_registered(a.secret)
+        assert not is_route_registered(b.secret)  # different instance
 
     def test_non_weakref_able_handler_warns_and_is_not_tracked(self):
         """A non-weakref-able callable (``__slots__`` without ``__weakref__``,
