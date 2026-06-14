@@ -87,21 +87,21 @@ For each route, do **one** of the following:
   registry, set via `mark_secured()` / `@security_decorator`. There is no public
   `__kinglet_secured__` attribute: hand-setting that attribute does nothing
   (use `mark_secured()`), and it cannot be laundered onto an outer wrapper by
-  `functools.wraps`. The route-registered order guard uses the **same** identity
-  registry mechanism (no `functools.wraps` false positives, and it tracks
-  unhashable callable handlers too). Bound-method handlers must be captured once
-  (`h = obj.method`) and the same object reused, since each access is a new
-  object under identity tracking.
-- **Residual order-guard limitation (by design).** The decorator-order guard
-  tracks by identity, so it cannot recognize a *fresh* `obj.method` access of a
-  registered bound method, and it cannot track a non-weakref-able handler at
-  all. Kinglet warns (`RoutePolicyWarning`) at registration in these cases. This
-  is **not** a default-config risk: under the default policy an unsecured route
-  is refused before it registers. It only carries residual risk when the policy
-  is bypassed for the route (`public=True`) or disabled (`enforce_route_policy=
-  False`) **and** a security decorator is applied in reversed order — there the
-  guard is the only check, and the warning is the signal. Teams that want these
-  to fail rather than warn should treat `RoutePolicyWarning` as an error in CI:
+  `functools.wraps`. The route-registered order guard uses a single weak
+  registry keyed by **logical identity**: `id()` for ordinary callables, and
+  `(id(instance), id(function))` for bound methods, so a *fresh* `obj.method` access of
+  a registered bound method is still recognized and the reversed-order guard
+  still fires. It also tracks unhashable callable handlers, and is not copied by
+  `functools.wraps`. (The secured marker deliberately stays strict-`id` only:
+  logical/value equality there would let a value-equal callable launder the auth
+  posture.)
+- **Residual order-guard limitation (by design).** A handler that is not
+  weakref-able (e.g. `__slots__` without `__weakref__`) cannot be tracked at
+  all; Kinglet warns (`RoutePolicyWarning`) at registration. This is **not** a
+  default-config risk (the default policy refuses an unsecured route before it
+  registers); it only matters under `enforce_route_policy=False` with a reversed
+  security decorator. Teams that want such cases to fail rather than warn should
+  treat `RoutePolicyWarning` as an error in CI:
   `warnings.filterwarnings("error", category=RoutePolicyWarning)`.
 - `Kinglet` now also exposes `head()` and `options()` route decorators (were
   previously only on `Router`).
