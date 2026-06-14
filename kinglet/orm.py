@@ -122,6 +122,12 @@ class IntegerField(Field):
         if len(args) > 4:
             raise TypeError("IntegerField accepts at most four positional arguments")
 
+        if args and isinstance(args[0], bool):
+            raise TypeError(
+                "Ambiguous positional boolean for IntegerField; "
+                "use default=... or index=..."
+            )
+
         field_arg_names = ("default", "null", "unique", "primary_key")
         field_kwargs = dict(kwargs)
         for name, value in zip(field_arg_names, args):

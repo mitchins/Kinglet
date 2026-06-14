@@ -106,11 +106,19 @@ class TestFieldValidation:
         assert field.primary_key is True
         assert field.index is True
 
-    def test_integer_field_positional_boolean_default_is_preserved(self):
-        field = IntegerField(True)
+    def test_integer_field_boolean_default_requires_keyword(self):
+        field = IntegerField(default=True)
 
         assert field.default is True
         assert field.index is False
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_integer_field_positional_boolean_is_rejected(self, value):
+        with pytest.raises(
+            TypeError,
+            match="Ambiguous positional boolean for IntegerField; use default=... or index=...",
+        ):
+            IntegerField(value)
 
     def test_integer_field_positional_default_is_used_by_model_instances(self):
         class LegacyModel(Model):
@@ -126,6 +134,11 @@ class TestFieldValidation:
             ((1, 2, 3, 4, 5), {}, "at most four positional arguments"),
             ((5,), {"default": 3}, "default provided both positionally and by keyword"),
             ((5, False), {"null": True}, "null provided both positionally and by keyword"),
+            (
+                (True, False),
+                {},
+                "Ambiguous positional boolean for IntegerField; use default=... or index=...",
+            ),
             (
                 (1, False, True),
                 {"unique": False},

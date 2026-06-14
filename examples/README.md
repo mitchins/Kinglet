@@ -15,6 +15,10 @@ Quick start examples for all Kinglet features.
 - **[caching_example.py](caching_example.py)** - R2-backed caching
 - **[d1_cache_example.py](d1_cache_example.py)** - D1-backed caching
 
+ORM note: use explicit keywords for boolean-shaped `IntegerField` arguments:
+`IntegerField(default=True)` and `IntegerField(index=True)`. Positional booleans
+such as `IntegerField(True)` are rejected as ambiguous.
+
 ### Security & Auth
 - **[secure_admin_example.py](secure_admin_example.py)** - JWT, geo-restrictions
 - **[authz_example.py](authz_example.py)** - Fine-grained authorization
