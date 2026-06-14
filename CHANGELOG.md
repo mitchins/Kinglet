@@ -92,6 +92,17 @@ For each route, do **one** of the following:
   unhashable callable handlers too). Bound-method handlers must be captured once
   (`h = obj.method`) and the same object reused, since each access is a new
   object under identity tracking.
+- **Residual order-guard limitation (by design).** The decorator-order guard
+  tracks by identity, so it cannot recognize a *fresh* `obj.method` access of a
+  registered bound method, and it cannot track a non-weakref-able handler at
+  all. Kinglet warns (`RoutePolicyWarning`) at registration in these cases. This
+  is **not** a default-config risk: under the default policy an unsecured route
+  is refused before it registers. It only carries residual risk when the policy
+  is bypassed for the route (`public=True`) or disabled (`enforce_route_policy=
+  False`) **and** a security decorator is applied in reversed order — there the
+  guard is the only check, and the warning is the signal. Teams that want these
+  to fail rather than warn should treat `RoutePolicyWarning` as an error in CI:
+  `warnings.filterwarnings("error", category=RoutePolicyWarning)`.
 - `Kinglet` now also exposes `head()` and `options()` route decorators (were
   previously only on `Router`).
 - The registration error names the offending handler and points at

@@ -12,6 +12,24 @@ from collections.abc import Callable
 from .exceptions import GeoRestrictedError, HTTPError
 from .http import Response
 
+
+class RoutePolicyWarning(UserWarning):
+    """Signals a route-security situation a developer should know about.
+
+    Emitted when: the default-deny policy is disabled (``enforce_route_policy=
+    False``); a raw bound method is registered as a handler (identity tracking
+    cannot match a fresh ``obj.method`` access); or a handler is not weakref-able
+    and cannot be tracked by the decorator-order guard.
+
+    These are warnings, not errors, because the situations have legitimate uses
+    and the default-deny policy remains the real backstop. Teams that want them
+    to fail can escalate in CI, e.g.::
+
+        warnings.filterwarnings("error", category=RoutePolicyWarning)
+        # or: python -W error::kinglet.decorators.RoutePolicyWarning
+    """
+
+
 # Registry of callables registered to a route, used by the decorator-order
 # guard. Keyed by id() and verified with `is` - the SAME identity mechanism as
 # _SECURED_HANDLERS below (one model, not two). Identity is the right match
@@ -45,7 +63,7 @@ def mark_route_registered(handler: Callable) -> Callable:
             "Capture it once (handler = obj.method) and reuse that reference, or "
             "use a plain function handler.",
             RoutePolicyWarning,
-            stacklevel=2,
+            stacklevel=4,
         )
     try:
         _ROUTE_REGISTERED_HANDLERS[id(handler)] = handler
@@ -57,7 +75,7 @@ def mark_route_registered(handler: Callable) -> Callable:
             f"mark_route_registered: {handler!r} is not weakref-able; the "
             f"decorator-order guard is skipped for this callable.",
             RoutePolicyWarning,
-            stacklevel=2,
+            stacklevel=4,
         )
     return handler
 
@@ -98,15 +116,6 @@ def reject_if_route_registered(handler: Callable, decorator_name: str) -> None:
 # decorator bypass fail closed *by default*, without any module/global name
 # lookup: at registration time the handler is simply inspected for the marker.
 # ---------------------------------------------------------------------------
-
-
-class RoutePolicyWarning(UserWarning):
-    """Emitted when the default-deny route policy is disabled.
-
-    Disabling enforcement removes a framework-level guard against accidentally
-    unprotected routes; the warning leaves an audit signal so an intentional
-    opt-out is not mistaken for one forgotten during migration.
-    """
 
 
 # Registry of callables that a recognized access-control decorator actually

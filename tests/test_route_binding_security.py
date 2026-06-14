@@ -288,7 +288,38 @@ class TestUnmarkableHandlers:
                 return {}
 
             router.add_route("/fn", fn, ["GET"], public=True)
-        assert not caught
+        # Only assert the absence of OUR warning - an unrelated warning from the
+        # environment must not fail this test.
+        assert not any(issubclass(c.category, RoutePolicyWarning) for c in caught)
+
+    def test_non_weakref_able_handler_warns_and_is_not_tracked(self):
+        """A non-weakref-able callable (``__slots__`` without ``__weakref__``,
+        and unhashable) cannot be tracked at all: the registry skips it and a
+        RoutePolicyWarning is emitted. The order guard then cannot fire for it,
+        so under enforce_route_policy=False (no default-deny backstop) a reversed
+        security decorator is NOT caught. This pins that documented limitation;
+        teams that want it to fail should escalate RoutePolicyWarning in CI."""
+        import warnings
+
+        class NonWeakrefHandler:
+            __slots__ = ()  # no __weakref__ slot → not weakref-able
+            __hash__ = None  # also unhashable
+
+            async def __call__(self, request):
+                return {"secret": True}
+
+        handler = NonWeakrefHandler()
+        # enforce off so the policy backstop does not reject it first.
+        app = Kinglet(enforce_route_policy=False)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            app.router.add_route("/x", handler, ["GET"])
+        assert any(issubclass(c.category, RoutePolicyWarning) for c in caught)
+
+        # Untrackable → guard cannot fire (documented limitation, not a default
+        # bypass: this only matters with the policy disabled).
+        assert not is_route_registered(handler)
+        require_auth(handler)  # does not raise - the guard is blind here
 
     def test_unhashable_callable_handler_is_tracked(self):
         """Regression: an UNHASHABLE callable object (defines __eq__ without
