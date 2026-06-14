@@ -55,6 +55,10 @@ def _route_registry_key(handler: Callable) -> tuple[object, bool]:
     stays alive, so neither id is reused. Everything else is keyed by ``id()``.
     The ``is_bound_method`` flag is returned so callers compute it once.
     """
+    # inspect.ismethod() is True ONLY for Python bound methods (types.MethodType),
+    # which always expose __func__/__self__ - so the accesses below cannot raise
+    # AttributeError. Built-in / C methods are builtin_function_or_method (ismethod
+    # is False) and fall to the id() path; they are not valid async handlers anyway.
     if inspect.ismethod(handler):
         return (id(handler.__self__), id(handler.__func__)), True
     return id(handler), False
