@@ -203,10 +203,10 @@ class TestFieldIndexConfiguration:
         field = IntegerField(index=True)
         assert field.index is True
 
-        # Backward-compatible positional boolean still maps to index
+        # Positional boolean remains a default value for backward compatibility
         field = IntegerField(True)
-        assert field.index is True
-        assert field.default is None
+        assert field.index is False
+        assert field.default is True
 
         # Index with other options
         field = IntegerField(index=True, primary_key=True)
