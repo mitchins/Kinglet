@@ -100,6 +100,10 @@ game = await Game.objects.create(db, title="Pac-Man", score=100)
 top_games = await Game.objects.filter(db, score__gte=90).order_by("-score").all()
 ```
 
+Use explicit keywords for boolean-shaped `IntegerField` arguments:
+`IntegerField(default=True)` and `IntegerField(index=True)`. Positional booleans
+such as `IntegerField(True)` are rejected as ambiguous.
+
 **Security & Access Control:**
 ```python
 @app.get("/admin/debug")

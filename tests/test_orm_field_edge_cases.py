@@ -203,10 +203,12 @@ class TestFieldIndexConfiguration:
         field = IntegerField(index=True)
         assert field.index is True
 
-        # Positional boolean remains a default value for backward compatibility
-        field = IntegerField(True)
-        assert field.index is False
-        assert field.default is True
+        # Positional booleans are rejected to avoid ambiguous semantics
+        with pytest.raises(
+            TypeError,
+            match="Ambiguous positional boolean for IntegerField; use default=... or index=...",
+        ):
+            IntegerField(True)
 
         # Index with other options
         field = IntegerField(index=True, primary_key=True)
