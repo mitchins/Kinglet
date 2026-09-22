@@ -2,8 +2,19 @@
 
 Quick start examples for all Kinglet features.
 
+## Live canaries (deployed Workers)
+
+Four small demos stay deployed as regression probes against the real
+Cloudflare runtime. See [CANARIES.md](CANARIES.md) for the matrix (worker
+names, entries, bindings, smoke commands).
+
+- **[demo-basic/](demo-basic/)** — GA ASGI basic API (`asgi.entrypoint(app.asgi)`)
+- **[orm_integration_test/](orm_integration_test/)** — ASGI + real D1 via `scope["env"]`
+- **[demo-r2/](demo-r2/)** — ASGI-native R2 binary upload/download with SHA checks
+- **[totp_workers_demo/](totp_workers_demo/)** — legacy `WorkerEntrypoint` compatibility canary (deliberately not converted)
+
 ### Core Features
-- **[basic_api.py](basic_api.py)** - REST API with routing, OpenAPI/Swagger docs
+- **[basic_api.py](basic_api.py)** - REST API with routing, OpenAPI/Swagger docs (shim over `demo-basic/`; deployed entry is GA ASGI)
 - **[decorators_example.py](decorators_example.py)** - Error handling, validation decorators
 - **[middleware_example.py](middleware_example.py)** - CORS, timing, custom middleware
 
@@ -23,14 +34,14 @@ such as `IntegerField(True)` are rejected as ambiguous.
 - **[secure_admin_example.py](secure_admin_example.py)** - JWT, geo-restrictions
 - **[authz_example.py](authz_example.py)** - Fine-grained authorization
 - **[totp_example.py](totp_example.py)** - Two-factor authentication
-- **[totp_workers_demo/](totp_workers_demo/)** - Workers deployment demo for auth and TOTP
+- **[totp_workers_demo/](totp_workers_demo/)** - Workers deployment demo for auth and TOTP (legacy entry; live compatibility canary, see CANARIES.md)
 
 ### Email & Integrations
 - **[ses_email_example.py](ses_email_example.py)** - Amazon SES email
 - **[mock_email_sender_example.py](mock_email_sender_example.py)** - Testing email functionality
 
 ### Media & Advanced
-- **[r2_media_example.py](r2_media_example.py)** - File upload/download
+- **[r2_media_example.py](r2_media_example.py)** - File upload/download (legacy streaming technique; the ASGI-native live canary is [demo-r2/](demo-r2/))
 - **[experience_api_example.py](experience_api_example.py)** - Real-world API patterns
 
 ---
