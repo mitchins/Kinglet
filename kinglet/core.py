@@ -488,7 +488,7 @@ class Kinglet:
         """
         scope_type = scope.get("type", "http") if isinstance(scope, dict) else "http"
         if scope_type == "lifespan":
-            await self._handle_lifespan(scope, receive, send)
+            await self._handle_lifespan(receive, send)
         elif scope_type == "http":
             await self._handle_asgi_http(scope, receive, send)
         else:
@@ -511,7 +511,7 @@ class Kinglet:
         # transport is gone): they propagate, never becoming a second response.
         await _send_asgi_response(send, response)
 
-    async def _handle_lifespan(self, scope, receive, send) -> None:
+    async def _handle_lifespan(self, receive, send) -> None:
         """Acknowledge ASGI lifespan without inventing lifecycle guarantees.
 
         Each lifespan is independent: core route/security configuration is

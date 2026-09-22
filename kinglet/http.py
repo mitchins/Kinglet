@@ -75,6 +75,17 @@ def _strip_mount_path(path: str, root_path: str) -> str:
     return path
 
 
+def _scope_host(scope: dict[str, Any], headers: dict[str, str]) -> str:
+    """Resolve the request host from headers, falling back to the server."""
+    host = headers.get("host")
+    if host:
+        return host
+    server = scope.get("server")
+    if isinstance(server, list | tuple) and len(server) == 2 and server[0]:
+        return f"{server[0]}:{server[1]}" if server[1] else str(server[0])
+    return "localhost"
+
+
 async def _read_asgi_body(receive: Any) -> tuple[bytes, bool]:
     """Read all ASGI ``http.request`` events until ``more_body`` is false.
 
@@ -277,13 +288,7 @@ class Request:
         query_text = self.query_bytes.decode("latin-1")
 
         scheme = str(scope.get("scheme", "http") or "http")
-        host = self._headers.get("host")
-        if not host:
-            server = scope.get("server")
-            if isinstance(server, list | tuple) and len(server) == 2 and server[0]:
-                host = f"{server[0]}:{server[1]}" if server[1] else str(server[0])
-            else:
-                host = "localhost"
+        host = _scope_host(scope, self._headers)
         self.url = f"{scheme}://{host}{path_for_url}"
         if query_text:
             self.url += f"?{query_text}"
@@ -636,7 +641,7 @@ class Response:
         the entry to a list so separate ``Set-Cookie`` values survive.
         """
         lowered = name.lower()
-        for existing in list(self.headers.keys()):
+        for existing in self.headers:
             if existing.lower() == lowered:
                 current = self.headers[existing]
                 if isinstance(current, list):

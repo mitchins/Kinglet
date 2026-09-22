@@ -34,6 +34,8 @@ Message = dict[str, Any]
 Receive = Callable[[], Any]
 Send = Callable[[Message], Any]
 
+_HTTP_RESPONSE_BODY = "http.response.body"
+
 
 def with_env(
     app: Callable[[Scope, Receive, Send], Any], env: Any
@@ -202,7 +204,7 @@ async def send_response(send: Send, response: Any) -> None:
         await send(
             {"type": "http.response.start", "status": status, "headers": headers}
         )
-        await send({"type": "http.response.body", "body": body, "more_body": False})
+        await send({"type": _HTTP_RESPONSE_BODY, "body": body, "more_body": False})
         return
 
     await send({"type": "http.response.start", "status": status, "headers": headers})
@@ -210,11 +212,11 @@ async def send_response(send: Send, response: Any) -> None:
         async for chunk in _iterate_chunks(response.content):
             await send(
                 {
-                    "type": "http.response.body",
+                    "type": _HTTP_RESPONSE_BODY,
                     "body": _coerce_chunk(chunk),
                     "more_body": True,
                 }
             )
-        await send({"type": "http.response.body", "body": b"", "more_body": False})
+        await send({"type": _HTTP_RESPONSE_BODY, "body": b"", "more_body": False})
     finally:
         await _close_stream(response.content)
