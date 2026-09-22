@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### ASGI alignment (Cloudflare Python Workers GA)
+
+- New explicit `app.asgi` entry point (ASGI 3 HTTP + lifespan) sharing one
+  dispatch core with the preserved `await app(request, env)` Worker entry
+  point. No signature guessing; no separate routing/auth/middleware pipeline.
+- New `kinglet.asgi.with_env()` wrapper to inject settings/dependencies into
+  the ASGI scope outside Workers.
+- `Request.from_asgi(scope, receive)` construction path with exact binary
+  bodies, cached buffered reads, raw/`raw_path`/query/header distinctions,
+  mount handling via `scope["root_path"]`, per-request `state`, and
+  `scope["env"]` bindings with identity preserved.
+- Strict ASGI response emission: JSON/text/bytes/streaming with repeated
+  headers preserved; unsupported types raise `TypeError` (no stringify,
+  base64, or empty-success fallbacks). Workers-native responses stay
+  supported on the legacy path only.
+- Pinned behavior: `Request.body()` remains a text alias (binary access is
+  `.bytes()`); empty/malformed JSON still parses to `None`; transport
+  failures raise. One intentional narrowing: the legacy `bytes()` text
+  fallback no longer swallows transport errors into `b""`.
+- Added `docs/ASGI.md` with the entry-point, environment, lifespan,
+  response, binary, and prefix contracts.
+
 ### ORM
 
 - `IntegerField` once again accepts the legacy positional `Field` arguments
