@@ -4,6 +4,8 @@ Tests for MockD1Database implementation
 Verifies that the mock D1 database behaves like the real Cloudflare D1 Workers API.
 """
 
+from unittest.mock import Mock
+
 import pytest
 
 from kinglet.testing import (
@@ -787,3 +789,37 @@ class TestD1ReturningClause:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestFetchInsertedRowHelper:
+    """Direct unit coverage for the extracted insert-row fallback helper."""
+
+    @pytest.fixture
+    def db(self):
+        database = MockD1Database()
+        yield database
+        database.close()
+
+    def test_no_row_id_returns_empty(self, db):
+        db._last_row_id = None
+        assert db._fetch_inserted_row(Mock(), "INSERT INTO users (a) VALUES (1)") == []
+
+    def test_unparseable_table_returns_id(self, db):
+        db._last_row_id = 5
+        assert db._fetch_inserted_row(Mock(), "SELECT 1") == [{"id": 5}]
+
+    def test_missing_row_returns_id(self, db):
+        class NoRowCursor:
+            lastrowid = 7
+            rowcount = 1
+
+            def execute(self, *args):
+                pass
+
+            def fetchone(self):
+                return None
+
+        db._last_row_id = 7
+        assert db._fetch_inserted_row(
+            NoRowCursor(), "INSERT INTO users (a) VALUES (1)"
+        ) == [{"id": 7}]

@@ -343,6 +343,26 @@ class TestSchemaLock:
             # Reads stay non-raising and never touch the outside file.
             assert SchemaLock.read_lock_file(bad) is None
 
+    def test_lock_file_accepts_pathlike_and_rejects_non_strings(
+        self, tmp_path, monkeypatch
+    ):
+        from pathlib import Path
+
+        monkeypatch.chdir(tmp_path)
+        lock_data = SchemaLock.generate_lock([SampleProduct])
+
+        # os.PathLike filenames round-trip like their string form.
+        SchemaLock.write_lock_file(lock_data, Path("via-path.json"))
+        assert (
+            SchemaLock.read_lock_file(Path("via-path.json"))["schema_hash"]
+            == lock_data["schema_hash"]
+        )
+
+        for bad in (123, None, ["x.json"]):
+            with pytest.raises(ValueError, match="[Ii]nvalid"):
+                SchemaLock.write_lock_file(lock_data, bad)
+            assert SchemaLock.read_lock_file(bad) is None
+
     def test_lock_file_accepts_nested_subdirectory(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "sub").mkdir()
