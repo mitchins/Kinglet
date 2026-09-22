@@ -341,12 +341,18 @@ class SchemaLock:
 
         Returns ``None`` when the file is missing *or* the path is rejected,
         so callers keep the historical never-raises-on-bad-path contract;
-        nothing outside the working directory is ever opened.
+        nothing outside the working directory is ever opened. Parse failures
+        (malformed JSON/encoding) still propagate so corruption is never
+        misreported as a missing file.
         """
         try:
-            with open(SchemaLock._resolve_lock_path(filename)) as f:
+            resolved = SchemaLock._resolve_lock_path(filename)
+        except ValueError:
+            return None
+        try:
+            with open(resolved) as f:
                 return json.load(f)
-        except (FileNotFoundError, ValueError):
+        except FileNotFoundError:
             return None
 
     @staticmethod

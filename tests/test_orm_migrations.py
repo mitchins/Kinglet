@@ -363,6 +363,13 @@ class TestSchemaLock:
                 SchemaLock.write_lock_file(lock_data, bad)
             assert SchemaLock.read_lock_file(bad) is None
 
+    def test_lock_file_corrupt_json_raises_not_missing(self, tmp_path, monkeypatch):
+        """A corrupt lock file must surface as a parse error, not 'missing'."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "corrupt.json").write_text("{ not valid json")
+        with pytest.raises(json.JSONDecodeError):
+            SchemaLock.read_lock_file("corrupt.json")
+
     def test_lock_file_accepts_nested_subdirectory(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "sub").mkdir()
