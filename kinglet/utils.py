@@ -109,7 +109,9 @@ def _serialize_cache_component(value: Any) -> str:
         return repr(value)
 
 
-def _normalized_vary_headers(vary_headers: tuple[str, ...] | list[str] | None) -> list[str]:
+def _normalized_vary_headers(
+    vary_headers: tuple[str, ...] | list[str] | None,
+) -> list[str]:
     """Merge built-in and custom vary headers while preserving order."""
     headers: list[str] = []
     seen: set[str] = set()
@@ -152,7 +154,9 @@ def _append_identity_parts(parts: list[str], source: Any, prefix: str) -> None:
 
 
 async def _request_cache_parts(
-    request: Request, path_params: dict | None = None, vary_headers: tuple[str, ...] | None = None
+    request: Request,
+    path_params: dict | None = None,
+    vary_headers: tuple[str, ...] | None = None,
 ) -> list[str]:
     """Build stable cache key components from the request context."""
     parts = [f"method={getattr(request, 'method', 'GET').upper()}"]
@@ -262,31 +266,43 @@ def _get_host(request: Request) -> str:
     return str(getattr(parsed_url, "netloc", "")).strip()
 
 
+def _configured_origin(env: Any) -> str | None:
+    """Return the first valid explicitly configured origin, if any."""
+    for attr_name in ("PUBLIC_ORIGIN", "APP_ORIGIN", "CANONICAL_ORIGIN", "BASE_URL"):
+        configured = getattr(env, attr_name, None)
+        origin = _normalize_origin_url(str(configured)) if configured else None
+        if origin:
+            return origin
+    return None
+
+
+def _parse_allowed_hosts(allowed_hosts: Any) -> set[str] | None:
+    """Parse the ALLOWED_HOSTS binding into a set, or None when unset."""
+    if not allowed_hosts:
+        return None
+    if isinstance(allowed_hosts, str):
+        return {
+            item.strip().lower() for item in allowed_hosts.split(",") if item.strip()
+        }
+    return {str(item).strip().lower() for item in allowed_hosts if str(item).strip()}
+
+
 def _trusted_request_origin(request: Request) -> str | None:
     """Resolve a safe absolute origin for asset URLs."""
     env = getattr(request, "env", None)
     if env is not None:
-        for attr_name in ("PUBLIC_ORIGIN", "APP_ORIGIN", "CANONICAL_ORIGIN", "BASE_URL"):
-            configured = getattr(env, attr_name, None)
-            origin = _normalize_origin_url(str(configured)) if configured else None
-            if origin:
-                return origin
+        origin = _configured_origin(env)
+        if origin:
+            return origin
 
     host = _safe_request_host(request)
     if not host:
         return None
 
-    allowed_hosts = getattr(env, "ALLOWED_HOSTS", None) if env is not None else None
-    if allowed_hosts:
-        if isinstance(allowed_hosts, str):
-            allowed = {
-                item.strip().lower()
-                for item in allowed_hosts.split(",")
-                if item.strip()
-            }
-        else:
-            allowed = {str(item).strip().lower() for item in allowed_hosts if str(item).strip()}
-
+    allowed = _parse_allowed_hosts(
+        getattr(env, "ALLOWED_HOSTS", None) if env is not None else None
+    )
+    if allowed is not None:
         if host.lower() not in allowed:
             return None
     elif not _is_loopback_host(host):
