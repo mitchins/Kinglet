@@ -528,6 +528,8 @@ class MockD1Database:
         self._last_changes: int = 0
         self._in_batch: bool = False  # Track batch context for transaction handling
         self._in_explicit_transaction: bool = False  # Track user-managed transactions
+        self._explicit_begin = False  # BEGIN without COMMIT/ROLLBACK yet
+        self._savepoint_stack: list[str] = []  # Open savepoints, outermost first
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -607,15 +609,50 @@ class MockD1Database:
 
     def _apply_statement(self, cursor: "sqlite3.Cursor", statement: str) -> None:
         """Execute one statement, tracking explicit transaction state."""
-        stmt_upper = statement.upper()
-
-        # Track explicit transaction state
-        if stmt_upper.startswith("BEGIN"):
-            self._in_explicit_transaction = True
-        elif stmt_upper.startswith(("COMMIT", "ROLLBACK")):
-            self._in_explicit_transaction = False
-
+        # Execute first: bookkeeping mutates only after SQLite accepts the
+        # statement, so failed control statements leave managed state intact.
         cursor.execute(statement)
+        self._track_transaction_control(statement)
+
+    def _track_transaction_control(self, statement: str) -> None:
+        """Mirror SQLite transaction/savepoint state for auto-commit decisions.
+
+        Tracks only the first keyword (plus TO/name) of the subset the mock
+        claims to understand: BEGIN, COMMIT, ROLLBACK [TO], SAVEPOINT, RELEASE.
+        The backing SQLite connection enforces the real data semantics;
+        this bookkeeping only decides whether prepared-statement writes
+        auto-commit via _commit_unless_managed.
+        """
+        words = statement.upper().split()
+        first = words[0]
+        if first == "BEGIN":
+            self._explicit_begin = True
+        elif first == "COMMIT":
+            self._explicit_begin = False
+            self._savepoint_stack.clear()
+        elif first == "ROLLBACK":
+            if len(words) > 2 and words[1] == "TO":
+                self._rollback_to_savepoint(words[2])
+            else:
+                self._explicit_begin = False
+                self._savepoint_stack.clear()
+        elif first == "SAVEPOINT":
+            self._savepoint_stack.append(words[1])
+        elif first == "RELEASE":
+            self._release_savepoint(words[-1])
+        self._in_explicit_transaction = self._explicit_begin or bool(
+            self._savepoint_stack
+        )
+
+    def _rollback_to_savepoint(self, name: str) -> None:
+        """Keep the named savepoint, drop any nested inside it."""
+        if name in self._savepoint_stack:
+            del self._savepoint_stack[self._savepoint_stack.index(name) + 1 :]
+
+    def _release_savepoint(self, name: str) -> None:
+        """Pop the named savepoint and anything nested inside it."""
+        if name in self._savepoint_stack:
+            del self._savepoint_stack[self._savepoint_stack.index(name) :]
 
     async def exec(self, sql: str) -> D1ExecResult:
         """
