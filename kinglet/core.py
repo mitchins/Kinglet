@@ -4,18 +4,45 @@ Kinglet Core - Routing and application framework
 
 from __future__ import annotations
 
+import logging
 import re
 import warnings
 from collections.abc import Callable
+from types import SimpleNamespace
 
+from .asgi import send_response as _send_asgi_response
 from .decorators import (
     RoutePolicyWarning,
     assert_route_security,
     mark_route_registered,
 )
 from .exceptions import HTTPError
-from .http import Request, Response
+from .http import Request, Response, is_workers_native_response
 from .middleware import Middleware
+
+logger = logging.getLogger(__name__)
+
+
+class _FallbackRequest:
+    """Minimal request stand-in when Request construction itself fails."""
+
+    request_id = "unknown"
+    env = type("Env", (), {})()
+    method = "GET"
+    path = "/"
+    url = "/"
+    scope = None
+
+    def __init__(self) -> None:
+        # Per-instance mutable state: class-level dicts would leak across
+        # fallback requests when error-path middleware mutates them.
+        self.headers: dict[str, str] = {}
+        self.query_params: dict[str, str] = {}
+        self.path_params: dict[str, str] = {}
+        self.state = SimpleNamespace()
+
+    def header(self, name: str, default: str | None = None) -> str | None:
+        return self.headers.get(name, default)
 
 
 class Route:
@@ -317,19 +344,15 @@ class Kinglet:
         request.path_params = path_params
         response = await handler(request)
 
-        # Check if already a Workers Response - pass through directly
-        try:
-            from workers import Response as WorkersResponse
-
-            if isinstance(response, WorkersResponse):
-                return response
-        except ImportError:
-            pass
+        # Foreign platform responses (Workers-native) pass through untouched
+        # for the legacy boundary to convert; the ASGI boundary rejects them.
+        if isinstance(response, Response):
+            return response
+        if is_workers_native_response(response):
+            return response
 
         # Convert dict/string responses to Response objects
-        if not isinstance(response, Response):
-            response = Response(response)
-        return response
+        return Response(response)
 
     async def _process_response_middleware(
         self, request: Request, response: Response
@@ -339,54 +362,55 @@ class Kinglet:
             response = await middleware.process_response(request, response)
         return response
 
-    def _convert_to_workers_response(self, response: Response):
-        """Convert response to Workers format if available"""
-        # Check if already a Workers Response - pass through directly
-        try:
-            from workers import Response as WorkersResponse
-
-            if isinstance(response, WorkersResponse):
-                return response
-        except ImportError:
-            pass
-
-        # Also check by type name in case import paths differ
-        if (
-            hasattr(response, "__class__")
-            and "workers" in str(type(response)).lower()
-            and "response" in str(type(response)).lower()
-        ):
+    def _convert_to_workers_response(self, response):
+        """Convert response to Workers format (legacy Worker boundary only)."""
+        # Foreign platform responses pass through directly, including a
+        # Kinglet Response that merely wraps foreign content.
+        if is_workers_native_response(response):
             return response
+        if isinstance(response, Response) and is_workers_native_response(
+            response.content
+        ):
+            return response.content
 
         try:
             return response.to_workers_response()
         except ImportError:
             return response
 
-    async def _handle_custom_error(
-        self, request: Request, exception: Exception, status_code: int
+    async def _render_custom_error(
+        self, request, exception: Exception, status_code: int
     ):
-        """Handle exception with custom error handler if available"""
+        """Render an exception with a custom error handler, if registered.
+
+        Transport-neutral: returns a Kinglet Response, a foreign platform
+        response (legacy pass-through), or None when no handler applies.
+        Response middleware runs over Kinglet Responses, matching the main
+        pipeline; foreign responses return untouched.
+        """
         if status_code not in self.error_handlers:
             return None
 
         try:
             response = await self.error_handlers[status_code](request, exception)
-            try:
-                from workers import Response as WorkersResponse
-
-                if isinstance(response, WorkersResponse):
-                    return response
-            except ImportError:
-                pass
+            if is_workers_native_response(response):
+                return response
 
             if not isinstance(response, Response):
                 response = Response(response)
 
-            response = await self._process_response_middleware(request, response)
-            return self._convert_to_workers_response(response)
+            return await self._process_response_middleware(request, response)
         except Exception:
             return None  # Fall through to default handler
+
+    async def _handle_custom_error(
+        self, request: Request, exception: Exception, status_code: int
+    ):
+        """Handle exception with custom error handler (legacy boundary)."""
+        rendered = await self._render_custom_error(request, exception, status_code)
+        if rendered is None:
+            return None
+        return self._convert_to_workers_response(rendered)
 
     def _create_default_error_response(
         self, request: Request, exception: Exception, status_code: int
@@ -406,46 +430,152 @@ class Kinglet:
             status=status_code,
         )
 
+    async def _dispatch(self, request: Request):
+        """Transport-neutral dispatch shared by the Worker and ASGI entries.
+
+        Runs request middleware (with short-circuiting), exact-callable route
+        dispatch, response middleware, and the error pipeline over Kinglet
+        ``Request``/``Response`` objects. No Workers or ASGI conversion
+        happens here; each entry point adapts the result at its boundary.
+        Foreign platform responses pass through for the legacy boundary; the
+        ASGI boundary rejects them explicitly.
+        """
+        try:
+            # Process middleware (request phase)
+            middleware_response = await self._process_request_middleware(request)
+            if middleware_response:
+                response = middleware_response
+            else:
+                # Handle route
+                response = await self._handle_route(request)
+
+            # Process response middleware
+            return await self._process_response_middleware(request, response)
+        except Exception as exc:
+            return await self._dispatch_error(request, exc)
+
+    async def _dispatch_error(self, request, exception: Exception):
+        """Build the error result for a dispatch failure (no conversion)."""
+        status_code = getattr(exception, "status_code", 500)
+
+        # Try custom error handler first
+        custom_response = await self._render_custom_error(
+            request, exception, status_code
+        )
+        if custom_response is not None:
+            return custom_response
+
+        # Default error response
+        error_resp = self._create_default_error_response(
+            request, exception, status_code
+        )
+        return await self._process_response_middleware(request, error_resp)
+
+    async def asgi(self, scope, receive, send) -> None:
+        """Explicit ASGI callable (ASGI 3 single-callable interface).
+
+        Exposed for both Cloudflare's official ``workers.asgi`` bridge and
+        ordinary ASGI servers/test harnesses::
+
+            from application import application  # application = app.asgi
+
+            # worker.py (Cloudflare)
+            from workers import asgi
+            Default = asgi.entrypoint(application)
+
+            # ordinary server
+            # uv run uvicorn application:application
+
+        ``http`` scopes converge on :meth:`_dispatch`, the same core as the
+        legacy ``await app(request, env)`` entry point. ``lifespan`` scopes
+        receive a correct, inexpensive acknowledgement only: no migrations,
+        cache warming or remote reads run at startup, startup is never assumed
+        to run once per isolate, and no global "already started" flag is kept
+        (the Cloudflare SDK currently runs a lifespan cycle per HTTP request).
+        WebSocket and other scope types are rejected explicitly.
+        """
+        scope_type = scope.get("type", "http") if isinstance(scope, dict) else "http"
+        if scope_type == "lifespan":
+            await self._handle_lifespan(receive, send)
+        elif scope_type == "http":
+            await self._handle_asgi_http(scope, receive, send)
+        else:
+            raise RuntimeError(
+                f"Unsupported ASGI scope type {scope_type!r}: Kinglet supports "
+                "'http' and 'lifespan' scopes only."
+            )
+
+    async def _handle_asgi_http(self, scope, receive, send) -> None:
+        """Serve one ASGI HTTP request through the shared dispatch core."""
+        request = None
+        try:
+            request = await Request.from_asgi(scope, receive)
+            response = await self._dispatch(request)
+        except Exception as exc:
+            if request is None:
+                request = _FallbackRequest()
+            response = await self._dispatch_error(request, exc)
+        # Failures from here on mean transmission already started (or the
+        # transport is gone): they propagate, never becoming a second response.
+        await _send_asgi_response(send, response)
+
+    async def _handle_lifespan(self, receive, send) -> None:
+        """Acknowledge ASGI lifespan without inventing lifecycle guarantees.
+
+        Each lifespan is independent: core route/security configuration is
+        expected to be valid before serving, and HTTP works whether or not
+        the host initiates lifespan. Failures are reported explicitly with
+        ``lifespan.startup.failed`` / ``lifespan.shutdown.failed`` rather
+        than a bare raise, which some bridges interpret as unsupported
+        lifespan and continue past.
+        """
+        started = False
+        try:
+            while True:
+                message = await receive()
+                message_type = (
+                    message.get("type") if isinstance(message, dict) else None
+                )
+                if message_type == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                    started = True
+                elif message_type == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+                # Unknown lifespan messages are ignored.
+        except Exception as exc:
+            failure = {
+                "type": (
+                    "lifespan.shutdown.failed" if started else "lifespan.startup.failed"
+                ),
+                "message": str(exc) or repr(exc),
+            }
+            try:
+                await send(failure)
+            except Exception:
+                # The transport is gone; log rather than swallow silently.
+                logger.debug("Failed to report lifespan failure", exc_info=True)
+
     async def __call__(self, request, env):
-        """ASGI-compatible entry point for Workers"""
+        """Legacy Cloudflare Worker entry point: ``await app(request, env)``.
+
+        Preserved for backward compatibility. Wraps the raw request, runs the
+        shared :meth:`_dispatch` core, and converts the result to a Workers
+        response at this boundary.
+        """
         kinglet_request = None
         try:
             # Wrap the raw request
             kinglet_request = Request(request, env)
 
-            # Process middleware (request phase)
-            middleware_response = await self._process_request_middleware(
-                kinglet_request
-            )
-            if middleware_response:
-                response = middleware_response
-            else:
-                # Handle route
-                response = await self._handle_route(kinglet_request)
-
-            # Process response middleware and convert to Workers format
-            response = await self._process_response_middleware(
-                kinglet_request, response
-            )
+            # Shared dispatch core, then Workers conversion at the boundary.
+            response = await self._dispatch(kinglet_request)
             return self._convert_to_workers_response(response)
 
         except Exception as e:
             status_code = getattr(e, "status_code", 500)
             if kinglet_request is None:
-
-                class FallbackRequest:
-                    request_id = "unknown"
-                    headers = {}
-                    env = type("Env", (), {})()
-                    method = "GET"
-                    path = "/"
-                    url = "/"
-                    query_params = {}
-
-                    def header(self, name, default=None):
-                        return self.headers.get(name, default)
-
-                kinglet_request = FallbackRequest()
+                kinglet_request = _FallbackRequest()
 
             # Try custom error handler first
             custom_response = await self._handle_custom_error(

@@ -8,6 +8,7 @@ from importlib import import_module
 # Import specialized modules for FGA support and SES.
 # TOTP is loaded lazily so auth-only apps do not pay the crypto import cost.
 from . import authz, ses
+from .asgi import with_env
 from .core import Kinglet, Route, Router
 
 # Decorators
@@ -250,6 +251,8 @@ __all__ = [
     "Middleware",
     "CorsMiddleware",
     "TimingMiddleware",
+    # ASGI boundary
+    "with_env",
     # Decorators
     "wrap_exceptions",
     "require_dev",
