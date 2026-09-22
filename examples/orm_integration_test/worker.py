@@ -18,9 +18,11 @@ from kinglet import (
     JSONField,
     Kinglet,
     Model,
+    Response,
     SchemaManager,
     StringField,
 )
+from kinglet.orm_errors import DoesNotExistError
 
 app = Kinglet()
 app.add_middleware(CorsMiddleware(allow_origin="*"))
@@ -67,10 +69,10 @@ async def migrate_database(request):
     auth_header = request.header("Authorization", "")
     expected_token = _env_get(request.env, "MIGRATION_TOKEN")
     if not expected_token:
-        return {"error": "MIGRATION_TOKEN not configured"}, 500
+        return Response({"error": "MIGRATION_TOKEN not configured"}, status=500)
 
     if auth_header != f"Bearer {expected_token}":
-        return {"error": "Unauthorized"}, 401
+        return Response({"error": "Unauthorized"}, status=401)
 
     models = [Game, User]
     results = await SchemaManager.migrate_all(request.env.DB, models)
@@ -117,9 +119,9 @@ async def create_game(request):
 
         return {"success": True, "game": game.to_dict()}
     except ValueError as e:
-        return {"error": f"Validation error: {e}"}, 400
+        return Response({"error": f"Validation error: {e}"}, status=400)
     except Exception as e:
-        return {"error": f"Database error: {e}"}, 500
+        return Response({"error": f"Database error: {e}"}, status=500)
 
 
 @app.get("/games", public=True)
@@ -131,7 +133,11 @@ async def list_games(request):
 
         # Optional filters (demonstrates field validation)
         if request.query("published"):
-            published = request.query_bool("published")
+            published = request.query("published", "false").lower() in {
+                "1",
+                "true",
+                "yes",
+            }
             queryset = queryset.filter(is_published=published)
 
         if request.query("min_score"):
@@ -157,7 +163,7 @@ async def list_games(request):
             "offset": offset,
         }
     except ValueError as e:
-        return {"error": f"Query error: {e}"}, 400
+        return Response({"error": f"Query error: {e}"}, status=400)
 
 
 @app.get("/games/{game_id}", public=True)
@@ -165,14 +171,14 @@ async def get_game(request):
     """Get specific game"""
     try:
         game_id = request.path_param_int("game_id")
-        game = await Game.objects.get(request.env.DB, id=game_id)
-
-        if not game:
-            return {"error": "Game not found"}, 404
+        try:
+            game = await Game.objects.get(request.env.DB, id=game_id)
+        except DoesNotExistError:
+            return Response({"error": "Game not found"}, status=404)
 
         return {"game": game.to_dict()}
     except ValueError as e:
-        return {"error": f"Invalid game ID: {e}"}, 400
+        return Response({"error": f"Invalid game ID: {e}"}, status=400)
 
 
 @app.put("/games/{game_id}", public=True)
@@ -182,9 +188,10 @@ async def update_game(request):
         game_id = request.path_param_int("game_id")
         data = await request.json()
 
-        game = await Game.objects.get(request.env.DB, id=game_id)
-        if not game:
-            return {"error": "Game not found"}, 404
+        try:
+            game = await Game.objects.get(request.env.DB, id=game_id)
+        except DoesNotExistError:
+            return Response({"error": "Game not found"}, status=404)
 
         # Update with field validation
         for field in ["title", "description", "score", "is_published", "metadata"]:
@@ -195,7 +202,7 @@ async def update_game(request):
 
         return {"game": game.to_dict()}
     except ValueError as e:
-        return {"error": f"Validation error: {e}"}, 400
+        return Response({"error": f"Validation error: {e}"}, status=400)
 
 
 @app.delete("/games/{game_id}", public=True)
@@ -203,15 +210,15 @@ async def delete_game(request):
     """Delete game"""
     try:
         game_id = request.path_param_int("game_id")
-        game = await Game.objects.get(request.env.DB, id=game_id)
-
-        if not game:
-            return {"error": "Game not found"}, 404
+        try:
+            game = await Game.objects.get(request.env.DB, id=game_id)
+        except DoesNotExistError:
+            return Response({"error": "Game not found"}, status=404)
 
         await game.delete(request.env.DB)
         return {"success": True}
     except ValueError as e:
-        return {"error": f"Invalid game ID: {e}"}, 400
+        return Response({"error": f"Invalid game ID: {e}"}, status=400)
 
 
 @app.post("/users", public=True)
@@ -220,10 +227,14 @@ async def create_user(request):
     try:
         data = await request.json()
 
-        # Check uniqueness manually (ORM doesn't enforce DB constraints yet)
-        existing = await User.objects.get(request.env.DB, email=data["email"])
+        # Check uniqueness manually (ORM doesn't enforce DB constraints yet).
+        # objects.get() raises DoesNotExistError for a missing row.
+        try:
+            existing = await User.objects.get(request.env.DB, email=data["email"])
+        except DoesNotExistError:
+            existing = None
         if existing:
-            return {"error": "Email already exists"}, 400
+            return Response({"error": "Email already exists"}, status=400)
 
         user = await User.objects.create(
             request.env.DB,
@@ -234,14 +245,18 @@ async def create_user(request):
 
         return {"success": True, "user": user.to_dict()}
     except ValueError as e:
-        return {"error": f"Validation error: {e}"}, 400
+        return Response({"error": f"Validation error: {e}"}, status=400)
 
 
 @app.get("/users", public=True)
 async def list_users(request):
     """List users"""
     try:
-        active_only = request.query_bool("active", True)
+        active_only = request.query("active", "true").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
 
         queryset = User.objects.all(request.env.DB)
         if active_only:
@@ -251,7 +266,7 @@ async def list_users(request):
 
         return {"users": [user.to_dict() for user in users], "count": len(users)}
     except Exception as e:
-        return {"error": str(e)}, 500
+        return Response({"error": str(e)}, status=500)
 
 
 @app.get("/stats", public=True)
@@ -275,7 +290,7 @@ async def get_stats(request):
 
         return {"stats": stats}
     except Exception as e:
-        return {"error": str(e)}, 500
+        return Response({"error": str(e)}, status=500)
 
 
 # Demo data endpoints
@@ -368,7 +383,12 @@ async def seed_demo_data(request):
         # Check existing users first, then bulk create new ones
         user_instances = []
         for user_data in users_data:
-            existing = await User.objects.get(request.env.DB, email=user_data["email"])
+            try:
+                existing = await User.objects.get(
+                    request.env.DB, email=user_data["email"]
+                )
+            except DoesNotExistError:
+                existing = None
             if not existing:
                 user_instances.append(User(**user_data))
 
@@ -386,7 +406,7 @@ async def seed_demo_data(request):
             "optimization": "Used bulk_create for efficient D1 batch operations",
         }
     except Exception as e:
-        return {"error": str(e)}, 500
+        return Response({"error": str(e)}, status=500)
 
 
 @app.get("/demo/test-queries", public=True)
@@ -420,7 +440,7 @@ async def test_queries(request):
             "optimization": "Used count() queries instead of len(all()) for efficiency",
         }
     except Exception as e:
-        return {"error": str(e)}, 500
+        return Response({"error": str(e)}, status=500)
 
 
 @app.post("/demo/bulk-update", public=True)
@@ -441,7 +461,7 @@ async def demo_bulk_update(request):
             "optimization": "Single UPDATE query with WHERE clause - much more efficient than individual updates",
         }
     except Exception as e:
-        return {"error": str(e)}, 500
+        return Response({"error": str(e)}, status=500)
 
 
 @app.post("/demo/bulk-delete", public=True)
@@ -459,7 +479,7 @@ async def demo_bulk_delete(request):
             "optimization": "Single DELETE query with WHERE clause - much more efficient than individual deletes",
         }
     except Exception as e:
-        return {"error": str(e)}, 500
+        return Response({"error": str(e)}, status=500)
 
 
 # Health check endpoint
@@ -493,6 +513,11 @@ async def health_check(request):
     }
 
 
-# Workers entry point
-async def on_fetch(request, env):
-    return await app(request, env)
+# Workers entry point (GA ASGI path).
+try:
+    from workers import asgi
+
+    Default = asgi.entrypoint(app.asgi)
+except ModuleNotFoundError:
+    # Local/test context (no Workers runtime): drive `app` directly.
+    Default = None

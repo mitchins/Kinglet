@@ -1,0 +1,12 @@
+name = "kinglet-demo-r2"
+main = "app.py"
+account_id = "33623e6d0b4793842a1832c5512aeb49"
+compatibility_flags = ["python_workers"]
+compatibility_date = "2026-09-21"
+
+[vars]
+ENVIRONMENT = "demo"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "kinglet-demo-r2"

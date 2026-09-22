@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Workers deployment demo for Kinglet auth and TOTP"
 requires-python = ">=3.12"
 dependencies = [
-    "kinglet @ file:///Users/mitchellcurrie/Projects/Kinglet",
+    "kinglet @ git+https://github.com/mitchins/Kinglet.git",
 ]
 
 [dependency-groups]
@@ -15,3 +15,7 @@ dev = [
 [build-system]
 requires = ["setuptools>=70", "wheel"]
 build-backend = "setuptools.build_meta"
+
+# Deploy-only project: nothing here is distributed as a package.
+[tool.setuptools]
+py-modules = []

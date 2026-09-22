@@ -1,0 +1,14 @@
+lock-version = "1.0"
+created-by = "uv"
+requires-python = ">=3.14.2"
+
+[[packages]]
+name = "kinglet"
+version = "2.0.0"
+vcs = { type = "git", url = "https://github.com/mitchins/Kinglet.git", commit-id = "851fc03c0b0d5fce5a1997d09cb95533c6c462bf" }
+
+[[packages]]
+name = "workers-runtime-sdk"
+version = "1.9.0"
+sdist = { url = "https://files.pythonhosted.org/packages/3d/be/6a9677e293b632d2a7d0db97d0a4952d8787cebf12bda22ba21cb4324441/workers_runtime_sdk-1.9.0.tar.gz", upload-time = 2026-09-18T21:08:38Z, size = 140950, hashes = { sha256 = "0dd83ed6d6a51a312a01e66bee6e6af8e8bed42bc40caae65642f8d41ab8b7b7" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/94/3d/053deb135d4db2ef6f6c3ccdeb86d7829de3c271f7ae02cec73da8f65891/workers_runtime_sdk-1.9.0-py3-none-any.whl", upload-time = 2026-09-18T21:08:37Z, size = 38585, hashes = { sha256 = "36209f94984686264db4e1fd410d51ac3460f2a2ab3cc29869699b975e1e1331" } }]

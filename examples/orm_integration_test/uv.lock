@@ -160,8 +160,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "kinglet-totp-workers-demo"
-version = "0.1.0"
+name = "kinglet-orm-integration-test"
+version = "1.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "kinglet" },

@@ -3,15 +3,16 @@ name = "kinglet-orm-integration-test"
 version = "1.7.0"
 description = "Integration test for Kinglet 1.7.0 Micro-ORM"
 dependencies = [
-    "kinglet",
+    "kinglet @ git+https://github.com/mitchins/Kinglet.git",
 ]
 
 [build-system]
 requires = ["setuptools>=70", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.uv]
-dev-dependencies = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
-]
+# Deploy-only project: nothing here is distributed as a package.
+[tool.setuptools]
+py-modules = []
+
+[dependency-groups]
+dev = ["workers-py"]

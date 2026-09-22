@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""
+Basic Kinglet API Example
+Shows core features: routing, typed parameters, authentication, testing, OpenAPI docs
+"""
+
+import os
+import sys
+
+# Add parent directory to path so we can import kinglet
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from kinglet import Kinglet, Response, SchemaGenerator, TestClient, security_decorator
+
+# Create app with root path for /api endpoints
+app = Kinglet(root_path="/api", debug=True)
+
+
+@app.get("/", public=True)
+async def health_check(request):
+    """Health check endpoint"""
+    import sys
+
+    return {
+        "status": "healthy",
+        "project": "Kinglet-BasicAPI-Example",
+        "description": "Basic Kinglet API demonstration",
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "runtime": "Pyodide" if hasattr(sys, "_emscripten_info") else "CPython",
+        "request_id": request.request_id,
+    }
+
+
+@app.get("/search", public=True)
+async def search_users(request):
+    """Example with typed query parameters"""
+    page = request.query_int("page", 1)
+    limit = request.query_int("limit", 10)
+    active_only = request.query("active", "false").lower() in {"1", "true", "yes"}
+    tags_param = request.query("tags", "")
+    tags = [tag.strip() for tag in tags_param.split(",") if tag.strip()]
+
+    return {
+        "users": [f"user_{i}" for i in range((page - 1) * limit, page * limit)],
+        "filters": {"active": active_only, "tags": tags},
+        "pagination": {"page": page, "limit": limit},
+    }
+
+
+@security_decorator
+def require_api_token(handler):
+    """
+    Validates the Bearer token in the Authorization header against the API_TOKEN
+    environment variable.  Demonstrates using @security_decorator for a custom,
+    non-JWT auth scheme.
+    """
+
+    async def wrapped(request):
+        auth_header = request.header("authorization", "")
+        token = (
+            auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+        )
+        # Portable binding read: request.env on Workers, os.environ locally.
+        env = getattr(request, "env", None)
+        if isinstance(env, dict):
+            expected_token = env.get("API_TOKEN")
+        else:
+            expected_token = getattr(env, "API_TOKEN", None)
+        expected_token = expected_token or os.environ.get("API_TOKEN")
+        if expected_token is not None:
+            # Workers string vars arrive as JS-backed proxies; compare as str.
+            expected_token = str(expected_token)
+        if not expected_token or token != expected_token:
+            return Response.error(
+                "Authentication required", status=401, request_id=request.request_id
+            )
+        # Stash validated token on request state for the handler
+        request.state = getattr(request, "state", type("State", (), {})())
+        request.state.token = token
+        return await handler(request)
+
+    return wrapped
+
+
+@app.get("/users/{user_id}")  # ← route decorator OUTERMOST
+@require_api_token  # ← security decorator below
+async def get_user(request):
+    """Example with typed path parameters and authentication (via @require_api_token)."""
+    # Typed path parameter with validation
+    user_id = request.path_param_int("user_id")
+    return {"user_id": user_id, "authenticated": True, "token": request.state.token}
+
+
+@app.post("/auth/register", public=True)
+async def register(request):
+    """Example with JSON body and validation"""
+    data = await request.json()
+
+    if not data.get("email"):
+        return Response(
+            {
+                "error": "Email required",
+                "detail": "Please provide a valid email",
+                "request_id": request.request_id,
+            },
+            status=400,
+        )
+
+    return Response(
+        {"user_id": "123", "email": data["email"], "created": True},
+        status=201,
+    )
+
+
+# OpenAPI Documentation Endpoints
+@app.get("/openapi.json", public=True)
+async def openapi_spec(request):
+    """
+    OpenAPI 3.0 Specification
+
+    Returns the complete OpenAPI spec for this API.
+    Can be used with Swagger UI, ReDoc, or code generators.
+    """
+    generator = SchemaGenerator(
+        app,
+        title="Basic Kinglet API",
+        version="1.0.0",
+        description="Demonstrates core Kinglet features with auto-generated documentation",
+    )
+    return Response(generator.generate_spec())
+
+
+@app.get("/docs", public=True)
+async def swagger_ui(request):
+    """
+    Interactive API Documentation (Swagger UI)
+
+    Browse and test the API endpoints interactively.
+    """
+    generator = SchemaGenerator(app, title="Basic Kinglet API", version="1.0.0")
+    return Response(
+        generator.serve_swagger_ui(spec_url="/api/openapi.json"),
+        content_type="text/html",
+    )
+
+
+@app.get("/redoc", public=True)
+async def redoc_ui(request):
+    """
+    API Documentation (ReDoc)
+
+    Alternative documentation interface with a clean design.
+    """
+    generator = SchemaGenerator(app, title="Basic Kinglet API", version="1.0.0")
+    return Response(
+        generator.serve_redoc(spec_url="/api/openapi.json"), content_type="text/html"
+    )
+
+
+# Cloudflare Workers entry point (GA ASGI path).
+try:
+    from workers import asgi
+
+    Default = asgi.entrypoint(app.asgi)
+except ModuleNotFoundError:
+    # Local/test context (no Workers runtime): serve via TestClient below
+    # or any ASGI server using ``app.asgi``.
+    Default = None
+
+
+# Development testing
+if __name__ == "__main__":
+    print("🧪 Testing Kinglet API Example")
+    print("=" * 40)
+    os.environ.setdefault("API_TOKEN", "user-token-123")
+
+    client = TestClient(app)
+
+    # Test health check
+    status, headers, body = client.request("GET", "/api/")
+    assert status == 200, body
+    print(f"Health: {status} - {body}")
+
+    # Test search with typed parameters
+    status, headers, body = client.request(
+        "GET", "/api/search?page=2&limit=5&active=true&tags=python"
+    )
+    assert status == 200, body
+    print(f"Search: {status} - {body}")
+
+    # Test authenticated user lookup
+    status, headers, body = client.request(
+        "GET", "/api/users/42", headers={"Authorization": "Bearer user-token-123"}
+    )
+    assert status == 200, body
+    print(f"User: {status} - {body}")
+
+    # Test registration
+    status, headers, body = client.request(
+        "POST", "/api/auth/register", json={"email": "test@example.com"}
+    )
+    assert status == 201, body
+    print(f"Register: {status} - {body}")
+
+    # Test validation error
+    status, headers, body = client.request("POST", "/api/auth/register", json={})
+    assert status == 400, body
+    print(f"Error: {status} - {body}")
+
+    # Test OpenAPI spec generation
+    status, headers, body = client.request("GET", "/api/openapi.json")
+    assert status == 200, body
+    print(f"\nOpenAPI Spec: {status}")
+    if status == 200:
+        import json
+
+        spec = json.loads(body)
+        print(f"  - OpenAPI version: {spec.get('openapi')}")
+        print(f"  - Title: {spec.get('info', {}).get('title')}")
+        print(f"  - Endpoints: {len(spec.get('paths', {}))}")
+        print(
+            f"  - Paths: {', '.join(list(spec.get('paths', {}).keys())[:5])}{'...' if len(spec.get('paths', {})) > 5 else ''}"
+        )
+
+    # Test Swagger UI
+    status, headers, body = client.request("GET", "/api/docs")
+    assert status == 200, body
+    print(f"Swagger UI: {status} - {len(body)} chars")
+
+    print("\n✅ All examples completed!")
+    print("\n📚 API Documentation available at:")
+    print("   - /api/docs (Swagger UI)")
+    print("   - /api/redoc (ReDoc)")
+    print("   - /api/openapi.json (OpenAPI spec)")

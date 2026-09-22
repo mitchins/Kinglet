@@ -1,0 +1,11 @@
+[project]
+name = "kinglet-demo-basic"
+version = "1.0.0"
+description = "Kinglet Basic API live canary (GA ASGI entry point)"
+requires-python = ">=3.12"
+dependencies = [
+    "kinglet @ git+https://github.com/mitchins/Kinglet.git",
+]
+
+[dependency-groups]
+dev = ["workers-py"]

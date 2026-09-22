@@ -1,15 +1,10 @@
-name = "kinglet-demo-orm"
-main = "worker.py"
+name = "kinglet-demo-basic"
+main = "basic_app.py"
 account_id = "33623e6d0b4793842a1832c5512aeb49"
 compatibility_flags = ["python_workers"]
 compatibility_date = "2026-09-21"
 
 [vars]
 # Dummy credential for this disposable canary (no real data).
-MIGRATION_TOKEN = "demo-migrate-token"
+API_TOKEN = "user-token-123"
 ENVIRONMENT = "demo"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "kinglet-demo-orm"
-database_id = "71f56119-e833-4f50-b5e6-0efb32d22a32"

@@ -1,7 +1,7 @@
-name = "kinglet-totp-workers-demo"
+name = "kinglet-demo-totp"
 main = "worker.py"
 compatibility_flags = ["python_workers"]
-compatibility_date = "2026-06-12"
+compatibility_date = "2026-09-21"
 account_id = "33623e6d0b4793842a1832c5512aeb49"
 
 [vars]
