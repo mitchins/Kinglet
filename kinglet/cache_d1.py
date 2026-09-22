@@ -260,6 +260,21 @@ def _body_fingerprint(body: str | bytes | None) -> str | None:
     return f"body={hashlib.sha256(body_bytes).hexdigest()}"
 
 
+def _append_sorted_pairs(
+    parts: list[str], mapping: dict[str, Any], prefix: str = ""
+) -> None:
+    """Append ``prefix + key=value`` pairs in sorted-key order."""
+    for key, value in sorted(mapping.items()):
+        parts.append(f"{prefix}{key}={value}")
+
+
+def _append_header_parts(parts: list[str], headers: dict[str, Any]) -> None:
+    """Append non-empty ``header_name=value`` pairs in sorted-key order."""
+    for key, value in sorted(headers.items()):
+        if value not in (None, ""):
+            parts.append(f"header_{str(key).lower()}={value}")
+
+
 def generate_cache_key(
     path: str,
     query_params: dict[str, Any] = None,
@@ -298,20 +313,14 @@ def generate_cache_key(
 
     # Add sorted query params
     if query_params:
-        sorted_params = sorted(query_params.items())
-        for key, value in sorted_params:
-            key_parts.append(f"{key}={value}")
+        _append_sorted_pairs(key_parts, query_params)
 
     # Add extra params
     if extra_params:
-        sorted_extras = sorted(extra_params.items())
-        for key, value in sorted_extras:
-            key_parts.append(f"_{key}={value}")
+        _append_sorted_pairs(key_parts, extra_params, "_")
 
     if headers:
-        for key, value in sorted(headers.items()):
-            if value not in (None, ""):
-                key_parts.append(f"header_{str(key).lower()}={value}")
+        _append_header_parts(key_parts, headers)
 
     body_part = _body_fingerprint(body)
     if body_part is not None:
