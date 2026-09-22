@@ -4,6 +4,7 @@ Kinglet Core - Routing and application framework
 
 from __future__ import annotations
 
+import logging
 import re
 import warnings
 from collections.abc import Callable
@@ -17,6 +18,8 @@ from .decorators import (
 from .exceptions import HTTPError
 from .http import Request, Response, is_workers_native_response
 from .middleware import Middleware
+
+logger = logging.getLogger(__name__)
 
 
 class _FallbackRequest:
@@ -542,7 +545,8 @@ class Kinglet:
             try:
                 await send(failure)
             except Exception:
-                pass
+                # The transport is gone; log rather than swallow silently.
+                logger.debug("Failed to report lifespan failure", exc_info=True)
 
     async def __call__(self, request, env):
         """Legacy Cloudflare Worker entry point: ``await app(request, env)``.
