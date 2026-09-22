@@ -220,6 +220,46 @@ class D1CacheService:
             return await generator_func(**kwargs)
 
 
+def _request_cache_parts(request: Any) -> list[str]:
+    """Extract query-string and path-param fingerprint parts from a request."""
+    parts = []
+    query_string = getattr(request, "query_string", "")
+    if query_string:
+        parts.append(f"query={query_string}")
+
+    path_params = getattr(request, "path_params", None) or {}
+    for key, value in sorted(path_params.items()):
+        parts.append(f"path_{key}={value}")
+    return parts
+
+
+def _vary_headers(request: Any, headers: dict[str, Any] | None) -> dict[str, Any]:
+    """Resolve the header map to vary on, defaulting to auth-ish headers."""
+    if headers is not None or not hasattr(request, "header"):
+        return headers or {}
+    return {
+        name: request.header(name)
+        for name in (
+            "authorization",
+            "cookie",
+            "x-api-key",
+            "x-user-id",
+            "x-tenant-id",
+        )
+    }
+
+
+def _body_fingerprint(body: str | bytes | None) -> str | None:
+    """Hash a request body for cache fingerprinting, if one was provided."""
+    if body is None:
+        return None
+    if isinstance(body, bytes):
+        body_bytes = body
+    else:
+        body_bytes = str(body).encode("utf-8")
+    return f"body={hashlib.sha256(body_bytes).hexdigest()}"
+
+
 def generate_cache_key(
     path: str,
     query_params: dict[str, Any] = None,
@@ -250,25 +290,8 @@ def generate_cache_key(
 
     if request is not None:
         method = method or getattr(request, "method", None)
-        query_string = getattr(request, "query_string", "")
-        if query_string:
-            key_parts.append(f"query={query_string}")
-
-        path_params = getattr(request, "path_params", None) or {}
-        for key, value in sorted(path_params.items()):
-            key_parts.append(f"path_{key}={value}")
-
-        if headers is None and hasattr(request, "header"):
-            headers = {
-                name: request.header(name)
-                for name in (
-                    "authorization",
-                    "cookie",
-                    "x-api-key",
-                    "x-user-id",
-                    "x-tenant-id",
-                )
-            }
+        key_parts.extend(_request_cache_parts(request))
+        headers = _vary_headers(request, headers)
 
     if method:
         key_parts.insert(0, f"method={method.upper()}")
@@ -290,12 +313,9 @@ def generate_cache_key(
             if value not in (None, ""):
                 key_parts.append(f"header_{str(key).lower()}={value}")
 
-    if body is not None:
-        if isinstance(body, bytes):
-            body_bytes = body
-        else:
-            body_bytes = str(body).encode("utf-8")
-        key_parts.append(f"body={hashlib.sha256(body_bytes).hexdigest()}")
+    body_part = _body_fingerprint(body)
+    if body_part is not None:
+        key_parts.append(body_part)
 
     # Create deterministic key
     key_string = "|".join(key_parts)

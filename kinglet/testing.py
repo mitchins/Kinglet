@@ -591,6 +591,32 @@ class MockD1Database:
 
         return results
 
+    def _is_transaction_control(self, stmt: str) -> bool:
+        """Check if a statement is a transaction control statement"""
+        stmt_upper = stmt.upper()
+        return any(
+            stmt_upper.startswith(keyword) for keyword in self._TRANSACTION_KEYWORDS
+        )
+
+    def _should_auto_wrap(self, statements: list[str]) -> bool:
+        """Decide whether exec() manages its own BEGIN/COMMIT pair."""
+        # Don't auto-wrap if we're in an explicit transaction or if this
+        # call contains transaction control.
+        has_control = any(self._is_transaction_control(s) for s in statements)
+        return not has_control and not self._in_explicit_transaction
+
+    def _apply_statement(self, cursor: "sqlite3.Cursor", statement: str) -> None:
+        """Execute one statement, tracking explicit transaction state."""
+        stmt_upper = statement.upper()
+
+        # Track explicit transaction state
+        if stmt_upper.startswith("BEGIN"):
+            self._in_explicit_transaction = True
+        elif stmt_upper.startswith(("COMMIT", "ROLLBACK")):
+            self._in_explicit_transaction = False
+
+        cursor.execute(statement)
+
     async def exec(self, sql: str) -> D1ExecResult:
         """
         Execute raw SQL directly (for schema creation and transaction control)
@@ -617,43 +643,26 @@ class MockD1Database:
         """
         start_time = time.time()
 
-        def _is_transaction_control(stmt: str) -> bool:
-            """Check if statement is a transaction control statement"""
-            stmt_upper = stmt.upper()
-            return any(stmt_upper.startswith(keyword) for keyword in self._TRANSACTION_KEYWORDS)
-
         def _do_exec() -> int:
             cursor = self._conn.cursor()
             count_local = 0
             statements = [s.strip() for s in sql.split(";") if s.strip()]
-            
-            # Check if any statement is a transaction control statement
-            has_transaction_control = any(_is_transaction_control(s) for s in statements)
-            
-            # Don't auto-wrap if we're in an explicit transaction or if this call contains transaction control
-            should_auto_wrap = not has_transaction_control and not self._in_explicit_transaction
-            
+
+            should_auto_wrap = self._should_auto_wrap(statements)
+
             try:
                 # Only wrap in BEGIN/COMMIT if appropriate
                 if should_auto_wrap:
                     cursor.execute("BEGIN")
-                
+
                 for statement in statements:
-                    stmt_upper = statement.upper()
-                    
-                    # Track explicit transaction state
-                    if stmt_upper.startswith("BEGIN"):
-                        self._in_explicit_transaction = True
-                    elif stmt_upper.startswith(("COMMIT", "ROLLBACK")):
-                        self._in_explicit_transaction = False
-                    
-                    cursor.execute(statement)
+                    self._apply_statement(cursor, statement)
                     count_local += 1
-                
+
                 # Only commit if we started a transaction
                 if should_auto_wrap:
                     self._conn.commit()
-                
+
                 return count_local
             except sqlite3.Error as e:  # pragma: no cover - error path
                 if should_auto_wrap:
@@ -711,50 +720,58 @@ class MockD1Database:
     def _has_returning_clause(self, sql: str) -> bool:
         """
         Check if SQL statement has a RETURNING clause
-        
+
         Note: Uses simple regex detection that may match RETURNING in string literals
         or comments. This is acceptable for typical SQL usage in ORM/testing contexts.
         For production use cases requiring strict parsing, consider using sqlparse.
         """
-        return bool(re.search(r'\bRETURNING\b', sql, re.IGNORECASE))
+        return bool(re.search(r"\bRETURNING\b", sql, re.IGNORECASE))
 
     def _handle_select(self, cursor: sqlite3.Cursor) -> list[dict]:
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
+    def _commit_unless_managed(self) -> None:
+        """Commit unless inside a batch or an explicit transaction."""
+        if not self._in_batch and not self._in_explicit_transaction:
+            self._conn.commit()
+
+    def _fetch_inserted_row(self, cursor: sqlite3.Cursor, sql: str) -> list[dict]:
+        """Return the freshly inserted row, or an id-only fallback."""
+        if not self._last_row_id:
+            return []
+        table_name = self._extract_table_name(sql, "INSERT")
+        if not table_name:
+            return [{"id": self._last_row_id}]
+        try:
+            safe_table = self._safe_identifier(table_name)
+            cursor.execute(  # nosec B608
+                f'SELECT * FROM "{safe_table}" WHERE rowid = ?',  # NOSONAR # nosec
+                [self._last_row_id],
+            )
+            row = cursor.fetchone()
+            if row:
+                return [dict(row)]
+        except sqlite3.Error:  # pragma: no cover - fallback path
+            # If fetching the inserted row fails (e.g., table without rowid),
+            # fall back to returning the last inserted id only.
+            return [{"id": self._last_row_id}] if self._last_row_id else []
+        return [{"id": self._last_row_id}] if self._last_row_id else []
+
     def _handle_insert(self, cursor: sqlite3.Cursor, sql: str) -> list[dict]:
         # If the INSERT has a RETURNING clause, fetch results before commit
         if self._has_returning_clause(sql):
             rows = cursor.fetchall()
-            if not self._in_batch and not self._in_explicit_transaction:
-                self._conn.commit()
+            self._commit_unless_managed()
             self._last_row_id = cursor.lastrowid
             self._last_changes = cursor.rowcount
             return [dict(row) for row in rows]
 
         # Standard INSERT without RETURNING
-        if not self._in_batch and not self._in_explicit_transaction:
-            self._conn.commit()
+        self._commit_unless_managed()
         self._last_row_id = cursor.lastrowid
         self._last_changes = cursor.rowcount
-
-        if self._last_row_id:
-            table_name = self._extract_table_name(sql, "INSERT")
-            if table_name:
-                try:
-                    safe_table = self._safe_identifier(table_name)
-                    cursor.execute(  # nosec B608
-                        f'SELECT * FROM "{safe_table}" WHERE rowid = ?',  # NOSONAR # nosec
-                        [self._last_row_id],
-                    )
-                    row = cursor.fetchone()
-                    if row:
-                        return [dict(row)]
-                except sqlite3.Error:  # pragma: no cover - fallback path
-                    # If fetching the inserted row fails (e.g., table without rowid),
-                    # fall back to returning the last inserted id only.
-                    return [{"id": self._last_row_id}] if self._last_row_id else []
-        return [{"id": self._last_row_id}] if self._last_row_id else []
+        return self._fetch_inserted_row(cursor, sql)
 
     def _handle_write(self, cursor: sqlite3.Cursor, sql: str) -> list[dict]:
         # If the UPDATE/DELETE has a RETURNING clause, fetch results before commit

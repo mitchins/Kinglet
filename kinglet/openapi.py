@@ -35,6 +35,7 @@ from .validation import (
 
 # Constants
 CONTENT_TYPE_JSON = "application/json"
+DEFAULT_SPEC_URL = "/openapi.json"
 
 
 class SchemaGenerator:
@@ -197,7 +198,7 @@ class SchemaGenerator:
             },
         }
 
-    def serve_swagger_ui(self, spec_url: str = "/openapi.json") -> str:
+    def serve_swagger_ui(self, spec_url: str = DEFAULT_SPEC_URL) -> str:
         """Generate Swagger UI HTML page"""
         safe_title = html.escape(self.title, quote=True)
         safe_spec_url = self._safe_spec_url(spec_url)
@@ -232,7 +233,7 @@ class SchemaGenerator:
 </body>
 </html>"""
 
-    def serve_redoc(self, spec_url: str = "/openapi.json") -> str:
+    def serve_redoc(self, spec_url: str = DEFAULT_SPEC_URL) -> str:
         """Generate ReDoc HTML page"""
         safe_title = html.escape(self.title, quote=True)
         safe_spec_url = html.escape(self._safe_spec_url(spec_url), quote=True)
@@ -274,9 +275,9 @@ class SchemaGenerator:
 
     def _safe_spec_url(self, spec_url: str) -> str:
         """Allow only same-origin relative spec URLs for docs pages."""
-        candidate = str(spec_url or "/openapi.json").strip()
+        candidate = str(spec_url or DEFAULT_SPEC_URL).strip()
         if not candidate.startswith("/") or candidate.startswith("//"):
-            return "/openapi.json"
+            return DEFAULT_SPEC_URL
         return candidate
 
     def _extract_tags(self, path: str) -> list[str]:

@@ -4,8 +4,7 @@ Tests for Kinglet ORM Migration System
 Tests schema tracking, migration generation, and version management.
 """
 
-import os
-import tempfile
+import json
 from unittest.mock import patch
 
 import pytest
@@ -308,71 +307,127 @@ class TestSchemaLock:
         indexed_lock = SchemaLock.generate_lock([IndexedProduct])
 
         assert base_lock["schema_hash"] != indexed_lock["schema_hash"]
-        assert indexed_lock["models"]["SampleProduct"]["fields"]["name"]["index"] is True
+        assert (
+            indexed_lock["models"]["SampleProduct"]["fields"]["name"]["index"] is True
+        )
 
-    def test_write_and_read_lock_file(self):
+    def test_write_and_read_lock_file(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         models = [SampleProduct]
         lock_data = SchemaLock.generate_lock(models)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            filename = f.name
+        filename = "test-schema.lock.json"
 
-        try:
-            # Write lock file
-            SchemaLock.write_lock_file(lock_data, filename)
+        # Write lock file
+        SchemaLock.write_lock_file(lock_data, filename)
 
-            # Read it back
-            read_data = SchemaLock.read_lock_file(filename)
+        # Read it back
+        read_data = SchemaLock.read_lock_file(filename)
 
-            assert read_data["schema_hash"] == lock_data["schema_hash"]
-            assert read_data["models"] == lock_data["models"]
+        assert read_data["schema_hash"] == lock_data["schema_hash"]
+        assert read_data["models"] == lock_data["models"]
 
-        finally:
-            os.unlink(filename)
+    def test_lock_file_paths_cannot_escape_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        lock_data = SchemaLock.generate_lock([SampleProduct])
 
-    def test_verify_schema_no_changes(self):
+        for bad in (
+            "../escape.json",
+            "/etc/schema.lock.json",
+            "sub/../../x.json",
+            "",
+            "bad\x00.json",
+        ):
+            with pytest.raises(ValueError, match="[Ii]nvalid|outside"):
+                SchemaLock.write_lock_file(lock_data, bad)
+            # Reads stay non-raising and never touch the outside file.
+            assert SchemaLock.read_lock_file(bad) is None
+
+    def test_lock_file_accepts_pathlike_and_rejects_non_strings(
+        self, tmp_path, monkeypatch
+    ):
+        from pathlib import Path
+
+        monkeypatch.chdir(tmp_path)
+        lock_data = SchemaLock.generate_lock([SampleProduct])
+
+        # os.PathLike filenames round-trip like their string form.
+        SchemaLock.write_lock_file(lock_data, Path("via-path.json"))
+        assert (
+            SchemaLock.read_lock_file(Path("via-path.json"))["schema_hash"]
+            == lock_data["schema_hash"]
+        )
+
+        for bad in (123, None, ["x.json"]):
+            with pytest.raises(ValueError, match="[Ii]nvalid"):
+                SchemaLock.write_lock_file(lock_data, bad)
+            assert SchemaLock.read_lock_file(bad) is None
+
+    def test_lock_file_corrupt_json_raises_not_missing(self, tmp_path, monkeypatch):
+        """A corrupt lock file must surface as a parse error, not 'missing'."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "corrupt.json").write_text("{ not valid json")
+        with pytest.raises(json.JSONDecodeError):
+            SchemaLock.read_lock_file("corrupt.json")
+
+    def test_lock_file_accepts_nested_subdirectory(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "sub").mkdir()
+        lock_data = SchemaLock.generate_lock([SampleProduct])
+        SchemaLock.write_lock_file(lock_data, "sub/nested.json")
+        read_data = SchemaLock.read_lock_file("sub/nested.json")
+        assert read_data["schema_hash"] == lock_data["schema_hash"]
+
+    def test_lock_file_symlink_escape_rejected(self, tmp_path, monkeypatch):
+        outside = tmp_path / "outer.json"
+        outside.write_text(json.dumps({"marker": "sensitive"}))
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        (workdir / "link.json").symlink_to(outside)
+        monkeypatch.chdir(workdir)
+
+        with pytest.raises(ValueError, match="outside"):
+            SchemaLock.write_lock_file(
+                SchemaLock.generate_lock([SampleProduct]), "link.json"
+            )
+        assert SchemaLock.read_lock_file("link.json") is None
+        assert json.loads(outside.read_text()) == {"marker": "sensitive"}
+
+    def test_verify_schema_no_changes(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         models = [SampleProduct, SampleOrder]
 
         # Create lock file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            filename = f.name
+        filename = "test-schema.lock.json"
 
-        try:
-            lock_data = SchemaLock.generate_lock(models)
-            SchemaLock.write_lock_file(lock_data, filename)
+        lock_data = SchemaLock.generate_lock(models)
+        SchemaLock.write_lock_file(lock_data, filename)
 
-            # Verify with same models
-            result = SchemaLock.verify_schema(models, filename)
+        # Verify with same models
+        result = SchemaLock.verify_schema(models, filename)
 
-            assert result["valid"] is True
-            assert result["schema_hash"] == lock_data["schema_hash"]
+        assert result["valid"] is True
+        assert result["schema_hash"] == lock_data["schema_hash"]
 
-        finally:
-            os.unlink(filename)
-
-    def test_verify_schema_with_changes(self):
+    def test_verify_schema_with_changes(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         # Create lock with original model
         original_models = [SampleProduct]
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            filename = f.name
+        filename = "test-schema.lock.json"
 
-        try:
-            lock_data = SchemaLock.generate_lock(original_models)
-            SchemaLock.write_lock_file(lock_data, filename)
+        lock_data = SchemaLock.generate_lock(original_models)
+        SchemaLock.write_lock_file(lock_data, filename)
 
-            # Add a new model
-            new_models = [SampleProduct, SampleOrder]
+        # Add a new model
+        new_models = [SampleProduct, SampleOrder]
 
-            # Verify should detect changes
-            result = SchemaLock.verify_schema(new_models, filename)
+        # Verify should detect changes
+        result = SchemaLock.verify_schema(new_models, filename)
 
-            assert result["valid"] is False
-            assert result["reason"] == "Schema has changed"
-            assert "SampleOrder" in result["changes"]["added_models"]
-
-        finally:
-            os.unlink(filename)
+        assert result["valid"] is False
+        assert result["reason"] == "Schema has changed"
+        assert "SampleOrder" in result["changes"]["added_models"]
 
     def test_verify_schema_no_lock_file(self):
         models = [SampleProduct]
@@ -557,9 +612,10 @@ class TestEndToEndMigration:
     @pytest.mark.asyncio
     async def test_full_migration_workflow(self):
         """Test the complete migration lifecycle"""
-        with patch("kinglet.orm_migrations.d1_unwrap") as mock_unwrap, patch(
-            "kinglet.orm_migrations.d1_unwrap_results"
-        ) as mock_unwrap_results:
+        with (
+            patch("kinglet.orm_migrations.d1_unwrap") as mock_unwrap,
+            patch("kinglet.orm_migrations.d1_unwrap_results") as mock_unwrap_results,
+        ):
             db = MockD1Database()
 
             # 1. Initial schema creation

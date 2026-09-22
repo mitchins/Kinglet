@@ -59,6 +59,23 @@ class TestNullHandlingFieldValidation:
         with pytest.raises(ValidationError, match="Field cannot be null"):
             field.validate(None)
 
+    def test_datetime_field_null_not_allowed(self):
+        """Test DateTimeField with null=False rejects None"""
+        field = DateTimeField(null=False)
+        field.name = "test_datetime"
+
+        from kinglet.orm_errors import ValidationError
+
+        with pytest.raises(ValidationError, match="Field cannot be null"):
+            field.validate(None)
+
+    def test_datetime_field_null_allowed(self):
+        """Test DateTimeField with null=True handles None correctly"""
+        field = DateTimeField(null=True)
+        field.name = "test_datetime"
+
+        assert field.validate(None) is None
+
     def test_integer_field_null_handling(self):
         """Test IntegerField NULL handling"""
         field = IntegerField(null=True)

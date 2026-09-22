@@ -34,6 +34,7 @@ _IDENT = re.compile(r"^[A-Za-z_]\w*$")
 # Error message constants for reuse
 _FIELD_NOT_EXIST_MSG = "Field '{field_name}' does not exist on {model_name}"
 _LIMIT_POSITIVE_MSG = "Limit must be positive"
+_NULL_NOT_ALLOWED_MSG = "Field cannot be null"
 _LIMIT_EXCEED_MSG = "Limit cannot exceed 10000 (D1 safety limit)"
 
 
@@ -79,7 +80,7 @@ class Field:
         """Validate and convert field value"""
         if value is None:
             if not self.null:
-                raise ValidationError(self.name, "Field cannot be null", value)
+                raise ValidationError(self.name, _NULL_NOT_ALLOWED_MSG, value)
             return None
         return self.to_python(value)
 
@@ -132,9 +133,7 @@ class IntegerField(Field):
         field_kwargs = dict(kwargs)
         for name, value in zip(field_arg_names, args):
             if name in field_kwargs:
-                raise TypeError(
-                    f"{name} provided both positionally and by keyword"
-                )
+                raise TypeError(f"{name} provided both positionally and by keyword")
             field_kwargs[name] = value
 
         super().__init__(**field_kwargs)
@@ -185,7 +184,7 @@ class FloatField(Field):
         """Validate and convert field value"""
         if value is None:
             if not self.null:
-                raise ValueError("Field cannot be null")
+                raise ValueError(_NULL_NOT_ALLOWED_MSG)
             return None
 
         try:
@@ -229,7 +228,7 @@ class DateTimeField(Field):
         """Validate and convert field value, rejecting malformed non-null inputs."""
         if value is None:
             if not self.null:
-                raise ValidationError(self.name, "Field cannot be null", value)
+                raise ValidationError(self.name, _NULL_NOT_ALLOWED_MSG, value)
             return None
 
         converted = self.to_python(value)
@@ -1042,7 +1041,7 @@ class Manager:
         sql = (  # nosec B608
             f"""
             INSERT INTO {table}
-            ({quoted_columns}) VALUES ({', '.join(value_exprs)})
+            ({quoted_columns}) VALUES ({", ".join(value_exprs)})
             ON CONFLICT({conflict_target}) {conflict_action}
             RETURNING {quoted_returning_fields}
         """
@@ -1399,7 +1398,10 @@ class Model(metaclass=ModelMeta):
         pk_field = self._get_pk_field()
 
         # For auto-increment primary keys, don't include them in INSERT
-        if isinstance(pk_field, IntegerField) and getattr(self, pk_field.name, None) is None:
+        if (
+            isinstance(pk_field, IntegerField)
+            and getattr(self, pk_field.name, None) is None
+        ):
             field_data.pop(pk_field.name, None)
 
         columns = list(field_data.keys())
@@ -1563,7 +1565,9 @@ class Model(metaclass=ModelMeta):
 
         # Combine columns and constraints
         all_definitions = columns + constraints
-        sql = f"CREATE TABLE IF NOT EXISTS {quoted_table} ({', '.join(all_definitions)})"
+        sql = (
+            f"CREATE TABLE IF NOT EXISTS {quoted_table} ({', '.join(all_definitions)})"
+        )
 
         try:
             await db.exec(sql)

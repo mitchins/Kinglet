@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from .constants import SCHEMA_LOCK_FILE
@@ -89,9 +91,7 @@ class MigrationTracker:
         safe_ident(cls.MIGRATIONS_TABLE)  # Validate table name
         quoted_table = quote_ident_sqlite(cls.MIGRATIONS_TABLE)
         result = (
-            await db.prepare(
-                f"SELECT version FROM {quoted_table} WHERE version = ?"
-            )
+            await db.prepare(f"SELECT version FROM {quoted_table} WHERE version = ?")
             .bind(version)
             .first()
         )
@@ -308,18 +308,49 @@ class SchemaLock:
         return lock_data
 
     @staticmethod
+    def _resolve_lock_path(filename: str) -> Path:
+        """Resolve a lock filename, confining it to the working directory.
+
+        Lock paths arrive from CLI arguments (potentially LLM-generated), so
+        ``..`` escapes and absolute locations outside the project directory
+        are refused instead of passed to :func:`open` unchecked.
+        """
+        if isinstance(filename, os.PathLike):
+            filename = os.fspath(filename)
+        if not isinstance(filename, str) or not filename or "\x00" in filename:
+            raise ValueError(f"Invalid lock filename: {filename!r}")
+        base = Path.cwd().resolve()
+        target = (base / filename).resolve()
+        if target != base and base not in target.parents:
+            raise ValueError(
+                f"Refusing lock path outside working directory {base}: {filename!r}"
+            )
+        return target
+
+    @staticmethod
     def write_lock_file(
         lock_data: dict[str, Any], filename: str = SCHEMA_LOCK_FILE
     ) -> None:
         """Write schema lock to file"""
-        with open(filename, "w") as f:
+        with open(SchemaLock._resolve_lock_path(filename), "w") as f:
             json.dump(lock_data, f, indent=2)
 
     @staticmethod
     def read_lock_file(filename: str = SCHEMA_LOCK_FILE) -> dict[str, Any] | None:
-        """Read schema lock from file"""
+        """Read schema lock from file.
+
+        Returns ``None`` when the file is missing *or* the path is rejected,
+        so callers keep the historical never-raises-on-bad-path contract;
+        nothing outside the working directory is ever opened. Parse failures
+        (malformed JSON/encoding) still propagate so corruption is never
+        misreported as a missing file.
+        """
         try:
-            with open(filename) as f:
+            resolved = SchemaLock._resolve_lock_path(filename)
+        except ValueError:
+            return None
+        try:
+            with open(resolved) as f:
                 return json.load(f)
         except FileNotFoundError:
             return None

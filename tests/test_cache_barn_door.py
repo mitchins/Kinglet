@@ -361,3 +361,79 @@ class TestCacheIntegrationBarnDoor:
         # Without hit tracking
         _cache2 = D1CacheService(mock_db, track_hits=False)
         # Should accept the parameter
+
+
+class StubRequest:
+    """Minimal request double for cache-key fingerprinting."""
+
+    def __init__(self, method="GET", query_string="", path_params=None, headers=None):
+        self.method = method
+        self.query_string = query_string
+        self.path_params = path_params or {}
+        self._headers = {k.lower(): v for k, v in (headers or {}).items()}
+
+    def header(self, name, default=None):
+        return self._headers.get(name.lower(), default)
+
+
+class TestGenerateCacheKeyRequestAndBody:
+    """Cover the request/body fingerprint branches of generate_cache_key."""
+
+    def test_request_parts_included(self):
+        req = StubRequest(
+            method="post",
+            query_string="a=1",
+            path_params={"id": "7"},
+            headers={"Authorization": "Bearer x"},
+        )
+        key = generate_cache_key("/api/items/", request=req)
+        assert key.startswith("cache:")
+
+        bare = generate_cache_key("/api/items/")
+        assert key != bare
+
+        # Deterministic for identical requests.
+        again = generate_cache_key(
+            "/api/items/",
+            request=StubRequest(
+                method="POST",
+                query_string="a=1",
+                path_params={"id": "7"},
+                headers={"Authorization": "Bearer x"},
+            ),
+        )
+        assert key == again
+
+    def test_request_without_query_or_params(self):
+        req = StubRequest()
+        key = generate_cache_key("/p", request=req)
+        assert key != generate_cache_key("/p")
+
+    def test_explicit_headers_win_over_request(self):
+        req = StubRequest(headers={"Authorization": "Bearer x"})
+        auto = generate_cache_key("/p", request=req)
+        explicit = generate_cache_key("/p", request=req, headers={"x-tenant-id": "t1"})
+        assert auto != explicit
+        # Deterministic for identical inputs.
+        assert explicit == generate_cache_key(
+            "/p",
+            request=StubRequest(headers={"Authorization": "Bearer x"}),
+            headers={"x-tenant-id": "t1"},
+        )
+
+    def test_request_without_header_method(self):
+        class BareRequest:
+            method = "GET"
+            query_string = ""
+            path_params = {}
+
+        key = generate_cache_key("/p", request=BareRequest())
+        assert key.startswith("cache:")
+
+    def test_body_bytes_and_str_fingerprinted(self):
+        key_bytes = generate_cache_key("/p", body=b"\x00\x01")
+        key_str = generate_cache_key("/p", body="hello")
+        key_none = generate_cache_key("/p", body=None)
+        assert len({key_bytes, key_str, key_none}) == 3
+        assert generate_cache_key("/p", body=b"\x00\x01") == key_bytes
+        assert generate_cache_key("/p", body="hello") == key_str

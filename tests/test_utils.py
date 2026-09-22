@@ -140,3 +140,57 @@ class TestAssetURLIntegration:
                 os.environ["CDN_BASE_URL"] = original_cdn
             elif "CDN_BASE_URL" in os.environ:
                 del os.environ["CDN_BASE_URL"]
+
+
+class StubEnvRequest:
+    """Minimal request double carrying headers, URL parts, and env."""
+
+    def __init__(self, host, env=None, scheme="https"):
+        self._host = host
+        if isinstance(env, dict):
+            from types import SimpleNamespace
+
+            env = SimpleNamespace(**env)
+        self.env = env
+        from urllib.parse import urlparse
+
+        self._parsed_url = urlparse(f"{scheme}://{host}/")
+
+    def header(self, name, default=None):
+        if name.lower() == "host":
+            return self._host
+        return default
+
+
+class TestTrustedOriginAllowlist:
+    """List-form ALLOWED_HOSTS bindings (non-string branch)."""
+
+    def test_list_form_case_and_whitespace_insensitive(self):
+        from kinglet.utils import _trusted_request_origin
+
+        env = {"ALLOWED_HOSTS": [" Example.COM ", "other.test"]}
+        req = StubEnvRequest("example.com", env=env)
+        assert _trusted_request_origin(req) == "https://example.com"
+
+    def test_list_form_denies_unlisted_host(self):
+        from kinglet.utils import _trusted_request_origin
+
+        env = {"ALLOWED_HOSTS": ["example.com"]}
+        req = StubEnvRequest("evil.test", env=env)
+        assert _trusted_request_origin(req) is None
+
+    def test_string_form_allowlist(self):
+        from kinglet.utils import _trusted_request_origin
+
+        env = {"ALLOWED_HOSTS": "Example.COM, other.test"}
+        assert (
+            _trusted_request_origin(StubEnvRequest("other.test", env=env))
+            == "https://other.test"
+        )
+        assert _trusted_request_origin(StubEnvRequest("missing.test", env=env)) is None
+
+    def test_empty_allowlist_falls_back_to_loopback(self):
+        from kinglet.utils import _trusted_request_origin
+
+        req = StubEnvRequest("127.0.0.1:8000", env={"ALLOWED_HOSTS": []})
+        assert _trusted_request_origin(req) == "https://127.0.0.1:8000"

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Security hardening
+
+- `SchemaLock.write_lock_file`/`read_lock_file` confine lock paths to the
+  working directory: `..` escapes, outside absolute paths, NUL bytes and
+  symlink escapes are refused (`ValueError` on write, `None` on read).
+  `orm_deploy --output/--lock` paths outside the project directory no
+  longer work; `os.PathLike` filenames are accepted.
+
 ### ASGI alignment (Cloudflare Python Workers GA)
 
 - New explicit `app.asgi` entry point (ASGI 3 HTTP + lifespan) sharing one

@@ -590,6 +590,13 @@ class D1ErrorClassifier:
         return wrapper
 
 
+def _set_constraint_field(problem: dict, error: ORMError, constraint_type: str) -> None:
+    """Record the offending field (when known) and constraint kind."""
+    if getattr(error, "field_name", None):
+        problem["field"] = error.field_name
+    problem["constraint_type"] = constraint_type
+
+
 def to_problem_json(
     error: ORMError,
     *,
@@ -647,19 +654,13 @@ def to_problem_json(
         )
 
     def _update_unique():
-        if getattr(error, "field_name", None):
-            problem["field"] = error.field_name
-        problem["constraint_type"] = "unique"
+        _set_constraint_field(problem, error, "unique")
 
     def _update_not_null():
-        if getattr(error, "field_name", None):
-            problem["field"] = error.field_name
-        problem["constraint_type"] = "not_null"
+        _set_constraint_field(problem, error, "not_null")
 
     def _update_fk():
-        if getattr(error, "field_name", None):
-            problem["field"] = error.field_name
-        problem["constraint_type"] = "foreign_key"
+        _set_constraint_field(problem, error, "foreign_key")
 
     def _update_dne():
         problem.update(
