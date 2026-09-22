@@ -8,6 +8,7 @@ import logging
 import re
 import warnings
 from collections.abc import Callable
+from types import SimpleNamespace
 
 from .asgi import send_response as _send_asgi_response
 from .decorators import (
@@ -26,12 +27,19 @@ class _FallbackRequest:
     """Minimal request stand-in when Request construction itself fails."""
 
     request_id = "unknown"
-    headers: dict[str, str] = {}
     env = type("Env", (), {})()
     method = "GET"
     path = "/"
     url = "/"
-    query_params: dict[str, str] = {}
+    scope = None
+
+    def __init__(self) -> None:
+        # Per-instance mutable state: class-level dicts would leak across
+        # fallback requests when error-path middleware mutates them.
+        self.headers: dict[str, str] = {}
+        self.query_params: dict[str, str] = {}
+        self.path_params: dict[str, str] = {}
+        self.state = SimpleNamespace()
 
     def header(self, name: str, default: str | None = None) -> str | None:
         return self.headers.get(name, default)

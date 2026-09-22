@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -23,6 +24,7 @@ from .asgi_smoke_app import SMOKE_SECRET
 pytestmark = pytest.mark.integration
 
 TARGET = "tests.asgi_smoke_app:application"
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _free_port() -> int:
@@ -154,6 +156,7 @@ def test_uvicorn_smoke():
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        cwd=REPO_ROOT,
     )
     try:
         _wait_healthy(f"http://127.0.0.1:{port}", proc)
@@ -182,6 +185,7 @@ def test_hypercorn_asyncio_smoke():
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        cwd=REPO_ROOT,
     )
     try:
         _wait_healthy(f"http://127.0.0.1:{port}", proc)

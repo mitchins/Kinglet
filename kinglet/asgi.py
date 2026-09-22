@@ -35,6 +35,10 @@ Receive = Callable[[], Any]
 Send = Callable[[Message], Any]
 
 _HTTP_RESPONSE_BODY = "http.response.body"
+# Statuses that must not carry a body per the Fetch specification, mirrored
+# by the Cloudflare bridge. Streaming content for these is closed without
+# iterating; buffered content is sent empty.
+NULL_BODY_STATUSES = frozenset({101, 103, 204, 205, 304})
 
 
 def with_env(
@@ -145,10 +149,21 @@ def _coerce_chunk(chunk: Any) -> bytes:
 
 
 async def _iterate_chunks(content: Any) -> AsyncIterator[Any]:
-    """Yield stream chunks without buffering the entire output."""
+    """Yield stream chunks without buffering the entire output.
+
+    The iterator produced by ``__aiter__`` may be a distinct object from the
+    content itself, so it is acquired explicitly and closed here rather than
+    relying on cleanup against the content alone.
+    """
     if hasattr(content, "__aiter__"):
-        async for chunk in content:
-            yield chunk
+        iterator = content.__aiter__()
+        try:
+            async for chunk in iterator:
+                yield chunk
+        finally:
+            aclose = getattr(iterator, "aclose", None)
+            if callable(aclose):
+                await aclose()
     else:
         for chunk in content:
             yield chunk
@@ -199,7 +214,7 @@ async def send_response(send: Send, response: Any) -> None:
 
     if not _is_streaming_content(response.content):
         body = _single_body(response.content)
-        if status in (204, 304):
+        if status in NULL_BODY_STATUSES:
             body = b""
         await send(
             {"type": "http.response.start", "status": status, "headers": headers}
@@ -207,9 +222,22 @@ async def send_response(send: Send, response: Any) -> None:
         await send({"type": _HTTP_RESPONSE_BODY, "body": body, "more_body": False})
         return
 
-    await send({"type": "http.response.start", "status": status, "headers": headers})
     try:
-        async for chunk in _iterate_chunks(response.content):
+        await send(
+            {"type": "http.response.start", "status": status, "headers": headers}
+        )
+    except Exception:
+        await _close_stream(response.content)
+        raise
+    if status in NULL_BODY_STATUSES:
+        # A prohibited body: close the stream without iterating it, then
+        # complete the response empty.
+        await _close_stream(response.content)
+        await send({"type": _HTTP_RESPONSE_BODY, "body": b"", "more_body": False})
+        return
+    chunks = _iterate_chunks(response.content)
+    try:
+        async for chunk in chunks:
             await send(
                 {
                     "type": _HTTP_RESPONSE_BODY,
@@ -219,4 +247,5 @@ async def send_response(send: Send, response: Any) -> None:
             )
         await send({"type": _HTTP_RESPONSE_BODY, "body": b"", "more_body": False})
     finally:
+        await chunks.aclose()
         await _close_stream(response.content)

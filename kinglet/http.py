@@ -8,7 +8,7 @@ import json
 import secrets
 from types import SimpleNamespace
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from .exceptions import HTTPError
 
@@ -281,7 +281,10 @@ class Request:
             path_for_url = self.raw_path.decode("latin-1")
         else:
             self.raw_path = None
-            path_for_url = external_path
+            # Re-quote: scope["path"] arrives decoded, so an encoded
+            # delimiter (e.g. %3F decoded to "?") would otherwise be
+            # re-parsed as query or fragment data.
+            path_for_url = quote(external_path)
 
         query = scope.get("query_string", b"") or b""
         self.query_bytes = bytes(query)

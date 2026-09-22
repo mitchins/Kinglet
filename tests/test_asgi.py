@@ -621,6 +621,96 @@ class TestBoundaryBranches:
 
         await app.asgi({"type": "lifespan"}, failing_receive, failing_send)
 
+    async def test_bodyless_streaming_status_closes_stream_uniterated(self):
+        from kinglet.asgi import send_response
+
+        for status in (204, 304):
+            iterated: list[bool] = []
+
+            async def producer():
+                iterated.append(True)
+                yield b"x"
+
+            sent: list[dict[str, Any]] = []
+            await send_response(_append_send(sent), Response(producer(), status=status))
+            assert response_start(sent)["status"] == status
+            assert response_body(sent) == b""
+            assert iterated == []
+
+    async def test_distinct_stream_iterator_closed_on_failure(self):
+        from kinglet.asgi import send_response
+
+        closed: list[bool] = []
+
+        class DistinctStream:
+            def __aiter__(self):
+                return self._gen()
+
+            async def _gen(self):
+                try:
+                    yield b"x"
+                    yield b"y"
+                finally:
+                    closed.append(True)
+
+        sent: list[dict[str, Any]] = []
+
+        async def send(message):
+            sent.append(message)
+            if message.get("type") == "http.response.body" and message.get("more_body"):
+                raise RuntimeError("send-gone")
+
+        with pytest.raises(RuntimeError, match="send-gone"):
+            await send_response(send, Response(DistinctStream()))
+        assert closed == [True]
+        assert len([m for m in sent if m["type"] == "http.response.start"]) == 1
+
+    async def test_start_send_failure_closes_owned_stream(self):
+        from kinglet.asgi import send_response
+
+        closed: list[bool] = []
+
+        class EagerStream:
+            def __aiter__(self):
+                return self._gen()
+
+            async def _gen(self):
+                yield b"x"
+
+            async def aclose(self):
+                closed.append(True)
+
+        async def send(message):
+            raise RuntimeError("start-gone")
+
+        with pytest.raises(RuntimeError, match="start-gone"):
+            await send_response(send, Response(EagerStream()))
+        assert closed == [True]
+
+    async def test_decoded_delimiter_not_reparsed_as_query(self):
+        # No raw_path: the server already decoded %3F before handing us
+        # the scope, so the literal "?" must not become query data.
+        scope = http_scope(path="/items/foo?admin=1", query=b"")
+        assert "raw_path" not in scope
+        request = await Request.from_asgi(scope, _receive_all(body_messages(b"")))
+        assert request.query_params == {}
+        assert request.query_string == ""
+        assert request.query_all("admin") == []
+        assert "%3F" in request.url
+
+    async def test_fallback_request_has_isolated_state(self):
+        from kinglet.core import _FallbackRequest
+
+        first, second = _FallbackRequest(), _FallbackRequest()
+        assert first.scope is None
+        assert first.path_params == {}
+        first.headers["x"] = "1"
+        first.query_params["q"] = "1"
+        first.state.marker = "a"
+        assert second.headers == {}
+        assert second.query_params == {}
+        assert not hasattr(second.state, "marker")
+
 
 # ---------------------------------------------------------------------------
 # C. Prefixes and mounting
