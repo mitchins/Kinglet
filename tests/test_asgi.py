@@ -621,21 +621,53 @@ class TestBoundaryBranches:
 
         await app.asgi({"type": "lifespan"}, failing_receive, failing_send)
 
-    async def test_bodyless_streaming_status_closes_stream_uniterated(self):
+    @pytest.mark.parametrize("status", [204, 304])
+    async def test_bodyless_streaming_status_closes_stream_uniterated(
+        self, status: int
+    ):
         from kinglet.asgi import send_response
 
-        for status in (204, 304):
-            iterated: list[bool] = []
+        iterated: list[bool] = []
 
-            async def producer():
-                iterated.append(True)
+        async def producer():
+            iterated.append(True)
+            yield b"x"
+
+        sent: list[dict[str, Any]] = []
+        await send_response(_append_send(sent), Response(producer(), status=status))
+        assert response_start(sent)["status"] == status
+        assert response_body(sent) == b""
+        assert iterated == []
+
+    async def test_bodyless_buffered_status_discards_before_serializing(self):
+        from kinglet.asgi import send_response
+
+        sent: list[dict[str, Any]] = []
+        await send_response(_append_send(sent), Response(object(), status=204))
+        assert response_start(sent)["status"] == 204
+        assert response_body(sent) == b""
+
+    async def test_start_cancellation_still_closes_owned_stream(self):
+        from kinglet.asgi import send_response
+
+        closed: list[bool] = []
+
+        class EagerStream:
+            def __aiter__(self):
+                return self._gen()
+
+            async def _gen(self):
                 yield b"x"
 
-            sent: list[dict[str, Any]] = []
-            await send_response(_append_send(sent), Response(producer(), status=status))
-            assert response_start(sent)["status"] == status
-            assert response_body(sent) == b""
-            assert iterated == []
+            async def aclose(self):
+                closed.append(True)
+
+        async def send(message):
+            raise asyncio.CancelledError()
+
+        with pytest.raises(asyncio.CancelledError):
+            await send_response(send, Response(EagerStream()))
+        assert closed == [True]
 
     async def test_distinct_stream_iterator_closed_on_failure(self):
         from kinglet.asgi import send_response

@@ -213,9 +213,9 @@ async def send_response(send: Send, response: Any) -> None:
         headers.append((b"content-type", b"application/octet-stream"))
 
     if not _is_streaming_content(response.content):
-        body = _single_body(response.content)
-        if status in NULL_BODY_STATUSES:
-            body = b""
+        # Prohibited bodies are discarded before serialization: content
+        # that must not transmit must not fail to serialize either.
+        body = b"" if status in NULL_BODY_STATUSES else _single_body(response.content)
         await send(
             {"type": "http.response.start", "status": status, "headers": headers}
         )
@@ -226,7 +226,9 @@ async def send_response(send: Send, response: Any) -> None:
         await send(
             {"type": "http.response.start", "status": status, "headers": headers}
         )
-    except Exception:
+    except BaseException:
+        # BaseException (not Exception): cancellation during start must
+        # still clean up the owned stream. Re-raised immediately.
         await _close_stream(response.content)
         raise
     if status in NULL_BODY_STATUSES:
