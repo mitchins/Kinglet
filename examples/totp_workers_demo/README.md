@@ -2,7 +2,7 @@
 
 Dedicated Cloudflare Workers project for exercising Kinglet auth and TOTP against the real runtime.
 
-This project is pinned to the local Kinglet working copy via an absolute `file:///...` dependency so `pywrangler` exports the code that is actually in this repository.
+This project uses `[tool.uv.sources]` with the relative path `../..` so `pywrangler` exports the local Kinglet working copy, including uncommitted fixes.
 
 ## Run locally
 
@@ -13,6 +13,8 @@ uv sync --group dev --refresh-package kinglet --reinstall-package kinglet
 uv run pywrangler sync --force
 uv run pywrangler dev
 ```
+
+Set `JWT_SECRET` and `TOTP_ENCRYPTION_KEY` with `uv run pywrangler secret put NAME` before deploying. For local development use an ignored `.dev.vars` file. Export the matching `JWT_SECRET` when running `smoke.py`. Generate fresh secrets; the previously published demo values must be rotated on existing deployments.
 
 ## Deploy remotely
 

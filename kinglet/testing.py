@@ -585,13 +585,24 @@ class MockD1Database:
             self._conn.commit()
 
         except Exception as e:
-            self._conn.rollback()
+            self._rollback_after_error()
             raise D1DatabaseError(f"Batch operation failed: {e}") from e
         finally:
             # Always reset batch mode
             self._in_batch = False
 
         return results
+
+    def _rollback_after_error(self) -> None:
+        """Best-effort cleanup without masking the original SQLite failure."""
+        try:
+            self._conn.rollback()
+        except sqlite3.Error:
+            pass
+        finally:
+            self._explicit_begin = False
+            self._savepoint_stack.clear()
+            self._in_explicit_transaction = False
 
     def _is_transaction_control(self, stmt: str) -> bool:
         """Check if a statement is a transaction control statement"""
@@ -703,11 +714,11 @@ class MockD1Database:
                 return count_local
             except sqlite3.Error as e:  # pragma: no cover - error path
                 if should_auto_wrap:
-                    self._conn.rollback()
+                    self._rollback_after_error()
                 raise e
 
         try:
-            count = await asyncio.to_thread(_do_exec)
+            count = _do_exec()
             duration = time.time() - start_time
             return D1ExecResult(count=count, duration=duration)
         except sqlite3.Error as e:  # pragma: no cover - error path
@@ -717,8 +728,8 @@ class MockD1Database:
         """
         Internal: Execute SQL and return results as list of dicts
 
-        Uses asyncio.to_thread() to avoid blocking the event loop and
-        delegates branches to smaller helpers to reduce complexity.
+        Executes synchronously on this in-memory test connection so concurrent
+        asyncio tasks cannot interleave transaction state or batch statements.
         """
 
         def _do_exec() -> list[dict]:
@@ -736,10 +747,10 @@ class MockD1Database:
             return self._handle_ddl()
 
         try:
-            return await asyncio.to_thread(_do_exec)
+            return _do_exec()
         except sqlite3.Error as e:  # pragma: no cover - error path
             # Ensure transient write transactions are not left open
-            self._conn.rollback()
+            self._rollback_after_error()
             raise D1DatabaseError(f"SQL error: {e}") from e
 
     def _convert_params(self, params: list) -> list:

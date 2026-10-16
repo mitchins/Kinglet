@@ -218,7 +218,7 @@ async def migrate_database(request):
     expected = request.env.get("MIGRATION_TOKEN", "")
 
     if not token or token != expected:
-        return {{"error": "Unauthorized"}}, 401
+        return {"error": "Unauthorized"}, 401
 
     # Get all models
     models = [
@@ -228,11 +228,11 @@ async def migrate_database(request):
     # Run migrations
     results = await SchemaManager.migrate_all(request.env.DB, models)
 
-    return {{
+    return {
         "status": "success",
         "migrated": results,
         "models": [m.__name__ for m in models]
-    }}
+    }
 ''')
     return template.substitute(module_path=module_path, models_list=models_list)
 
@@ -393,6 +393,7 @@ def generate_status_endpoint(module_path: str) -> str:
 
 from ${module_path} import *  # Import your models
 from kinglet.orm_migrations import MigrationTracker, SchemaLock
+from kinglet.constants import SCHEMA_LOCK_FILE
 
 @app.get("/api/_status")
 async def migration_status(request):
@@ -417,16 +418,16 @@ async def migration_status(request):
     except Exception:
         pass
 
-    return {{
-        "database": {{
+    return {
+        "database": {
             "current_version": status["current_version"],
             "migrations_applied": status["migrations_count"],
             "healthy": status["healthy"]
-        }},
+        },
         "expected_version": expected_version,
         "up_to_date": status["current_version"] == expected_version if expected_version else None,
         "migrations": status["migrations"][:5]  # Last 5 migrations
-    }}
+    }
 
 @app.post("/api/_migrate")
 async def apply_migrations(request):
@@ -442,7 +443,7 @@ async def apply_migrations(request):
     expected = request.env.get("MIGRATION_TOKEN", "")
 
     if not token or token != expected:
-        return {{"error": "Unauthorized"}}, 401
+        return {"error": "Unauthorized"}, 401
 
     # Define your migrations
     migrations = [
@@ -453,11 +454,11 @@ async def apply_migrations(request):
     # Apply migrations
     results = await MigrationTracker.apply_migrations(request.env.DB, migrations)
 
-    return {{
+    return {
         "status": "complete",
         "results": results,
         "current_version": await MigrationTracker.get_schema_version(request.env.DB)
-    }}
+    }
 ''')
     return template.substitute(module_path=module_path)
 

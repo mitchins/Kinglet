@@ -19,6 +19,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import struct
 import sys
 import time
@@ -30,7 +31,7 @@ BASE = (
     if len(sys.argv) > 1
     else "https://kinglet-demo-totp.mitch-336.workers.dev"
 )
-JWT_SECRET = "totp-workers-demo-jwt-secret"
+JWT_SECRET = os.environ["JWT_SECRET"]
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -41,15 +42,11 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 def mint(claims: dict) -> str:
     header = base64.urlsafe_b64encode(b'{"alg":"HS256"}').decode().rstrip("=")
-    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip(
-        "="
-    )
+    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
     sig = hmac.new(
         JWT_SECRET.encode(), f"{header}.{payload}".encode(), hashlib.sha256
     ).digest()
-    return f"{header}.{payload}." + base64.urlsafe_b64encode(sig).decode().rstrip(
-        "="
-    )
+    return f"{header}.{payload}." + base64.urlsafe_b64encode(sig).decode().rstrip("=")
 
 
 def totp_code(secret_b32: str, at: int | None = None) -> str:
