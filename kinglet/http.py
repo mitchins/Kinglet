@@ -4,6 +4,7 @@ Kinglet HTTP Primitives - Request, Response, and utility functions
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 from types import SimpleNamespace
@@ -176,6 +177,8 @@ class Request:
         self._body_bytes: bytes | None = None
         self._disconnected = False
         self._asgi_receive = None
+        self._asgi_body_lock: asyncio.Lock | None = None
+        self._asgi_body_error: BaseException | None = None
         self._max_body_size = 1024 * 1024
         self.raw_path: bytes | None = None
         self.query_bytes: bytes = b""
@@ -247,6 +250,7 @@ class Request:
         resolved_env = env if env is not None else scope.get("env")
         request = cls(None, resolved_env, scope=scope)
         request._asgi_receive = receive
+        request._asgi_body_lock = asyncio.Lock()
         request._max_body_size = max_body_size
         if not lazy:
             await request.bytes()
@@ -535,10 +539,20 @@ class Request:
             return self._body_bytes
 
         if self._asgi_receive is not None:
-            self._body_bytes, self._disconnected = await _read_asgi_body(
-                self._asgi_receive, self._max_body_size
-            )
-            return self._body_bytes
+            async with self._asgi_body_lock:
+                if self._asgi_body_error is not None:
+                    raise self._asgi_body_error
+                if self._body_bytes is None:
+                    try:
+                        self._body_bytes, self._disconnected = await _read_asgi_body(
+                            self._asgi_receive, self._max_body_size
+                        )
+                    except BaseException as exc:
+                        # A failed/cancelled read may already have consumed bytes.
+                        # Never retry the transport with a fresh size counter.
+                        self._asgi_body_error = exc
+                        raise
+                return self._body_bytes
 
         # Check if raw request has arrayBuffer() method (Workers runtime)
         if self._raw is not None and hasattr(self._raw, "arrayBuffer"):

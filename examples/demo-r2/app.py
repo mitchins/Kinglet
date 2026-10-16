@@ -23,7 +23,7 @@ async def upload_media(request):
     if not expected:
         return Response({"error": "Uploads disabled"}, status=503)
     supplied = request.header("authorization") or ""
-    if not hmac.compare_digest(supplied, f"Bearer {expected}"):
+    if not hmac.compare_digest(supplied.encode("utf-8"), f"Bearer {expected}".encode()):
         return Response({"error": "Unauthorized"}, status=401)
     data = await request.bytes()
     if not data:

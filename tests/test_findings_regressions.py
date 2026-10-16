@@ -74,7 +74,8 @@ async def test_workers_json_conversion_modes_consume_once(first):
 
 
 @pytest.mark.asyncio
-async def test_r2_upload_fails_closed_before_body_or_storage():
+@pytest.mark.parametrize("authorization", ["", "Bearer incorrect", "Bearer ÿ"])
+async def test_r2_upload_fails_closed_before_body_or_storage(authorization):
     spec = importlib.util.spec_from_file_location(
         "r2_demo", Path(__file__).parents[1] / "examples/demo-r2/app.py"
     )
@@ -84,7 +85,15 @@ async def test_r2_upload_fails_closed_before_body_or_storage():
         (SimpleNamespace(), 503),
         (SimpleNamespace(UPLOAD_TOKEN="secret"), 401),
     ]:
-        harness = Harness(http_scope("/media", method="POST", env=env), [])
+        harness = Harness(
+            http_scope(
+                "/media",
+                method="POST",
+                env=env,
+                headers={"authorization": authorization},
+            ),
+            [],
+        )
         receive = AsyncMock(side_effect=AssertionError("unauthorized upload read"))
         await module.app.asgi(harness.scope, receive, harness.send)
         assert response_start(harness.sent)["status"] == expected
@@ -129,3 +138,55 @@ async def test_mock_rollback_failure_preserves_wrapped_sql_error():
     with pytest.raises(D1DatabaseError, match="no such table"):
         await db.prepare("INSERT INTO missing VALUES (1)").run()
     assert not db._in_explicit_transaction
+
+
+@pytest.mark.asyncio
+async def test_concurrent_body_accessors_share_one_chunked_read():
+    payload = b'{"message": "complete"}'
+    messages = iter(body_messages(payload, 3))
+    calls = 0
+
+    async def receive():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return next(messages)
+
+    request = await Request.from_asgi(http_scope(), receive, lazy=True)
+    results = await asyncio.wait_for(
+        asyncio.gather(request.bytes(), request.text(), request.json()), timeout=1
+    )
+    assert results == [payload, payload.decode(), {"message": "complete"}]
+    assert calls == len(body_messages(payload, 3))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["limit", "transport"])
+async def test_body_read_failure_is_shared_without_retry(failure):
+    from kinglet import HTTPError
+
+    messages = iter(body_messages(b"12345", 2))
+    calls = 0
+
+    async def receive():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        if failure == "transport":
+            raise RuntimeError("broken transport")
+        return next(messages)
+
+    request = await Request.from_asgi(http_scope(), receive, lazy=True, max_body_size=1)
+    results = await asyncio.wait_for(
+        asyncio.gather(
+            request.bytes(), request.text(), request.json(), return_exceptions=True
+        ),
+        timeout=1,
+    )
+    expected = HTTPError if failure == "limit" else RuntimeError
+    assert all(isinstance(result, expected) for result in results)
+    if failure == "limit":
+        assert all(result.status_code == 413 for result in results)
+    with pytest.raises(expected):
+        await request.bytes()
+    assert calls == 1
