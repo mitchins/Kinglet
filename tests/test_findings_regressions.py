@@ -133,6 +133,7 @@ async def test_mock_rollback_failure_preserves_wrapped_sql_error():
 
     db = MockD1Database()
     connection = Mock(wraps=db._conn)
+    connection.in_transaction = db._conn.in_transaction
     connection.rollback.side_effect = sqlite3.OperationalError("rollback unavailable")
     db._conn = connection
     with pytest.raises(D1DatabaseError, match="no such table"):
@@ -190,3 +191,28 @@ async def test_body_read_failure_is_shared_without_retry(failure):
     with pytest.raises(expected):
         await request.bytes()
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_rollback_preserves_active_transaction_until_recovery():
+    import sqlite3
+    from unittest.mock import Mock
+
+    db = MockD1Database()
+    await db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY); BEGIN; SAVEPOINT a")
+    await db.prepare("INSERT INTO t VALUES (1)").run()
+    real = db._conn
+    connection = Mock(wraps=real)
+    connection.in_transaction = True
+    connection.rollback.side_effect = sqlite3.OperationalError("rollback unavailable")
+    db._conn = connection
+    with pytest.raises(D1DatabaseError):
+        await db.prepare("INSERT INTO t VALUES (1)").run()
+    assert db._in_explicit_transaction
+    assert db._savepoint_stack == ["A"]
+    await db.prepare("INSERT INTO t VALUES (2)").run()
+    connection.commit.assert_not_called()
+    db._conn = real
+    await db.exec("ROLLBACK")
+    assert not db._in_explicit_transaction
+    assert (await db.prepare("SELECT * FROM t").all()).results == []

@@ -227,6 +227,8 @@ async def migrate_database(request):
 
     # Run migrations
     results = await SchemaManager.migrate_all(request.env.DB, models)
+    if any(result is not True for result in results.values()):
+        return Response({"status": "failed", "migrated": results}, status=500)
 
     return {
         "status": "success",
@@ -454,6 +456,8 @@ async def apply_migrations(request):
 
     # Apply migrations
     results = await MigrationTracker.apply_migrations(request.env.DB, migrations)
+    if results.get("failed"):
+        return Response({"status": "failed", "results": results}, status=500)
 
     return {
         "status": "complete",

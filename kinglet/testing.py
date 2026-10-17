@@ -607,9 +607,16 @@ class MockD1Database:
         except sqlite3.Error:
             pass
         finally:
-            self._explicit_begin = False
-            self._savepoint_stack.clear()
-            self._in_explicit_transaction = False
+            try:
+                active = self._conn.in_transaction
+            except sqlite3.Error:
+                active = True  # Unusable connection: never enable auto-commit.
+            if active:
+                self._in_explicit_transaction = True
+            else:
+                self._explicit_begin = False
+                self._savepoint_stack.clear()
+                self._in_explicit_transaction = False
 
     def _is_transaction_control(self, stmt: str) -> bool:
         """Check if a statement is a transaction control statement"""

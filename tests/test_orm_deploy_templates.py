@@ -47,7 +47,7 @@ async def test_generated_migration_handler_returns_dictionary(monkeypatch):
     from kinglet import Kinglet, SchemaManager
 
     _install_temp_models_module("generated_models")
-    migrate = AsyncMock(return_value={"ok": True})
+    migrate = AsyncMock(return_value={"TempModel": True})
     monkeypatch.setattr(SchemaManager, "migrate_all", migrate)
     namespace = {"app": Kinglet()}
     exec(generate_migration_endpoint("generated_models"), namespace)
@@ -120,3 +120,46 @@ async def test_generated_migration_denial_is_401_over_asgi(generator, token):
     await app.asgi(harness.scope, harness.receive, harness.send)
     assert response_start(harness.sent)["status"] == 401
     assert json.loads(response_body(harness.sent)) == {"error": "Unauthorized"}
+
+
+@pytest.mark.parametrize(
+    "generator,method,results",
+    [
+        (generate_migration_endpoint, "migrate_all", {"TempModel": "Error: failed"}),
+        (
+            generate_status_endpoint,
+            "apply_migrations",
+            {"failed": [{"error": "failed"}]},
+        ),
+    ],
+)
+async def test_generated_migration_failure_returns_500(
+    generator, method, results, monkeypatch
+):
+    import json
+    from unittest.mock import AsyncMock
+
+    from kinglet import Kinglet, SchemaManager
+    from kinglet.orm_migrations import MigrationTracker
+
+    from .asgi_harness import Harness, http_scope, response_body, response_start
+
+    _install_temp_models_module("generated_failed_models")
+    owner = SchemaManager if method == "migrate_all" else MigrationTracker
+    monkeypatch.setattr(owner, method, AsyncMock(return_value=results))
+    app = Kinglet()
+    exec(generator("generated_failed_models"), {"app": app})
+    harness = Harness(
+        http_scope(
+            "/api/_migrate",
+            method="POST",
+            headers={"X-Migration-Token": "secret"},
+            env={"MIGRATION_TOKEN": "secret", "DB": object()},
+        ),
+        [],
+    )
+    await app.asgi(harness.scope, harness.receive, harness.send)
+    assert response_start(harness.sent)["status"] == 500
+    payload = json.loads(response_body(harness.sent))
+    assert payload["status"] == "failed"
+    assert payload["migrated" if method == "migrate_all" else "results"] == results
