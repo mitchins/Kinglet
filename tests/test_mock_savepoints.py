@@ -245,3 +245,37 @@ async def test_quoted_savepoint_names_match_across_control_commands(db, opened, 
     assert not db._conn.in_transaction
     await db.exec("BEGIN; ROLLBACK")
     assert await _rows(db) == ["keep"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rollback",
+    [
+        "ROLLBACK -- return TO a clean state",
+        "ROLLBACK /* TO a */",
+        "/* leading TO */ ROLLBACK -- TO a",
+    ],
+)
+async def test_rollback_comments_cannot_change_transaction_classification(db, rollback):
+    await db.exec(SCHEMA)
+    await db.exec('SAVEPOINT "a--/* TO */" /* trailing comment */')
+    await db.prepare("INSERT INTO t (v) VALUES ('drop')").run()
+    await db.exec(rollback)
+    assert not db._in_explicit_transaction
+    assert db._savepoint_stack == []
+    await db.prepare("INSERT INTO t (v) VALUES ('keep')").run()
+    assert not db._conn.in_transaction
+    await db.exec("BEGIN; ROLLBACK")
+    assert await _rows(db) == ["keep"]
+
+
+@pytest.mark.asyncio
+async def test_comments_between_savepoint_control_tokens(db):
+    await db.exec(SCHEMA)
+    await db.exec("/* before */ SAVEPOINT /* middle */ a--after")
+    await db.prepare("INSERT INTO t (v) VALUES ('drop')").run()
+    await db.exec("ROLLBACK /* comment */ TO /* comment */ SAVEPOINT a--after")
+    assert await _rows(db) == []
+    assert db._savepoint_stack == ["A"]
+    await db.exec("RELEASE a--after")
+    assert db._savepoint_stack == []

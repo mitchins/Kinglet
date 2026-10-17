@@ -595,10 +595,18 @@ class MockD1Database:
 
     def _is_transaction_control(self, stmt: str) -> bool:
         """Check if a statement is a transaction control statement"""
-        stmt_upper = stmt.upper()
-        return any(
-            stmt_upper.startswith(keyword) for keyword in self._TRANSACTION_KEYWORDS
+        words = self._transaction_words(stmt)
+        return bool(words) and words[0] in self._TRANSACTION_KEYWORDS
+
+    @staticmethod
+    def _transaction_words(statement: str) -> list[str]:
+        """Tokenize control SQL, preserving quoted names and ignoring comments."""
+        tokens = re.findall(
+            r"""--[^\n]*|/\*.*?\*/|"(?:[^"]|"")*"|'(?:[^']|'')*'|`(?:[^`]|``)*`|\[[^\]]*\]|[^\s'"`\[\]/-]+|\S""",
+            statement,
+            flags=re.DOTALL,
         )
+        return [token.upper() for token in tokens if not token.startswith(("--", "/*"))]
 
     def _should_auto_wrap(self, statements: list[str]) -> bool:
         """Decide whether exec() manages its own BEGIN/COMMIT pair."""
@@ -623,12 +631,9 @@ class MockD1Database:
         this bookkeeping only decides whether prepared-statement writes
         auto-commit via _commit_unless_managed.
         """
-        # Keep quoted identifiers together (including escaped quotes/spaces).
-        tokens = re.findall(
-            r""""(?:[^"]|"")*"|'(?:[^']|'')*'|`(?:[^`]|``)*`|\[[^\]]*\]|\S+""",
-            statement,
-        )
-        words = [token.upper() for token in tokens]
+        words = self._transaction_words(statement)
+        if not words:
+            return
         first = words[0]
         if first == "BEGIN":
             self._explicit_begin = True
