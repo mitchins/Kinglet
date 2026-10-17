@@ -1,6 +1,8 @@
 import sys
 import types
 
+import pytest
+
 from kinglet.orm_deploy import generate_migration_endpoint, generate_status_endpoint
 
 
@@ -89,3 +91,32 @@ async def test_generated_status_reads_bundled_schema_lock(tmp_path, monkeypatch)
     )
     assert result["expected_version"] == "v1"
     assert result["up_to_date"] is True
+
+
+@pytest.mark.parametrize(
+    "generator", [generate_migration_endpoint, generate_status_endpoint]
+)
+@pytest.mark.parametrize("token", [None, "incorrect"])
+async def test_generated_migration_denial_is_401_over_asgi(generator, token):
+    import json
+
+    from kinglet import Kinglet
+
+    from .asgi_harness import Harness, http_scope, response_body, response_start
+
+    _install_temp_models_module("generated_denied_models")
+    app = Kinglet()
+    exec(generator("generated_denied_models"), {"app": app})
+    headers = {} if token is None else {"X-Migration-Token": token}
+    harness = Harness(
+        http_scope(
+            "/api/_migrate",
+            method="POST",
+            headers=headers,
+            env={"MIGRATION_TOKEN": "secret"},
+        ),
+        [],
+    )
+    await app.asgi(harness.scope, harness.receive, harness.send)
+    assert response_start(harness.sent)["status"] == 401
+    assert json.loads(response_body(harness.sent)) == {"error": "Unauthorized"}

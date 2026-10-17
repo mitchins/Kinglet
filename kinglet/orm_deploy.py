@@ -202,7 +202,7 @@ def generate_migration_endpoint(module_path: str) -> str:
 # Add this endpoint to your Kinglet app for development migrations
 
 from ${module_path} import *  # Import your models
-from kinglet import SchemaManager
+from kinglet import Response, SchemaManager
 
 @app.post("/api/_migrate")
 async def migrate_database(request):
@@ -218,7 +218,7 @@ async def migrate_database(request):
     expected = request.env.get("MIGRATION_TOKEN", "")
 
     if not token or token != expected:
-        return {"error": "Unauthorized"}, 401
+        return Response({"error": "Unauthorized"}, status=401)
 
     # Get all models
     models = [
@@ -392,6 +392,7 @@ def generate_status_endpoint(module_path: str) -> str:
 # Add this endpoint to check migration status
 
 from ${module_path} import *  # Import your models
+from kinglet import Response
 from kinglet.orm_migrations import MigrationTracker, SchemaLock
 from kinglet.constants import SCHEMA_LOCK_FILE
 
@@ -443,7 +444,7 @@ async def apply_migrations(request):
     expected = request.env.get("MIGRATION_TOKEN", "")
 
     if not token or token != expected:
-        return {"error": "Unauthorized"}, 401
+        return Response({"error": "Unauthorized"}, status=401)
 
     # Define your migrations
     migrations = [
