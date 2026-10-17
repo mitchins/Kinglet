@@ -631,8 +631,8 @@ class MockD1Database:
             self._explicit_begin = False
             self._savepoint_stack.clear()
         elif first == "ROLLBACK":
-            if len(words) > 2 and words[1] == "TO":
-                self._rollback_to_savepoint(words[2])
+            if "TO" in words[1:]:
+                self._rollback_to_savepoint(words[-1])
             else:
                 self._explicit_begin = False
                 self._savepoint_stack.clear()
@@ -647,12 +647,21 @@ class MockD1Database:
     def _rollback_to_savepoint(self, name: str) -> None:
         """Keep the named savepoint, drop any nested inside it."""
         if name in self._savepoint_stack:
-            del self._savepoint_stack[self._savepoint_stack.index(name) + 1 :]
+            del self._savepoint_stack[
+                len(self._savepoint_stack)
+                - 1
+                - self._savepoint_stack[::-1].index(name)
+                + 1 :
+            ]
 
     def _release_savepoint(self, name: str) -> None:
         """Pop the named savepoint and anything nested inside it."""
         if name in self._savepoint_stack:
-            del self._savepoint_stack[self._savepoint_stack.index(name) :]
+            del self._savepoint_stack[
+                len(self._savepoint_stack)
+                - 1
+                - self._savepoint_stack[::-1].index(name) :
+            ]
 
     async def exec(self, sql: str) -> D1ExecResult:
         """

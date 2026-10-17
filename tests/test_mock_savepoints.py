@@ -164,3 +164,56 @@ class TestSavepointSemantics:
         await db.prepare("INSERT INTO t (v) VALUES (?)").bind("dropped").run()
         await db.exec("ROLLBACK")
         assert await _rows(db) == ["kept"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rollback",
+    [
+        "ROLLBACK TO a",
+        "ROLLBACK TRANSACTION TO a",
+        "ROLLBACK TO SAVEPOINT a",
+        "ROLLBACK TRANSACTION TO SAVEPOINT a",
+    ],
+)
+async def test_optional_rollback_keywords_preserve_transaction(db, rollback):
+    await db.exec(SCHEMA)
+    await db.exec("BEGIN; SAVEPOINT a")
+    await db.prepare("INSERT INTO t (v) VALUES ('before')").run()
+    await db.exec("SAVEPOINT b")
+    await db.prepare("INSERT INTO t (v) VALUES ('nested')").run()
+    await db.exec(rollback)
+    assert await _rows(db) == []
+    assert db._savepoint_stack == ["A"]
+    # ROLLBACK TO retains its target, allowing reuse.
+    await db.prepare("INSERT INTO t (v) VALUES ('again')").run()
+    await db.exec(rollback)
+    assert await _rows(db) == []
+    await db.exec("RELEASE a")
+    await db.prepare("INSERT INTO t (v) VALUES ('after')").run()
+    assert db._conn.in_transaction
+    await db.exec("ROLLBACK")
+    assert await _rows(db) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("control", ["RELEASE a", "ROLLBACK TO a"])
+async def test_duplicate_savepoint_targets_innermost_match(db, control):
+    await db.exec(SCHEMA)
+    # No explicit BEGIN: incorrect stack clearing would auto-commit writes.
+    await db.exec("SAVEPOINT a")
+    await db.prepare("INSERT INTO t (v) VALUES ('outer')").run()
+    await db.exec("SAVEPOINT a")
+    await db.prepare("INSERT INTO t (v) VALUES ('inner')").run()
+    await db.exec("SAVEPOINT b")
+    await db.exec(control)
+    if control.startswith("RELEASE"):
+        assert db._savepoint_stack == ["A"]
+        assert await _rows(db) == ["inner", "outer"]
+    else:
+        assert db._savepoint_stack == ["A", "A"]
+        assert await _rows(db) == ["outer"]
+    await db.prepare("INSERT INTO t (v) VALUES ('after')").run()
+    assert db._conn.in_transaction
+    await db.exec("ROLLBACK")
+    assert await _rows(db) == []
