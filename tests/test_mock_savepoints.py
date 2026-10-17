@@ -164,3 +164,150 @@ class TestSavepointSemantics:
         await db.prepare("INSERT INTO t (v) VALUES (?)").bind("dropped").run()
         await db.exec("ROLLBACK")
         assert await _rows(db) == ["kept"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rollback",
+    [
+        "ROLLBACK TO a",
+        "ROLLBACK TRANSACTION TO a",
+        "ROLLBACK TO SAVEPOINT a",
+        "ROLLBACK TRANSACTION TO SAVEPOINT a",
+    ],
+)
+async def test_optional_rollback_keywords_preserve_transaction(db, rollback):
+    await db.exec(SCHEMA)
+    await db.exec("BEGIN; SAVEPOINT a")
+    await db.prepare("INSERT INTO t (v) VALUES ('before')").run()
+    await db.exec("SAVEPOINT b")
+    await db.prepare("INSERT INTO t (v) VALUES ('nested')").run()
+    await db.exec(rollback)
+    assert await _rows(db) == []
+    assert db._savepoint_stack == ["A"]
+    # ROLLBACK TO retains its target, allowing reuse.
+    await db.prepare("INSERT INTO t (v) VALUES ('again')").run()
+    await db.exec(rollback)
+    assert await _rows(db) == []
+    await db.exec("RELEASE a")
+    await db.prepare("INSERT INTO t (v) VALUES ('after')").run()
+    assert db._conn.in_transaction
+    await db.exec("ROLLBACK")
+    assert await _rows(db) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("control", ["RELEASE a", "ROLLBACK TO a"])
+@pytest.mark.parametrize("inner", ["a", '"a"'])
+async def test_duplicate_savepoint_targets_innermost_match(db, control, inner):
+    await db.exec(SCHEMA)
+    # No explicit BEGIN: incorrect stack clearing would auto-commit writes.
+    await db.exec("SAVEPOINT a")
+    await db.prepare("INSERT INTO t (v) VALUES ('outer')").run()
+    await db.exec(f"SAVEPOINT {inner}")
+    await db.prepare("INSERT INTO t (v) VALUES ('inner')").run()
+    await db.exec("SAVEPOINT b")
+    await db.exec(control)
+    if control.startswith("RELEASE"):
+        assert db._savepoint_stack == ["A"]
+        assert await _rows(db) == ["inner", "outer"]
+    else:
+        assert db._savepoint_stack == ["A", "A"]
+        assert await _rows(db) == ["outer"]
+    await db.prepare("INSERT INTO t (v) VALUES ('after')").run()
+    assert db._conn.in_transaction
+    await db.exec("ROLLBACK")
+    assert await _rows(db) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "opened,target",
+    [
+        ('"a"', "a"),
+        ("a", "[a]"),
+        ("`a`", "'a'"),
+        ('"two words"', "[two words]"),
+        ('"a""b"', '`a"b`'),
+    ],
+)
+async def test_quoted_savepoint_names_match_across_control_commands(db, opened, target):
+    await db.exec(SCHEMA)
+    await db.exec(f"SAVEPOINT {opened}")
+    await db.prepare("INSERT INTO t (v) VALUES ('drop')").run()
+    await db.exec(f"ROLLBACK TO SAVEPOINT {target}")
+    assert await _rows(db) == []
+    await db.exec(f"RELEASE SAVEPOINT {target}")
+    assert db._savepoint_stack == []
+    assert not db._in_explicit_transaction
+    # Release ended the transaction: this write must commit automatically.
+    await db.prepare("INSERT INTO t (v) VALUES ('keep')").run()
+    assert not db._conn.in_transaction
+    await db.exec("BEGIN; ROLLBACK")
+    assert await _rows(db) == ["keep"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rollback",
+    [
+        "ROLLBACK -- return TO a clean state",
+        "ROLLBACK /* TO a */",
+        "ROLLBACK /* TO a",
+        "/* leading TO */ ROLLBACK -- TO a",
+    ],
+)
+async def test_rollback_comments_cannot_change_transaction_classification(db, rollback):
+    await db.exec(SCHEMA)
+    await db.exec('SAVEPOINT "a--/* TO */" /* trailing comment */')
+    await db.prepare("INSERT INTO t (v) VALUES ('drop')").run()
+    await db.exec(rollback)
+    assert not db._in_explicit_transaction
+    assert db._savepoint_stack == []
+    await db.prepare("INSERT INTO t (v) VALUES ('keep')").run()
+    assert not db._conn.in_transaction
+    await db.exec("BEGIN; ROLLBACK")
+    assert await _rows(db) == ["keep"]
+
+
+@pytest.mark.asyncio
+async def test_comments_between_savepoint_control_tokens(db):
+    await db.exec(SCHEMA)
+    await db.exec("/* before */ SAVEPOINT /* middle */ a--after")
+    await db.prepare("INSERT INTO t (v) VALUES ('drop')").run()
+    await db.exec("ROLLBACK /* comment */ TO /* comment */ SAVEPOINT a--after")
+    assert await _rows(db) == []
+    assert db._savepoint_stack == ["A"]
+    await db.exec("RELEASE a--after")
+    assert db._savepoint_stack == []
+
+
+@pytest.mark.asyncio
+async def test_non_ascii_savepoint_names_do_not_fold_to_ascii(db):
+    await db.exec(SCHEMA)
+    await db.exec('SAVEPOINT "ß"; SAVEPOINT "ss"')
+    await db.prepare("INSERT INTO t (v) VALUES ('keep')").run()
+    await db.exec('RELEASE "ß"')
+    assert db._savepoint_stack == []
+    assert not db._in_explicit_transaction
+    await db.prepare("INSERT INTO t (v) VALUES ('after')").run()
+    assert not db._conn.in_transaction
+    await db.exec("BEGIN; ROLLBACK")
+    assert await _rows(db) == ["after", "keep"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("end", ["END", "END TRANSACTION"])
+@pytest.mark.parametrize("begin", ["BEGIN", "SAVEPOINT a"])
+async def test_end_commits_and_clears_transaction_state(db, begin, end):
+    await db.exec(SCHEMA)
+    await db.exec(begin)
+    await db.prepare("INSERT INTO t (v) VALUES ('committed')").run()
+    await db.exec(end)
+    assert not db._conn.in_transaction
+    assert not db._in_explicit_transaction
+    assert db._savepoint_stack == []
+    await db.prepare("INSERT INTO t (v) VALUES ('after')").run()
+    assert not db._conn.in_transaction
+    await db.exec("BEGIN; ROLLBACK")
+    assert await _rows(db) == ["after", "committed"]

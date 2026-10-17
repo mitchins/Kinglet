@@ -509,7 +509,14 @@ class MockD1Database:
     """
 
     # Transaction control keywords for statement detection
-    _TRANSACTION_KEYWORDS = ("BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE")
+    _TRANSACTION_KEYWORDS = (
+        "BEGIN",
+        "COMMIT",
+        "END",
+        "ROLLBACK",
+        "SAVEPOINT",
+        "RELEASE",
+    )
 
     def __init__(self, db_path: str = ":memory:", *, foreign_keys: bool = True):
         """
@@ -606,10 +613,26 @@ class MockD1Database:
 
     def _is_transaction_control(self, stmt: str) -> bool:
         """Check if a statement is a transaction control statement"""
-        stmt_upper = stmt.upper()
-        return any(
-            stmt_upper.startswith(keyword) for keyword in self._TRANSACTION_KEYWORDS
+        words = self._transaction_words(stmt)
+        return bool(words) and words[0] in self._TRANSACTION_KEYWORDS
+
+    @staticmethod
+    def _transaction_words(statement: str) -> list[str]:
+        """Tokenize control SQL, preserving quoted names and ignoring comments."""
+        tokens = re.findall(
+            r"""--[^\n]*|/\*.*?(?:\*/|$)|"(?:[^"]|"")*"|'(?:[^']|'')*'|`(?:[^`]|``)*`|\[[^\]]*\]|[^\s'"`\[\]/-]+|\S""",
+            statement,
+            flags=re.DOTALL,
         )
+        # SQLite folds identifier case only for ASCII, not Unicode.
+        ascii_upper = str.maketrans(
+            "abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        )
+        return [
+            token.translate(ascii_upper)
+            for token in tokens
+            if not token.startswith(("--", "/*"))
+        ]
 
     def _should_auto_wrap(self, statements: list[str]) -> bool:
         """Decide whether exec() manages its own BEGIN/COMMIT pair."""
@@ -634,36 +657,53 @@ class MockD1Database:
         this bookkeeping only decides whether prepared-statement writes
         auto-commit via _commit_unless_managed.
         """
-        words = statement.upper().split()
+        words = self._transaction_words(statement)
+        if not words:
+            return
         first = words[0]
         if first == "BEGIN":
             self._explicit_begin = True
-        elif first == "COMMIT":
+        elif first in ("COMMIT", "END"):
             self._explicit_begin = False
             self._savepoint_stack.clear()
         elif first == "ROLLBACK":
-            if len(words) > 2 and words[1] == "TO":
-                self._rollback_to_savepoint(words[2])
+            if "TO" in words[1:]:
+                self._rollback_to_savepoint(self._savepoint_name(words[-1]))
             else:
                 self._explicit_begin = False
                 self._savepoint_stack.clear()
         elif first == "SAVEPOINT":
-            self._savepoint_stack.append(words[1])
+            self._savepoint_stack.append(self._savepoint_name(words[1]))
         elif first == "RELEASE":
-            self._release_savepoint(words[-1])
+            self._release_savepoint(self._savepoint_name(words[-1]))
         self._in_explicit_transaction = self._explicit_begin or bool(
             self._savepoint_stack
         )
 
+    @staticmethod
+    def _savepoint_name(token: str) -> str:
+        """Normalize SQLite identifier quoting for savepoint comparisons."""
+        if token.startswith("[") and token.endswith("]"):
+            return token[1:-1]
+        if token[:1] in ('"', "'", "`") and token[-1:] == token[:1]:
+            return token[1:-1].replace(token[0] * 2, token[0])
+        return token
+
     def _rollback_to_savepoint(self, name: str) -> None:
         """Keep the named savepoint, drop any nested inside it."""
         if name in self._savepoint_stack:
-            del self._savepoint_stack[self._savepoint_stack.index(name) + 1 :]
+            index = (
+                len(self._savepoint_stack) - 1 - self._savepoint_stack[::-1].index(name)
+            )
+            del self._savepoint_stack[index + 1 :]
 
     def _release_savepoint(self, name: str) -> None:
         """Pop the named savepoint and anything nested inside it."""
         if name in self._savepoint_stack:
-            del self._savepoint_stack[self._savepoint_stack.index(name) :]
+            index = (
+                len(self._savepoint_stack) - 1 - self._savepoint_stack[::-1].index(name)
+            )
+            del self._savepoint_stack[index:]
 
     async def exec(self, sql: str) -> D1ExecResult:
         """
