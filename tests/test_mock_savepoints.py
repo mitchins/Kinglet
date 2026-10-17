@@ -198,12 +198,13 @@ async def test_optional_rollback_keywords_preserve_transaction(db, rollback):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("control", ["RELEASE a", "ROLLBACK TO a"])
-async def test_duplicate_savepoint_targets_innermost_match(db, control):
+@pytest.mark.parametrize("inner", ["a", '"a"'])
+async def test_duplicate_savepoint_targets_innermost_match(db, control, inner):
     await db.exec(SCHEMA)
     # No explicit BEGIN: incorrect stack clearing would auto-commit writes.
     await db.exec("SAVEPOINT a")
     await db.prepare("INSERT INTO t (v) VALUES ('outer')").run()
-    await db.exec("SAVEPOINT a")
+    await db.exec(f"SAVEPOINT {inner}")
     await db.prepare("INSERT INTO t (v) VALUES ('inner')").run()
     await db.exec("SAVEPOINT b")
     await db.exec(control)
