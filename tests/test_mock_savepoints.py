@@ -217,3 +217,30 @@ async def test_duplicate_savepoint_targets_innermost_match(db, control):
     assert db._conn.in_transaction
     await db.exec("ROLLBACK")
     assert await _rows(db) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "opened,target",
+    [
+        ('"a"', "a"),
+        ("a", "[a]"),
+        ("`a`", "'a'"),
+        ('"two words"', "[two words]"),
+        ('"a""b"', '`a"b`'),
+    ],
+)
+async def test_quoted_savepoint_names_match_across_control_commands(db, opened, target):
+    await db.exec(SCHEMA)
+    await db.exec(f"SAVEPOINT {opened}")
+    await db.prepare("INSERT INTO t (v) VALUES ('drop')").run()
+    await db.exec(f"ROLLBACK TO SAVEPOINT {target}")
+    assert await _rows(db) == []
+    await db.exec(f"RELEASE SAVEPOINT {target}")
+    assert db._savepoint_stack == []
+    assert not db._in_explicit_transaction
+    # Release ended the transaction: this write must commit automatically.
+    await db.prepare("INSERT INTO t (v) VALUES ('keep')").run()
+    assert not db._conn.in_transaction
+    await db.exec("BEGIN; ROLLBACK")
+    assert await _rows(db) == ["keep"]
