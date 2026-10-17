@@ -238,7 +238,11 @@ class Kinglet:
         debug=False,
         auto_wrap_exceptions=True,
         enforce_route_policy=True,
+        max_body_size=1024 * 1024,
     ):
+        if not isinstance(max_body_size, int) or max_body_size < 0:
+            raise ValueError("max_body_size must be a non-negative integer")
+        self.max_body_size = max_body_size
         self.router = Router(enforce_route_policy=enforce_route_policy)
         self.middleware_stack: list[Middleware] = []
         self.error_handlers: dict[int, Callable] = {}
@@ -509,7 +513,9 @@ class Kinglet:
         """Serve one ASGI HTTP request through the shared dispatch core."""
         request = None
         try:
-            request = await Request.from_asgi(scope, receive)
+            request = await Request.from_asgi(
+                scope, receive, lazy=True, max_body_size=self.max_body_size
+            )
             response = await self._dispatch(request)
         except Exception as exc:
             if request is None:

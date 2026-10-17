@@ -4,6 +4,7 @@ Kinglet HTTP Primitives - Request, Response, and utility functions
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 from types import SimpleNamespace
@@ -86,7 +87,9 @@ def _scope_host(scope: dict[str, Any], headers: dict[str, str]) -> str:
     return "localhost"
 
 
-async def _read_asgi_body(receive: Any) -> tuple[bytes, bool]:
+async def _read_asgi_body(
+    receive: Any, max_body_size: int = 1024 * 1024
+) -> tuple[bytes, bool]:
     """Read all ASGI ``http.request`` events until ``more_body`` is false.
 
     Returns ``(body, disconnected)``. Binary data is preserved exactly.
@@ -95,12 +98,19 @@ async def _read_asgi_body(receive: Any) -> tuple[bytes, bool]:
     partial body with ``disconnected=True``.
     """
     chunks: list[bytes] = []
+    size = 0
     while True:
         message = await receive()
         message_type = message.get("type") if isinstance(message, dict) else None
         if message_type == "http.request":
             chunk = message.get("body", b"") or b""
-            chunks.append(bytes(chunk))
+            size += len(chunk)
+            if size > max_body_size:
+                from .exceptions import HTTPError
+
+                raise HTTPError(413, "Request body too large")
+            if chunk:
+                chunks.append(bytes(chunk))
             if not message.get("more_body", False):
                 return b"".join(chunks), False
         elif message_type == "http.disconnect":
@@ -166,6 +176,10 @@ class Request:
         # Single cached body for repeated buffered reads.
         self._body_bytes: bytes | None = None
         self._disconnected = False
+        self._asgi_receive = None
+        self._asgi_body_lock: asyncio.Lock | None = None
+        self._asgi_body_error: BaseException | None = None
+        self._max_body_size = 1024 * 1024
         self.raw_path: bytes | None = None
         self.query_bytes: bytes = b""
         self.root_path: str = ""
@@ -197,7 +211,13 @@ class Request:
 
     @classmethod
     async def from_asgi(
-        cls, scope: dict[str, Any], receive: Any, env: Any = None
+        cls,
+        scope: dict[str, Any],
+        receive: Any,
+        env: Any = None,
+        *,
+        lazy: bool = False,
+        max_body_size: int = 1024 * 1024,
     ) -> Request:
         """Build a Request from an ASGI HTTP scope and receive channel.
 
@@ -205,7 +225,9 @@ class Request:
         ``scope["path"]`` drives routing while the encoded ``raw_path``,
         raw query bytes and raw header pairs are retained separately.
 
-        * The full request body is read until ``more_body`` is false. Binary
+        * With ``lazy=True`` (used by Kinglet), reads wait until body access.
+          Reads are capped by ``max_body_size`` (default 1 MiB), raising 413.
+          Otherwise the full request body is read until ``more_body`` is false. Binary
           data is preserved exactly; empty bodies and multiple chunks are
           supported. One cached body backs repeated buffered reads.
         * ``env`` explicitly passed here wins; otherwise ``scope["env"]``
@@ -227,9 +249,11 @@ class Request:
             )
         resolved_env = env if env is not None else scope.get("env")
         request = cls(None, resolved_env, scope=scope)
-        body, disconnected = await _read_asgi_body(receive)
-        request._body_bytes = body
-        request._disconnected = disconnected
+        request._asgi_receive = receive
+        request._asgi_body_lock = asyncio.Lock()
+        request._max_body_size = max_body_size
+        if not lazy:
+            await request.bytes()
         return request
 
     def _init_from_raw(self, raw_request: Any) -> None:
@@ -463,6 +487,8 @@ class Request:
         producing fabricated empty content.
         """
         if self._text_cache is None:
+            if self._asgi_receive is not None and self._body_bytes is None:
+                await self.bytes()
             if self._body_bytes is not None:
                 self._text_cache = self._body_bytes.decode("utf-8")
             elif self._raw is not None and hasattr(self._raw, "text"):
@@ -512,6 +538,22 @@ class Request:
         if self._body_bytes is not None:
             return self._body_bytes
 
+        if self._asgi_receive is not None:
+            async with self._asgi_body_lock:
+                if self._asgi_body_error is not None:
+                    raise self._asgi_body_error
+                if self._body_bytes is None:
+                    try:
+                        self._body_bytes, self._disconnected = await _read_asgi_body(
+                            self._asgi_receive, self._max_body_size
+                        )
+                    except BaseException as exc:
+                        # A failed/cancelled read may already have consumed bytes.
+                        # Never retry the transport with a fresh size counter.
+                        self._asgi_body_error = exc
+                        raise
+                return self._body_bytes
+
         # Check if raw request has arrayBuffer() method (Workers runtime)
         if self._raw is not None and hasattr(self._raw, "arrayBuffer"):
             array_buffer = await self._raw.arrayBuffer()
@@ -547,7 +589,10 @@ class Request:
     async def _parse_workers_json(self, convert: bool) -> Any:
         """Parse JSON using Workers request.json() method"""
         try:
-            raw_json = await self._raw.json()
+            if not getattr(self, "_workers_json_parsed", False):
+                self._workers_json_raw = await self._raw.json()
+                self._workers_json_parsed = True
+            raw_json = self._workers_json_raw
             if convert and raw_json is not None:
                 return self._convert_jsproxy_to_dict(raw_json)
             return raw_json

@@ -72,3 +72,6 @@ test_*.py
 example_*.py
 bandit-report.json
 test-results.xml
+
+# Wrangler local secrets
+.dev.vars*

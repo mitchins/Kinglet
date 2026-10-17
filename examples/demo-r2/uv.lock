@@ -154,9 +154,47 @@ wheels = [
 [[package]]
 name = "kinglet"
 version = "2.0.0"
-source = { git = "https://github.com/mitchins/Kinglet.git#851fc03c0b0d5fce5a1997d09cb95533c6c462bf" }
+source = { directory = "../../" }
 dependencies = [
     { name = "cryptography", marker = "sys_platform != 'emscripten'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=22.0" },
+    { name = "coverage", marker = "extra == 'test'", specifier = ">=6.0" },
+    { name = "cryptography", marker = "sys_platform != 'emscripten'", specifier = ">=50.0.1" },
+    { name = "cryptography", marker = "sys_platform != 'emscripten' and extra == 'crypto'", specifier = ">=50.0.1" },
+    { name = "cryptography", marker = "extra == 'dev'", specifier = ">=50.0.1" },
+    { name = "cryptography", marker = "extra == 'test'", specifier = ">=50.0.1" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
+    { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "safety", marker = "extra == 'dev'", specifier = ">=2.0.0" },
+]
+provides-extras = ["crypto", "dev", "test"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "cryptography", specifier = ">=50.0.1" },
+    { name = "diff-cover", specifier = ">=9.6.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "hypercorn", specifier = ">=0.17" },
+    { name = "keyring", specifier = ">=25.7.0" },
+    { name = "pre-commit", specifier = ">=4.3.0" },
+    { name = "pytest-asyncio", specifier = ">=0.21" },
+    { name = "pytest-cov", specifier = ">=6.2.1" },
+    { name = "ruff", specifier = ">=0.12.10" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [[package]]
@@ -173,7 +211,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "kinglet", git = "https://github.com/mitchins/Kinglet.git" }]
+requires-dist = [{ name = "kinglet", directory = "../../" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "workers-py" }]

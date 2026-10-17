@@ -15,6 +15,7 @@ Exits non-zero on the first failure.
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 
 import httpx
@@ -39,7 +40,14 @@ def main() -> None:
     fixture = bytes(range(256)) * 400
     digest = hashlib.sha256(fixture).hexdigest()
 
-    uploaded = client.post("/media", content=fixture, headers={"Content-Type": MIME})
+    uploaded = client.post(
+        "/media",
+        content=fixture,
+        headers={
+            "Content-Type": MIME,
+            "Authorization": f"Bearer {os.environ['UPLOAD_TOKEN']}",
+        },
+    )
     check("upload 200", uploaded.status_code == 200, uploaded.text[:150])
     payload = uploaded.json()
     check("upload size", payload.get("size") == len(fixture), str(payload))

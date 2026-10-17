@@ -37,6 +37,8 @@ async def get_data(request):
     return {"data": "cached_in_prod_fresh_in_dev"}
 ```
 
+On `app.asgi`, request bodies are read only when accessed and are limited to 1 MiB by default. Set `Kinglet(max_body_size=8 * 1024 * 1024)` for larger uploads. The limit counts actual received bytes, including requests without `Content-Length`; exceeding it returns HTTP 413. Authentication that only needs headers runs before body reads.
+
 ## Why Kinglet?
 
 | Feature | Kinglet | FastAPI | Flask |

@@ -7,17 +7,24 @@ data: ``request.bytes()`` in, ``r2_put`` bytes conversion, ``arrayBuffer()``
 back out, exact bytes in a Kinglet ``Response``.
 """
 
+import hmac
 import uuid
 
 from kinglet import Kinglet, Response
 from kinglet.storage import arraybuffer_to_bytes, bytes_to_arraybuffer, r2_put
 
-app = Kinglet()
+app = Kinglet(max_body_size=1024 * 1024)
 
 
 @app.post("/media", public=True)
 async def upload_media(request):
     """Store raw request bytes in R2 under a fresh id."""
+    expected = getattr(request.env, "UPLOAD_TOKEN", None)
+    if not expected:
+        return Response({"error": "Uploads disabled"}, status=503)
+    supplied = request.header("authorization") or ""
+    if not hmac.compare_digest(supplied.encode("utf-8"), f"Bearer {expected}".encode()):
+        return Response({"error": "Unauthorized"}, status=401)
     data = await request.bytes()
     if not data:
         return Response({"error": "empty body"}, status=400)

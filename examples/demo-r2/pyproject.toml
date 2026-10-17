@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Kinglet R2 binary live canary (GA ASGI entry point)"
 requires-python = ">=3.12"
 dependencies = [
-    "kinglet @ git+https://github.com/mitchins/Kinglet.git",
+    "kinglet",
 ]
 
 [dependency-groups]
@@ -13,3 +13,6 @@ dev = ["workers-py"]
 # Deploy-only project: nothing here is distributed as a package.
 [tool.setuptools]
 py-modules = []
+
+[tool.uv.sources]
+kinglet = { path = "../.." }
