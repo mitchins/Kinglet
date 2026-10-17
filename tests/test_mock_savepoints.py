@@ -294,3 +294,20 @@ async def test_non_ascii_savepoint_names_do_not_fold_to_ascii(db):
     assert not db._conn.in_transaction
     await db.exec("BEGIN; ROLLBACK")
     assert await _rows(db) == ["after", "keep"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("end", ["END", "END TRANSACTION"])
+@pytest.mark.parametrize("begin", ["BEGIN", "SAVEPOINT a"])
+async def test_end_commits_and_clears_transaction_state(db, begin, end):
+    await db.exec(SCHEMA)
+    await db.exec(begin)
+    await db.prepare("INSERT INTO t (v) VALUES ('committed')").run()
+    await db.exec(end)
+    assert not db._conn.in_transaction
+    assert not db._in_explicit_transaction
+    assert db._savepoint_stack == []
+    await db.prepare("INSERT INTO t (v) VALUES ('after')").run()
+    assert not db._conn.in_transaction
+    await db.exec("BEGIN; ROLLBACK")
+    assert await _rows(db) == ["after", "committed"]

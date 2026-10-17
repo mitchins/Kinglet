@@ -509,7 +509,14 @@ class MockD1Database:
     """
 
     # Transaction control keywords for statement detection
-    _TRANSACTION_KEYWORDS = ("BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE")
+    _TRANSACTION_KEYWORDS = (
+        "BEGIN",
+        "COMMIT",
+        "END",
+        "ROLLBACK",
+        "SAVEPOINT",
+        "RELEASE",
+    )
 
     def __init__(self, db_path: str = ":memory:", *, foreign_keys: bool = True):
         """
@@ -645,7 +652,7 @@ class MockD1Database:
         first = words[0]
         if first == "BEGIN":
             self._explicit_begin = True
-        elif first == "COMMIT":
+        elif first in ("COMMIT", "END"):
             self._explicit_begin = False
             self._savepoint_stack.clear()
         elif first == "ROLLBACK":
