@@ -253,6 +253,7 @@ async def test_quoted_savepoint_names_match_across_control_commands(db, opened, 
     [
         "ROLLBACK -- return TO a clean state",
         "ROLLBACK /* TO a */",
+        "ROLLBACK /* TO a",
         "/* leading TO */ ROLLBACK -- TO a",
     ],
 )
@@ -279,3 +280,17 @@ async def test_comments_between_savepoint_control_tokens(db):
     assert db._savepoint_stack == ["A"]
     await db.exec("RELEASE a--after")
     assert db._savepoint_stack == []
+
+
+@pytest.mark.asyncio
+async def test_non_ascii_savepoint_names_do_not_fold_to_ascii(db):
+    await db.exec(SCHEMA)
+    await db.exec('SAVEPOINT "ß"; SAVEPOINT "ss"')
+    await db.prepare("INSERT INTO t (v) VALUES ('keep')").run()
+    await db.exec('RELEASE "ß"')
+    assert db._savepoint_stack == []
+    assert not db._in_explicit_transaction
+    await db.prepare("INSERT INTO t (v) VALUES ('after')").run()
+    assert not db._conn.in_transaction
+    await db.exec("BEGIN; ROLLBACK")
+    assert await _rows(db) == ["after", "keep"]

@@ -602,11 +602,19 @@ class MockD1Database:
     def _transaction_words(statement: str) -> list[str]:
         """Tokenize control SQL, preserving quoted names and ignoring comments."""
         tokens = re.findall(
-            r"""--[^\n]*|/\*.*?\*/|"(?:[^"]|"")*"|'(?:[^']|'')*'|`(?:[^`]|``)*`|\[[^\]]*\]|[^\s'"`\[\]/-]+|\S""",
+            r"""--[^\n]*|/\*.*?(?:\*/|$)|"(?:[^"]|"")*"|'(?:[^']|'')*'|`(?:[^`]|``)*`|\[[^\]]*\]|[^\s'"`\[\]/-]+|\S""",
             statement,
             flags=re.DOTALL,
         )
-        return [token.upper() for token in tokens if not token.startswith(("--", "/*"))]
+        # SQLite folds identifier case only for ASCII, not Unicode.
+        ascii_upper = str.maketrans(
+            "abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        )
+        return [
+            token.translate(ascii_upper)
+            for token in tokens
+            if not token.startswith(("--", "/*"))
+        ]
 
     def _should_auto_wrap(self, statements: list[str]) -> bool:
         """Decide whether exec() manages its own BEGIN/COMMIT pair."""
