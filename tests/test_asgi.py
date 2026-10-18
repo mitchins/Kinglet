@@ -51,6 +51,58 @@ def auth_headers(claims: dict[str, Any]) -> dict[str, str]:
 
 @pytest.mark.asyncio
 class TestRequestBoundary:
+    async def test_body_limit_rejects_chunked_request_before_dispatch(self):
+        app = Kinglet(max_asgi_body_size=5)
+        called = False
+
+        @app.post("/limited", public=True)
+        async def limited(request):
+            nonlocal called
+            called = True
+            return {"ok": True}
+
+        sent = await run_asgi(
+            app,
+            http_scope(path="/limited", method="POST"),
+            body_messages(b"123456", chunk_size=3),
+        )
+        assert response_start(sent)["status"] == 413
+        assert called is False
+
+    async def test_body_limit_rejects_content_length_without_receiving(self):
+        app = Kinglet(max_asgi_body_size=5)
+        receive_called = False
+
+        async def receive():
+            nonlocal receive_called
+            receive_called = True
+            return {"type": "http.request", "body": b""}
+
+        scope = http_scope(
+            path="/missing",
+            method="POST",
+            headers=[("content-length", "6")],
+        )
+        harness = Harness(scope, [])
+        await app.asgi(scope, receive, harness.send)
+        assert response_start(harness.sent)["status"] == 413
+        assert receive_called is False
+
+    async def test_body_at_configured_limit_is_accepted(self):
+        app = Kinglet(max_asgi_body_size=6)
+
+        @app.post("/limited", public=True)
+        async def limited(request):
+            return Response(await request.bytes())
+
+        sent = await run_asgi(
+            app,
+            http_scope(path="/limited", method="POST"),
+            body_messages(b"123456", chunk_size=2),
+        )
+        assert response_start(sent)["status"] == 200
+        assert response_body(sent) == b"123456"
+
     async def test_chunked_body_preserved_exactly(self):
         app = build_fixture_app()
         body = b"\x00\x01binary-\xff-chunks-\xfe" * 64

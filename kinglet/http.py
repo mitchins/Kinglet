@@ -12,6 +12,8 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from .exceptions import HTTPError
 
+DEFAULT_MAX_ASGI_BODY_SIZE = 10 * 1024 * 1024
+
 
 def generate_request_id() -> str:
     """Generate a unique request ID for tracing"""
@@ -86,21 +88,27 @@ def _scope_host(scope: dict[str, Any], headers: dict[str, str]) -> str:
     return "localhost"
 
 
-async def _read_asgi_body(receive: Any) -> tuple[bytes, bool]:
+async def _read_asgi_body(receive: Any, max_body_size: int) -> tuple[bytes, bool]:
     """Read all ASGI ``http.request`` events until ``more_body`` is false.
 
-    Returns ``(body, disconnected)``. Binary data is preserved exactly.
+    Returns ``(body, disconnected)``. Binary data is preserved exactly and
+    the cumulative size is bounded before each chunk is retained.
     Transport failures raised by ``receive`` propagate to the caller; an
     ``http.disconnect`` stops the read without hanging and reports the
     partial body with ``disconnected=True``.
     """
     chunks: list[bytes] = []
+    body_size = 0
     while True:
         message = await receive()
         message_type = message.get("type") if isinstance(message, dict) else None
         if message_type == "http.request":
             chunk = message.get("body", b"") or b""
-            chunks.append(bytes(chunk))
+            chunk = bytes(chunk)
+            body_size += len(chunk)
+            if body_size > max_body_size:
+                raise HTTPError(413, "Request body too large")
+            chunks.append(chunk)
             if not message.get("more_body", False):
                 return b"".join(chunks), False
         elif message_type == "http.disconnect":
@@ -197,7 +205,12 @@ class Request:
 
     @classmethod
     async def from_asgi(
-        cls, scope: dict[str, Any], receive: Any, env: Any = None
+        cls,
+        scope: dict[str, Any],
+        receive: Any,
+        env: Any = None,
+        *,
+        max_body_size: int = DEFAULT_MAX_ASGI_BODY_SIZE,
     ) -> Request:
         """Build a Request from an ASGI HTTP scope and receive channel.
 
@@ -225,9 +238,23 @@ class Request:
                 if isinstance(scope, dict)
                 else "Request.from_asgi requires an ASGI HTTP scope dict"
             )
+        if not isinstance(max_body_size, int) or isinstance(max_body_size, bool):
+            raise TypeError("max_body_size must be an integer")
+        if max_body_size < 0:
+            raise ValueError("max_body_size must be non-negative")
+
+        for name, value in scope.get("headers", []):
+            if bytes(name).lower() == b"content-length":
+                try:
+                    declared_length = int(bytes(value))
+                except ValueError:
+                    break
+                if declared_length > max_body_size:
+                    raise HTTPError(413, "Request body too large")
+
         resolved_env = env if env is not None else scope.get("env")
         request = cls(None, resolved_env, scope=scope)
-        body, disconnected = await _read_asgi_body(receive)
+        body, disconnected = await _read_asgi_body(receive, max_body_size)
         request._body_bytes = body
         request._disconnected = disconnected
         return request

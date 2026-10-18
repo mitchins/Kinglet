@@ -101,8 +101,11 @@ path, which passes them through untouched.
 
 Request bodies are read fully until `more_body` is false with bytes
 preserved exactly; one cached body backs repeated `bytes()`/`text()`/
-`json()` reads. `body()` stays a text alias, and empty/malformed JSON still
-parses to `None`; transport failures raise instead.
+`json()` reads. To bound memory use, ASGI bodies are limited to 10 MiB by
+default. Configure a different finite byte limit with
+`Kinglet(max_asgi_body_size=...)`; requests exceeding it receive 413 before
+dispatch. `body()` stays a text alias, and empty/malformed JSON still parses
+to `None`; transport failures raise instead.
 
 ## Prefixes
 

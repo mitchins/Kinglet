@@ -17,7 +17,12 @@ from .decorators import (
     mark_route_registered,
 )
 from .exceptions import HTTPError
-from .http import Request, Response, is_workers_native_response
+from .http import (
+    DEFAULT_MAX_ASGI_BODY_SIZE,
+    Request,
+    Response,
+    is_workers_native_response,
+)
 from .middleware import Middleware
 
 logger = logging.getLogger(__name__)
@@ -238,7 +243,14 @@ class Kinglet:
         debug=False,
         auto_wrap_exceptions=True,
         enforce_route_policy=True,
+        max_asgi_body_size=DEFAULT_MAX_ASGI_BODY_SIZE,
     ):
+        if not isinstance(max_asgi_body_size, int) or isinstance(
+            max_asgi_body_size, bool
+        ):
+            raise TypeError("max_asgi_body_size must be an integer")
+        if max_asgi_body_size < 0:
+            raise ValueError("max_asgi_body_size must be non-negative")
         self.router = Router(enforce_route_policy=enforce_route_policy)
         self.middleware_stack: list[Middleware] = []
         self.error_handlers: dict[int, Callable] = {}
@@ -247,6 +259,7 @@ class Kinglet:
         self.debug = debug
         self.auto_wrap_exceptions = auto_wrap_exceptions
         self.enforce_route_policy = enforce_route_policy
+        self.max_asgi_body_size = max_asgi_body_size
 
     def route(self, path: str, methods: list[str] = None, *, public: bool = False):
         """Add route decorator"""
@@ -509,7 +522,9 @@ class Kinglet:
         """Serve one ASGI HTTP request through the shared dispatch core."""
         request = None
         try:
-            request = await Request.from_asgi(scope, receive)
+            request = await Request.from_asgi(
+                scope, receive, max_body_size=self.max_asgi_body_size
+            )
             response = await self._dispatch(request)
         except Exception as exc:
             if request is None:
